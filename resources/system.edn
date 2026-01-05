@@ -1,0 +1,62 @@
+{:samuraibff/config
+ {:env :dev
+
+  ;; --- HTTP / WS ---
+  ;; We can run both HTTP and WS on http-kit (recommended for simplicity).
+  ;; Leaving both sections here keeps it flexible.
+  :http {:host "0.0.0.0"
+         :port 8000}
+
+  :ws   {:host "0.0.0.0"
+         :port 8000}
+
+  ;; --- Auth / Keycloak ---
+  :auth {:required? false
+         :issuer "https://auth.nanosamur.ai/realms/nanosamurai"
+         :audience "bff-web"
+         ;; where to find tenant in claims; we’ll standardize on this later
+         :tenant-claim "tenant_id"}
+
+  ;; --- DB ---
+  :db {:jdbc-url "jdbc:postgresql://localhost:5432/samurai"
+       :username "samurai"
+       :password "samurai"
+       :maximum-pool-size 10}
+
+  ;; --- Kafka ---
+  :kafka {:bootstrap-servers "localhost:9092"
+          :client-id "samuraibff"
+          :acks "all"
+          :compression-type "zstd"
+          :topics {:audio-raw "audio.raw"
+                   ;; refined will come via HTTP callback instead of Kafka consume
+                   :refined-callback "transcripts.refined.callback"}}
+
+  ;; --- gRPC ---
+  :grpc {:rtservice-addr "localhost:50052"}}
+
+ ;; --- Integrant components ---
+
+ :samuraibff/db
+ {:config #ig/ref :samuraibff/config}
+
+ :samuraibff/kafka-producer
+ {:config #ig/ref :samuraibff/config}
+
+ :samuraibff/grpc-client
+ {:config #ig/ref :samuraibff/config}
+
+ :samuraibff/session-registry
+ {:config #ig/ref :samuraibff/config
+  :db     #ig/ref :samuraibff/db}
+
+ :samuraibff/router
+ {:config #ig/ref :samuraibff/config
+  :db     #ig/ref :samuraibff/db
+  :kafka  #ig/ref :samuraibff/kafka-producer
+  :grpc   #ig/ref :samuraibff/grpc-client
+  :sess   #ig/ref :samuraibff/session-registry}
+
+ :samuraibff/http-server
+ {:config  #ig/ref :samuraibff/config
+  :handler #ig/ref :samuraibff/router}}
