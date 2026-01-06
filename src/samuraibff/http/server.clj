@@ -17,7 +17,8 @@
     :handler #ig/ref :samuraibff/router}}"
   (:require
    [integrant.core :as ig]
-   [org.httpkit.server]))
+   [org.httpkit.server]
+   [org.corfield.logging4j2 :as log]))
 
 ;; --- HTTP Server Component ---
 
@@ -30,7 +31,7 @@
   Returns the server instance."
   (let [{:keys [port]} config
         server (org.httpkit.server/run-server handler {:port port})]
-    (println (format "HTTP server started on port %d" port))
+    (log/info (format "HTTP server started on port %d" port))
     server))
 
 (defn stop-server [server]
@@ -39,7 +40,7 @@
   server - The server instance to stop"
   (when server
     (server :timeout 100)
-    (println "HTTP server stopped")))
+    (log/info "HTTP server stopped")))
 
 (defmethod ig/init-key :samuraibff/http-server [_ {:keys [config handler]}]
   "Integrant init method for the HTTP server component.
