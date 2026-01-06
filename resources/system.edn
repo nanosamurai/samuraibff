@@ -18,9 +18,9 @@
          :tenant-claim "tenant_id"}
 
   ;; --- DB ---
-  :db {:jdbc-url "jdbc:postgresql://localhost:5432/samurai"
-       :username "samurai"
-       :password "samurai"
+  :db {:jdbc-url "jdbc:postgresql://localhost:5432/drsynth"
+       :username "drsynth"
+       :password "drsynth"
        :maximum-pool-size 10}
 
   ;; --- Kafka ---
