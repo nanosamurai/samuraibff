@@ -17,11 +17,11 @@
     :handler #ig/ref :samuraibff/router}}"
   (:require
    [integrant.core :as ig]
-   [http.kit.server :as http-kit]))
+   [org.httpkit.server]))
 
 ;; --- HTTP Server Component ---
 
-(defn- start-server [config handler]
+(defn start-server [config handler]
   "Start the HTTP server with the given configuration and handler.
 
   config - Map containing server configuration (e.g., :port)
@@ -29,11 +29,11 @@
 
   Returns the server instance."
   (let [{:keys [port]} config
-        server (http-kit/run-server handler {:port port})]
+        server (org.httpkit.server/run-server handler {:port port})]
     (println (format "HTTP server started on port %d" port))
     server))
 
-(defn- stop-server [server]
+(defn stop-server [server]
   "Stop the HTTP server gracefully.
 
   server - The server instance to stop"
