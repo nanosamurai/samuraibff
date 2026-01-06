@@ -57,6 +57,7 @@
   {:extra-paths ["test" "test-resources"]
    :extra-deps  {org.clojure/test.check                  {:mvn/version "1.1.2"}
                  com.github.seancorfield/expectations    {:mvn/version "2.2.214"}
+                 io.github.cognitect-labs/test-runner    {:git/tag "v0.5.1" :git/sha "dfb30dd"}
 
                  ;; Testcontainers (Java) + modules
                  org.testcontainers/testcontainers       {:mvn/version "2.0.2"}
@@ -67,7 +68,8 @@
                  clj-test-containers/clj-test-containers {:mvn/version "0.7.4"}
 
                  ;; Etaoin for E2E browser tests
-                 etaoin/etaoin                           {:mvn/version "1.1.43"}}}
+                 etaoin/etaoin                           {:mvn/version "1.1.43"}}
+   :exec-fn cognitect.test-runner.api/test}
 
   ;; Run main
   :run
