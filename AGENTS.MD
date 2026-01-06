@@ -404,7 +404,11 @@ Notes:
 
 ---
 
-## 13) “Golden decisions” recap
+## 13) Logging
+
+Use org.corfield.logging4j2 for logging. To new namespaces, import it as follows: [org.corfield.logging4j2 :as log]
+
+## 14) “Golden decisions” recap
 
 * Keep Kafka publishing in BFF.
 * Use Reitit + Malli for typed, explicit API.
@@ -414,6 +418,7 @@ Notes:
 * Receive refined transcripts via HTTP callback (not Kafka).
 * Keycloak integration: prefer keycloak-clojure; otherwise Java interop for JWT+JWKS.
 * Tests: unit + testcontainers integration + etaoin E2E.
+* Use org.corfield.logging4j2 for logging
 
 ---
 
