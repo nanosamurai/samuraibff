@@ -1,0 +1,96 @@
+# Clojure project .gitignore
+# https://github.com/github/gitignore/blob/main/Clojure.gitignore
+
+# Build directories
+.target/
+.cljs_node_modules/
+.shadow-cljs/
+out/
+resources/public/js/compiled/
+node_modules/
+
+# IDE and editor files
+.idea/
+.idea_workspace.xml
+*.iml
+*.ipr
+*.iws
+.vscode/
+.vscode-insiders/
+*.swp
+*.swo
+
+.cpcache/
+
+# Generated files
+deps.lock
+bb.edn.lock
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+*.orig
+*.rej
+nrepl-port
+
+# Test reports
+test-results/
+coverage/
+clover.xml
+
+# Environment and configuration files
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Clojure specific
+*.class
+*.cljc.cache
+*.cljs.cache
+*.clj-kondo.cache
+*.cljfmt.cache
+*.eastwood.cache
+*.cloverage.cache
+
+# Cursive specific
+.cursive/
+.cursive_last_opened
+
+# Leiningen specific
+.lein-auto-exec.log
+.lein-repl-history
+
+# Kafka specific
+kafka-logs/
+zookeeper/
+
+# Docker specific
+docker-compose.override.yml
+docker-compose.dev.yml
+*.docker
+
+# Node.js specific (if used)
+yarn-error.log
+.pnp.*
+.pnp.js
+
+# Python specific (if used)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Git specific
+/.git/
+
