@@ -406,7 +406,7 @@ Notes:
 
 ## 13) Logging
 
-Use org.corfield.logging4j2 for logging. To new namespaces, import it as follows: [org.corfield.logging4j2 :as log]
+Use org.corfield.logging4j2 for logging. To new namespaces, import it as follows: [org.corfield.logging4j2 :as log] . Do not use `print` and `println` for logging.
 
 ## 14) “Golden decisions” recap
 
