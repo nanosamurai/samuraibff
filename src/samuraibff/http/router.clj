@@ -16,7 +16,8 @@
   (:require
    [integrant.core :as ig]
    [reitit.ring :as ring]
-   [reitit.coercion.malli :as malli]
+   [reitit.core]
+   [reitit.coercion.malli]
    [reitit.swagger :as swagger]
    [reitit.swagger-ui :as swagger-ui]
    [malli.core :as m]
@@ -61,7 +62,7 @@
       ;; API endpoints would be defined here
       ]]
 
-    {:data {:coercion malli/coercion
+    {:data {:coercion reitit.coercion.malli/coercion
             :malli/options {:error-keys #(mu/keys HealthCheckResponse)}
             :swagger {:id ::api}}})))
 
