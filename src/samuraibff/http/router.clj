@@ -17,11 +17,15 @@
    [integrant.core :as ig]
    [reitit.ring :as ring]
    [reitit.core]
+   [reitit.ring.coercion :as rrc]
    [reitit.coercion.malli]
    [reitit.swagger :as swagger]
    [reitit.swagger-ui :as swagger-ui]
    [malli.core :as m]
-   [malli.util :as mu]))
+   [malli.util :as mu]
+   [reitit.ring.middleware.exception :as exception]
+   [reitit.ring.middleware.muuntaja :as muuntaja]
+   [reitit.ring.middleware.parameters :as parameters]))
 
 ;; --- Schemas ---
 
@@ -36,7 +40,7 @@
 
 (defn- healthcheck-route []
   "Create the health check route definition."
-  ["health"
+  ["/health"
    {:get {:summary "Health check"
           :description "Returns health status of the application"
           :responses {200 {:body HealthCheckResponse}}
@@ -64,7 +68,12 @@
 
     {:data {:coercion reitit.coercion.malli/coercion
             :malli/options {:error-keys #(mu/keys HealthCheckResponse)}
-            :swagger {:id ::api}}})))
+            :swagger {:id ::api}
+            :middleware [parameters/parameters-middleware ; decoding query & form params
+                         muuntaja/format-middleware       ; content negotiation
+                         exception/exception-middleware   ; converting exceptions to HTTP responses
+                         rrc/coerce-request-middleware
+                         rrc/coerce-response-middleware]}})))
 
 ;; --- Integrant Component ---
 
