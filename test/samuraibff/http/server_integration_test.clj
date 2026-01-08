@@ -2,7 +2,8 @@
   (:require [integrant.core :as ig]
             [samuraibff.http.server :as server]
             [samuraibff.http.router :as router]
-            [clojure.test :refer :all]))
+            [clojure.test :refer :all]
+            [org.httpkit.client :as http]))
 
 (create-ns 'samuraibff)
 
@@ -30,4 +31,6 @@
         system (ig/init config)]
     (is (contains? system :samuraibff/http-server))
     (is (contains? system :samuraibff/router))
+    (let [response @(http/get "http://localhost:8082/health")]
+      (is (= 200 (:status response))))
     (ig/halt! system)))
