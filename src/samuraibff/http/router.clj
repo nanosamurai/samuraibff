@@ -21,7 +21,7 @@
    [reitit.coercion.malli]
    [reitit.swagger :as swagger]
    [reitit.swagger-ui :as swagger-ui]
-   [malli.core :as m]
+   [muuntaja.core :as mc]
    [malli.util :as mu]
    [reitit.ring.middleware.exception :as exception]
    [reitit.ring.middleware.muuntaja :as muuntaja]
@@ -66,7 +66,8 @@
       ;; API endpoints would be defined here
       ]]
 
-    {:data {:coercion reitit.coercion.malli/coercion
+    {:data {:muuntaja mc/instance
+            :coercion reitit.coercion.malli/coercion
             :malli/options {:error-keys #(mu/keys HealthCheckResponse)}
             :swagger {:id ::api}
             :middleware [parameters/parameters-middleware ; decoding query & form params
