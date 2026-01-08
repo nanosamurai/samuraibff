@@ -1,0 +1,5 @@
+### GET request to example server
+GET http://localhost:8082/health
+Content-Type: application/json
+Accept: application/json
+###
