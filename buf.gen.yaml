@@ -1,0 +1,7 @@
+version: v2
+clean: true
+plugins:
+  - remote: buf.build/protocolbuffers/java
+    out: src/java
+  - remote: buf.build/grpc/java
+    out: src/java
