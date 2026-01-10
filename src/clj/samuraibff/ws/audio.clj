@@ -72,6 +72,9 @@
           (let [session (ws.registry/ensure-session! ws-registry session-id {:lang lang
                                                                             :sample-rate sample-rate})]
             (ws.registry/start-rt! ws-registry grpc session)
+            ;; IMPORTANT: return the AsyncChannel from `http/as-channel`.
+            ;; Returning nil can cause some Ring stacks/middlewares to close the
+            ;; connection immediately even though `as-channel` was called.
             (http/as-channel
               request
               {:on-open (fn [_ch]
@@ -96,5 +99,4 @@
                                  false)))
                :on-close (fn [_ch _status]
                            (log/info "WS /ws/audio closed" {:session-id session-id})
-                           (ws.registry/mark-audio-disconnected! ws-registry session))})
-            nil))))))
+                           (ws.registry/mark-audio-disconnected! ws-registry session))})))))))

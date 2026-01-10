@@ -22,9 +22,14 @@
   (json/object-mapper {:encode-key-fn name}))
 
 (defn- write-json
-  "Serialize event map to JSON string." 
+  "Serialize an event map to a JSON string.
+
+  Inputs:
+  - value: map (event)
+
+  Returns: string (JSON)." 
   [value]
-  (json/write-value-as-string json-mapper value))
+  (json/write-value-as-string value json-mapper))
 
 
 (defn handler
@@ -46,6 +51,9 @@
                 out-ch (async/chan 64)
                 stop?* (atom false)]
             (ws.registry/tap-events! session out-ch)
+            ;; IMPORTANT: return the AsyncChannel from `http/as-channel`.
+            ;; Returning nil can cause some Ring stacks/middlewares to close the
+            ;; connection immediately even though `as-channel` was called.
             (http/as-channel
               request
               {:on-open (fn [ch]
@@ -83,5 +91,4 @@
                            (ws.registry/untap-events! session out-ch)
                            (async/close! out-ch)
                            (ws.registry/mark-events-disconnected! ws-registry session)
-                           (log/info "WS /ws/events closed" {:session-id session-id}))})
-            nil))))))
+                           (log/info "WS /ws/events closed" {:session-id session-id}))})))))))

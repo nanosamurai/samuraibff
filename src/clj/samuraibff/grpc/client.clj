@@ -71,11 +71,17 @@
   Returns a map with operations:
   - :send!     (fn [audio-chunk])         push AudioChunk to rtservice
   - :complete! (fn [])                    close outbound stream politely
-  - :error!    (fn [Throwable])           signal an error downstream"
+  - :error!    (fn [Throwable])           signal an error downstream
+
+  Notes:
+  - The returned operations are safe to call multiple times. In particular,
+    `:complete!` is idempotent to avoid noisy `call already half-closed`
+    exceptions during cleanup." 
   [{:keys [stub]} {:keys [on-next on-error on-complete]}]
   (when-not stub
     (throw (ex-info "gRPC stub missing" {})))
-  (let [response-observer
+  (let [closed?* (atom false)
+        response-observer
         (reify StreamObserver
           (onNext [_ msg]
             (when on-next
@@ -84,6 +90,7 @@
                 (catch Exception e
                   (log/error e "RealtimeASR onNext handler failed")))))
           (onError [_ t]
+            (reset! closed?* true)
             (if on-error
               (try
                 (on-error t)
@@ -91,6 +98,7 @@
                   (log/error e "RealtimeASR onError handler failed")))
               (log/error t "RealtimeASR stream failed")))
           (onCompleted [_]
+            (reset! closed?* true)
             (if on-complete
               (try
                 (on-complete)
@@ -99,14 +107,20 @@
               (log/info "RealtimeASR stream completed"))))
         request-observer (.stream stub response-observer)]
     {:send! (fn [audio-chunk]
-              (.onNext request-observer audio-chunk))
+              (when-not @closed?*
+                (.onNext request-observer audio-chunk)))
      :complete! (fn []
-                  (try
-                    (.onCompleted request-observer)
-                    (catch StatusRuntimeException e
-                      (log/warn e "Attempted to complete already closed stream"))))
+                  (when (compare-and-set! closed?* false true)
+                    (try
+                      (.onCompleted request-observer)
+                      (catch Exception e
+                        (log/warn e "Attempted to complete already closed stream")))))
      :error! (fn [throwable]
-               (.onError request-observer throwable))}))
+               (when (compare-and-set! closed?* false true)
+                 (try
+                   (.onError request-observer throwable)
+                   (catch Exception e
+                     (log/warn e "Attempted to error already closed stream")))))}))
 
 (defn close!
   "Helper to close a previously opened realtime stream map returned by
