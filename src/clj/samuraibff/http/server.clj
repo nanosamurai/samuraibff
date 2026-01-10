@@ -22,14 +22,17 @@
 
 ;; --- HTTP Server Component ---
 
-(defn start-server [config handler]
+(defn start-server
   "Start the HTTP server with the given configuration and handler.
 
-  config - Map containing server configuration (e.g., :port)
+  config - Either:
+    - {:port int}
+    - or a full app config map containing [:http :port]
   handler - Ring handler to process requests
 
-  Returns the server instance."
-  (let [{:keys [port]} config
+  Returns the server instance." 
+  [config handler]
+  (let [port (or (:port config) (get-in config [:http :port]))
         server (org.httpkit.server/run-server handler {:port port})]
     (log/info (format "HTTP server started on port %d" port))
     server))

@@ -40,7 +40,7 @@
   - `:stub` – an async RealtimeASR stub bound to the channel"
   (let [addr (or (get-in config [:grpc :rtservice-addr])
                  (throw (ex-info "Missing rtservice address" {:config config})))]
-    (log/info "Connecting gRPC client to rtservice at %s" addr)
+    (log/info (log/as-message "Connecting gRPC client to rtservice at {}" addr))
     (let [channel (build-channel addr)
           stub (RealtimeASRGrpc/newStub channel)]
       {:channel channel
@@ -53,7 +53,8 @@
       (.shutdown channel)
       (.awaitTermination channel 5 TimeUnit/SECONDS)
       (catch InterruptedException _
-        (.shutdownNow channel))
+        (.shutdownNow channel)
+        (.interrupt (Thread/currentThread)))
       (catch Exception e
         (log/error e "Failed to shutdown gRPC channel cleanly")))))
 
