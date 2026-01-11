@@ -17,6 +17,8 @@
    [integrant.core :as ig]
    [reitit.ring :as ring]
    [reitit.core]
+   [samuraibff.ws.audio :as ws.audio]
+   [samuraibff.ws.events :as ws.events]
    [reitit.ring.coercion :as rrc]
    [reitit.coercion.malli]
    [reitit.swagger :as swagger]
@@ -52,19 +54,24 @@
 
 ;; --- Router ---
 
-(defn create-router []
+(defn create-router
   "Create and return a Reitit router with all routes.
 
-  Returns a Ring handler function."
+  deps - map with keys:
+  - :grpc        gRPC client component
+  - :ws-registry ws registry component
+
+  Returns a Ring handler function." 
+  [deps]
   (ring/ring-handler
    (ring/router
     [;; Health check endpoint
      (healthcheck-route)
 
-     ;; API routes would go here
-     ["/api" {:tags ["api"]}
-      ;; API endpoints would be defined here
-      ]]
+     ;; WebSockets
+     ["/ws" {:tags ["ws"]}
+      ["/audio" {:get {:handler (ws.audio/handler deps)}}]
+      ["/events" {:get {:handler (ws.events/handler deps)}}]]]
 
     {:data {:muuntaja mc/instance
             :coercion reitit.coercion.malli/coercion
@@ -78,13 +85,14 @@
 
 ;; --- Integrant Component ---
 
-(defmethod ig/init-key :samuraibff/router [_ _]
+(defmethod ig/init-key :samuraibff/router
+  [_ deps]
   "Integrant init method for the router component.
 
   Creates and returns the router handler.
 
-  Returns a Ring handler function."
-  (create-router))
+  Returns a Ring handler function." 
+  (create-router deps))
 
 (defmethod ig/halt-key! :samuraibff/router [_ _]
   "Integrant halt method for the router component.

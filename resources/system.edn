@@ -37,25 +37,20 @@
 
  ;; --- Integrant components ---
 
- :samuraibff/db
- {:config #ig/ref :samuraibff/config}
-
- :samuraibff/kafka-producer
- {:config #ig/ref :samuraibff/config}
+ ;; NOTE: DB / Kafka / session-registry components are intentionally not
+ ;; wired yet (separate PR). Keep this system.edn minimal so `samuraibff.system`
+ ;; can start the HTTP+WS+gRPC pipeline.
 
  :samuraibff/grpc-client
  {:config #ig/ref :samuraibff/config}
 
- :samuraibff/session-registry
- {:config #ig/ref :samuraibff/config
-  :db     #ig/ref :samuraibff/db}
+ :samuraibff/ws-registry
+ {:config #ig/ref :samuraibff/config}
 
  :samuraibff/router
- {:config #ig/ref :samuraibff/config
-  :db     #ig/ref :samuraibff/db
-  :kafka  #ig/ref :samuraibff/kafka-producer
-  :grpc   #ig/ref :samuraibff/grpc-client
-  :sess   #ig/ref :samuraibff/session-registry}
+ {:config      #ig/ref :samuraibff/config
+  :ws-registry #ig/ref :samuraibff/ws-registry
+  :grpc        #ig/ref :samuraibff/grpc-client}
 
  :samuraibff/http-server
  {:config  #ig/ref :samuraibff/config
