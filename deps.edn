@@ -12,6 +12,7 @@
   metosin/reitit                    {:mvn/version "0.9.2"}  ; routing + coercion
   metosin/malli                     {:mvn/version "0.20.0"} ; schemas/coercion
   metosin/jsonista                  {:mvn/version "0.3.13"} ; fast JSON (Jackson)
+  ring/ring-codec                   {:mvn/version "1.3.0"}  ; for ring.util.response/resource-response
 
   ;; --- WebSockets + HTTP server ---
   http-kit/http-kit                 {:mvn/version "2.8.1"}  ; WS server + http
@@ -58,6 +59,17 @@
                  org.clojure/tools.namespace {:mvn/version "1.5.0"}}
    :jvm-opts ["-Djava.util.logging.manager=org.apache.logging.log4j.jul.LogManager"]}
 
+  ;; ClojureScript build (shadow-cljs + hsx)
+  ;; Requires npm deps installed (see package.json).
+  ;; Examples:
+  ;;   clojure -M:cljs watch app
+  ;;   clojure -M:cljs release app
+  :cljs
+  {:extra-paths ["src/cljs" "resources"]
+   :extra-deps  {thheller/shadow-cljs {:mvn/version "3.3.4"}
+                 io.factorhouse/hsx   {:mvn/version "0.1.24"}}
+   :main-opts   ["-m" "shadow.cljs.devtools.cli"]}
+
   ;; Unit + integration tests
   :test
   {:extra-paths ["test" "test-resources"]
@@ -77,7 +89,8 @@
                  clj-test-containers/clj-test-containers {:mvn/version "0.7.4"}
 
                  ;; Etaoin for E2E browser tests
-                 etaoin/etaoin                           {:mvn/version "1.1.43"}}
+                 etaoin/etaoin                           {:mvn/version "1.1.43"}
+                 cheshire/cheshire                       {:mvn/version "6.1.0"}}
    :exec-fn cognitect.test-runner.api/test}
   :jvm-opts ["-Djava.util.logging.manager=org.apache.logging.log4j.jul.LogManager"]
 

@@ -6,6 +6,7 @@
 .cljs_node_modules/
 .shadow-cljs/
 out/
+resources/public/js/
 resources/public/js/compiled/
 node_modules/
 

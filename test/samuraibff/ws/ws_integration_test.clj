@@ -88,7 +88,13 @@
         (onError [error]
           (when on-close
             (on-close 1011 (str error))))))
-    (.connect ws)
+    ;; Logging in tests: if connect fails, it tends to fail silently otherwise.
+    (try
+      (.connect ws)
+      (catch Exception e
+        (when on-close
+          (on-close 1011 (str "connect-failed: " (.getMessage e))))
+        (throw e)))
     ws))
 
 (defn- drain-queue

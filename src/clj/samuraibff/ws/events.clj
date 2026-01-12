@@ -86,9 +86,10 @@
 
                           ;; Ensure gRPC stream is running once events are subscribed.
                           (ws.registry/start-rt! ws-registry grpc session))
-               :on-close (fn [_ch _status]
+               :on-close (fn [_ch status]
                            (reset! stop?* true)
                            (ws.registry/untap-events! session out-ch)
                            (async/close! out-ch)
                            (ws.registry/mark-events-disconnected! ws-registry session)
-                           (log/info "WS /ws/events closed" {:session-id session-id}))})))))))
+                           (log/info "WS /ws/events closed" {:session-id session-id
+                                                             :status status}))})))))))
