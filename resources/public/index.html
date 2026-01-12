@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>samuraibff — UI</title>
+  <style>
+    :root { --bg:#0b0f14; --panel:#0f1620; --line:#223046; --txt:#e6f0ff; --muted:#9fb2c9; --ok:#6BCBFF; --bad:#FF5C7A; }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--txt);font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif;}
+    #app{max-width:980px;margin:0 auto;padding:16px}
+    .card{background:rgba(15,22,32,.85);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    input, button, select{border-radius:10px;border:1px solid var(--line);background:#0c121b;color:var(--txt);padding:9px 10px}
+    button{cursor:pointer}
+    button:disabled{opacity:.55;cursor:not-allowed}
+    .pill{display:inline-flex;align-items:center;gap:8px;color:var(--muted);font-size:12px}
+    .dot{width:10px;height:10px;border-radius:99px;background:var(--muted)}
+    .dot.ok{background:var(--ok)}
+    .dot.bad{background:var(--bad)}
+    .muted{color:var(--muted)}
+    .seg{padding:8px 0;border-bottom:1px solid rgba(34,48,70,.5)}
+    .seg:last-child{border-bottom:none}
+    .seg .meta{color:var(--muted);font-size:12px}
+    .seg.partial{opacity:.85}
+    .log{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;font-size:12px;white-space:pre-wrap}
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script src="/js/main.js"></script>
+</body>
+</html>
