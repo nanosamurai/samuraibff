@@ -18,6 +18,9 @@ For the data model, please look at C:\Users\miros\PycharmProjects\drsynth\proto\
     * WS endpoints under `/ws/*`
     * UI endpoints:
       * `GET /` – serves `resources/public/index.html`
+      * `GET /recordings` – SPA route (serves index.html; deep-link safe)
+      * `GET /recordings/:session_id` – SPA route (serves index.html; deep-link safe)
+      * `GET /live` – SPA route (serves index.html; deep-link safe)
       * `POST /api/sessions` – returns `{ "session_id": "<uuid>" }`
       * static assets from `resources/public/*` (incl. shadow-cljs output under `/js/*`)
 * **WebSockets** (http-kit)
@@ -40,8 +43,13 @@ For the data model, please look at C:\Users\miros\PycharmProjects\drsynth\proto\
 * **ClojureScript UI scaffold**
     * shadow-cljs build (`shadow-cljs.edn`) output to `resources/public/js`
     * React + HSX (Hiccup-ish) rendering (no Reagent)
-    * minimal "new session" + live transcript display for `/ws/events` (realtime ASR)
+    * App shell UI (top bar + sidebar) branded as **nanosamur.ai**
+    * Pages (MVP):
+      * **Recordings** table (in-memory list in browser for now)
+      * **Live Recording** page with transcript feed + right-side Log panel
+      * Recording detail placeholder view
     * microphone capture + PCM16LE streaming to `/ws/audio`
+    * realtime transcript display via `/ws/events`
 * **Tests**
     * unit tests for ws registry
     * integration tests for http server + grpc client
