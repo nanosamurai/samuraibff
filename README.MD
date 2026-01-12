@@ -21,6 +21,40 @@ In a terminal:
 clojure -M:run
 ```
 
+### UI (ClojureScript) dev workflow
+
+The repo includes a minimal CLJS UI (React + HSX) meant as a **test harness** for the WS pipeline.
+
+Prerequisites:
+
+```bash
+npm install
+```
+
+In terminal 1 (backend):
+
+```bash
+clojure -M:run
+```
+
+In terminal 2 (UI watcher):
+
+```bash
+clojure -M:cljs watch app
+```
+
+Then open:
+- http://127.0.0.1:8000/
+
+The UI will:
+- create a new session via `POST /api/sessions`
+- open `/ws/events?session_id=<uuid>` and display realtime transcript events
+- capture microphone audio (PCM16LE) and stream it to `/ws/audio?session_id=<uuid>&lang=en&sample_rate=16000`
+
+Notes:
+- The compiled JS bundle is large (shadow-cljs dev output). Avoid printing it to the terminal.
+- If you change CLJS code, shadow-cljs will hot-reload via `^:dev/after-load`.
+
 Defaults:
 - HTTP server: `0.0.0.0:8000`
 - Health endpoint: `GET /health`

@@ -1,12 +1,63 @@
-Aim of this clojure project (samuraibff) is to rewrite and further evolve 
-drsynth's bff written in python (see C:\Users\miros\PycharmProjects\drsynth\bff\src\bff) 
-for drsynth project ( C:\Users\miros\PycharmProjects\drsynth\ ) . 
-Please read its readme.md (C:\Users\miros\PycharmProjects\drsynth\README.MD) to get idea what it does. 
+Aim of this clojure project (samuraibff) is to rewrite and further evolve
+ drsynth's bff written in python (see C:\Users\miros\PycharmProjects\drsynth\bff\src\bff)
+ for drsynth project ( C:\Users\miros\PycharmProjects\drsynth\ ) .
+Please read its readme.md (C:\Users\miros\PycharmProjects\drsynth\README.MD) to get idea what it does.
 
-I decided to isolate the bff and rewrite it in clojure. 
-For the data model, please look at C:\Users\miros\PycharmProjects\drsynth\proto\stream.proto . 
+I decided to isolate the bff and rewrite it in clojure.
+For the data model, please look at C:\Users\miros\PycharmProjects\drsynth\proto\stream.proto .
 
 # AGENTS.MD — samuraibff (Clojure) Architecture + House Rules
+
+## Status (current implementation)
+
+### Implemented (as of now)
+
+* **HTTP server** via Ring + http-kit (Integrant key `:samuraibff/http-server`)
+* **Reitit router** (Integrant key `:samuraibff/router`)
+    * `GET /health`
+    * WS endpoints under `/ws/*`
+    * UI endpoints:
+      * `GET /` – serves `resources/public/index.html`
+      * `POST /api/sessions` – returns `{ "session_id": "<uuid>" }`
+      * static assets from `resources/public/*` (incl. shadow-cljs output under `/js/*`)
+* **WebSockets** (http-kit)
+    * `GET /ws/audio` – accepts **binary** PCM16LE frames and enqueues them (non-blocking) into a per-session bounded `core.async` channel.
+    * `GET /ws/events` – streams **JSON** event maps back to the frontend.
+* **In-memory WS session registry** (Integrant key `:samuraibff/ws-registry`)
+    * per-session channels (`:audio-ch`, `:events-ch`) and `mult` for event fanout
+    * per-session monotonic `:seq` and `:chunk-seq`
+    * backpressure: drops audio frames when buffer is full (with throttled warning logging)
+* **gRPC client** to rtservice (Integrant key `:samuraibff/grpc-client`)
+    * opens bidirectional stream and forwards `AudioChunk` messages
+    * converts incoming `AsrEvent` to WS event maps
+    * stream close is idempotent to avoid noisy half-close exceptions
+* **Config component** (Integrant key `:samuraibff/config`)
+    * minimal identity component so `resources/system.edn` works with `ig/load-namespaces`
+* **CLI entrypoint**
+    * `samuraibff.core/-main` so `clojure -M:run` starts the Integrant system
+    * `samuraibff.system/read-system-config` uses `integrant.core/read-string` so `#ig/ref` tags work
+    * `samuraibff` namespace acts as an Integrant loader/aggregator for component namespaces
+* **ClojureScript UI scaffold**
+    * shadow-cljs build (`shadow-cljs.edn`) output to `resources/public/js`
+    * React + HSX (Hiccup-ish) rendering (no Reagent)
+    * minimal "new session" + live transcript display for `/ws/events` (realtime ASR)
+    * microphone capture + PCM16LE streaming to `/ws/audio`
+* **Tests**
+    * unit tests for ws registry
+    * integration tests for http server + grpc client
+    * WS integration test that opens `/ws/events` and `/ws/audio` and asserts a `status` event is received
+      (requires rtservice on `localhost:50052`; otherwise skipped)
+
+### Pending / not yet implemented (planned PRs)
+
+* OIDC / Keycloak authentication and tenant/user derivation
+* Kafka integration (publish audio chunks, etc.)
+* Postgres persistence (sessions/transcripts)
+* HTTP callback for refined transcripts (whisperx worker) + merge logic
+* OpenAPI/Swagger polishing for non-WS endpoints (WS not covered by OpenAPI)
+* Operational endpoints `/ready`, `/metrics`
+
+---
 
 ## 0) House rules (engineering discipline)
 
@@ -43,7 +94,7 @@ For the data model, please look at C:\Users\miros\PycharmProjects\drsynth\proto\
 
 ### Style & readability
 
-* Follow: [https://guide.clojure.style/](https://guide.clojure.style/)
+* Follow: https://guide.clojure.style/
 * Crucial additions we want to enforce:
 
     * Keep namespaces cohesive; avoid “god” namespaces.
@@ -79,347 +130,60 @@ We explicitly want:
 
 ### Server and routing
 
-* HTTP: Ring + http-kit 
+* HTTP: Ring + http-kit
 * Routing: **Reitit**
 * Schemas/coercion: **Malli**
-* WebSocket: **http-kit** (preferred for WS reliability & simplicity)
+* WebSocket: **http-kit**
 
-### Auth (Keycloak)
+### gRPC
 
-* Prefer: [https://github.com/jgrodziski/keycloak-clojure](https://github.com/jgrodziski/keycloak-clojure)
+* gRPC client: Java stubs generated from `resources/proto/stream.proto`
 
-    * Use it for JWKS discovery + token verification if it fits our needs.
-* If keycloak-clojure isn’t sufficient for our specific constraints, use Java interop:
+### Logging
 
-    * Either Keycloak adapters where appropriate, or generic JWT verification with JWKS caching using Java libs.
-
-### Messaging & persistence
-
-* Kafka producer in BFF (keep it).
-* DB: Postgres (next.jdbc + hikariCP)
-* gRPC client: Java gRPC stubs generated from `proto/stream.proto`
-
-### Concurrency primitives
-
-* `core.async` for:
-
-    * per-session pipelines (audio ingestion, gRPC streaming, event fanout)
-    * bounded queues/backpressure
-    * controlled worker pools where a full-blown executor framework feels heavy
-
-### Testing tooling
-
-* Unit/integration tests: `clojure.test`
-* Docker-based integration: [https://github.com/testcontainers/testcontainers-clj](https://github.com/testcontainers/testcontainers-clj)
-* E2E UI tests: [https://github.com/clj-commons/etaoin](https://github.com/clj-commons/etaoin)
+Use org.corfield.logging4j2 for logging. To new namespaces, import it as follows: `[org.corfield.logging4j2 :as log]`. Do not use `print` and `println` for logging.
 
 ---
 
-## 3) High-level architecture
+## 3) High-level architecture (target)
 
 ### Inbound interfaces
 
-1. **UI HTTP** (static + REST)
-2. **WS /ws/audio**: browser → BFF (binary PCM16 LE)
-3. **WS /ws/events** (or SSE): BFF → browser (JSON events: asr/refined/status)
-4. **HTTP callback**: whisperx worker → BFF (refined transcript segments)
+1. UI HTTP (static + REST)
+2. WS `/ws/audio`: browser → BFF (binary PCM16 LE)
+3. WS `/ws/events` (or SSE): BFF → browser (JSON events: asr/refined/status)
+4. HTTP callback: whisperx worker → BFF (refined transcript segments)
 
 ### Outbound interfaces
 
-1. Kafka: BFF produces `audio.raw.*`
+1. Kafka: BFF produces `audio.raw.*` (not yet)
 2. gRPC: BFF streams to rtservice (RealtimeASR.Stream)
-3. Postgres: persist sessions, recordings metadata, transcripts, speakers
-
-### Core ordering rule
-
-BFF is the ordering authority for UI events:
-
-* Assign monotonic per-session `seq` to outbound events.
-* UI renders by `seq` (or uses it to reconcile if needed).
-* Refined segments update/replace live windows deterministically.
+3. Postgres: persist sessions, recordings metadata, transcripts, speakers (not yet)
 
 ---
 
 ## 4) Proposed repo / namespace structure
 
+(Kept as a long-term target; current repo may still be evolving towards this.)
+
 ```
-src/samuraibff/
-  core.clj                 ; entrypoint, integrant init/halt, -main
-  config.clj               ; env parsing, defaults, config schema
-
-  ig/keys.clj              ; integrant key registration helpers (optional)
-  log.clj                  ; logging helpers (structured fields, context)
-
-  http/server.clj          ; ring+http-kit server component - the single http-kit runtime + routing wiring (start/stop, reitit handler, mount the WS endpoint)
-  http/routes.clj          ; reitit router, middlewares, openapi
-  http/handlers.clj        ; REST endpoints: sessions, health, callback
-
-  ws/server.clj            ; http-kit server component: ws endpoints - pure WebSocket logic (on-open/on-close/on-message, session registry, broadcasting refined events, etc.) — no server start/stop in here
-  ws/audio.clj             ; ws audio handler, binary ingest → core.async channel
-  ws/events.clj            ; ws events handler, fanout to clients
-
-  auth/keycloak.clj        ; token verification + principal extraction
-  auth/middleware.clj      ; reitit/ring middleware for authz/authn
-  auth/tenant.clj          ; tenant/user derivation rules
-
-  session/registry.clj     ; in-memory session registry + lifecycle
-  session/service.clj      ; start/stop session, persistence hooks
-
-  rt/grpc.clj              ; gRPC client, stream lifecycle, mapping to events
-  rt/pipeline.clj          ; core.async pipelines for per-session realtime streaming
-
-  kafka/producer.clj       ; kafka producer component + publish helpers
-
-  refined/callback.clj     ; HTTP callback validation, merge logic, publish events
-  transcript/model.clj     ; pure merge/reconcile logic (live vs refined)
-  transcript/store.clj     ; DB persistence for transcript snapshots/segments
-
-  db/core.clj              ; datasource component + transaction helpers
-  db/queries.clj           ; SQL strings/queries for sessions/transcripts/etc.
-
-test/samuraibff/
-  ... unit tests
-  ... integration tests with testcontainers
-  ... etaoin e2e tests
+src/
+  clj/samuraibff/
+    core.clj
+    system.clj
+    config.clj
+    http/server.clj
+    http/router.clj
+    http/ui.clj
+    ws/audio.clj
+    ws/events.clj
+    ws/registry.clj
+    grpc/client.clj
+  cljs/samuraibff/ui/
+    core.cljs
+    components.cljs
+    store.cljs
+    ws.cljs
+    audio.cljs
+    ...
 ```
-
-Guideline:
-
-* `model.clj` contains **pure functions** (easy to unit test).
-* `service.clj` orchestrates side effects and integrates components.
-
----
-
-## 5) Integrant components (system map)
-
-We manage long-lived resources via Integrant. Core keys:
-
-* `:samuraibff/config`
-* `:samuraibff/logging` (optional)
-* `:samuraibff/db` (next.jdbc datasource + hikariCP + honeysql)
-* `:samuraibff/kafka-producer`
-* `:samuraibff/grpc-channel` (or grpc client factory)
-* `:samuraibff/session-registry` (atom + housekeeping loop)
-* `:samuraibff/http-server` (Jetty)
-* `:samuraibff/ws-server` (http-kit)
-* `:samuraibff/refined-handler` (depends on session-registry + db + ws/events)
-* `:samuraibff/metrics` (optional)
-
-Component lifecycle rules:
-
-* `halt-key!` must close resources cleanly (DB pool, kafka flush/close, grpc channel shutdown, WS server stop).
-* All components must be restartable in REPL without leftover threads.
-* Any background loops must have explicit stop signals (core.async channel close or atom flag).
-
----
-
-## 6) Data model + API codification (Malli)
-
-### “Single source of truth”
-
-* All request/response bodies, and WS events are described by Malli schemas.
-* Reitit coercion enabled:
-
-    * incoming requests validated/coerced
-    * outgoing responses validated (at least in dev/test profiles)
-
-### Schemas to define early
-
-* `SessionStartRequest`, `SessionStartResponse`
-* `WsAsrEvent`, `WsRefinedEvent`, `WsStatusEvent`, `WsErrorEvent`
-* `RefinedCallbackRequest` (worker→BFF)
-* Domain model schemas:
-
-    * `Session`
-    * `TranscriptSegment`
-    * `TranscriptState` (optional: windowed state)
-
-### Event shape guidance
-
-Every event emitted to UI includes:
-
-* `:type` (keyword / string)
-* `:session_id`
-* `:seq` (monotonic per session)
-* `:ts_ms` (server timestamp)
-  Plus payload fields (start/end/text/speaker/etc.)
-
----
-
-## 7) Auth: Keycloak integration & tenant/user rules
-
-### Verification
-
-* Prefer keycloak-clojure for discovery + verification.
-* JWT must be validated against:
-
-    * issuer
-    * audience (client id)
-    * signature (JWKS)
-    * expiry (`exp`)
-* Cache JWKS with TTL and refresh on cache miss / unknown `kid`.
-
-### Principal extraction
-
-Create a normalized `principal` map:
-
-* `:sub`
-* `:preferred-username`
-* `:email`
-* `:roles` (set)
-* `:tenant-id` (required for BFF endpoints that create sessions)
-* `:raw-claims` (optional, for debugging / auditing)
-
-### Tenant injection (Keycloak)
-
-We want tenant to exist as a claim (e.g. `tenant_id`). Preferred:
-
-* configure Keycloak Protocol Mapper to include tenant id in token
-* if multi-tenant membership exists, store allowed tenant ids as claim list, e.g. `tenant_ids: [...]`
-
-### WS auth requirement
-
-* Authentication must happen **before starting pipelines**.
-* If unauthorized: close connection immediately with appropriate code.
-* For internal callbacks: use client credentials token (preferred), or HMAC signature as stepping stone.
-
----
-
-## 8) Realtime pipeline design (core.async)
-
-Per session we maintain a small set of channels:
-
-* `audio-in` (binary frames from WS)
-* `audio-chunks` (processed frames for Kafka + gRPC)
-* `events-out` (maps for UI)
-* `control` (stop signal, disconnect signals)
-
-Suggested flow:
-
-1. WS audio handler receives binary, puts into `audio-in`
-2. A transducer pipeline:
-
-    * downsample/convert if needed
-    * chunk/sequence annotate (`seq`, timestamps)
-3. Fanout:
-
-    * publish to Kafka
-    * write to gRPC stream
-4. gRPC responses become `WsAsrEvent` into `events-out`
-5. refined callback merges transcript -> emits `WsRefinedEvent` into `events-out`
-6. WS events handler drains `events-out` -> sends JSON to all subscribers
-
-Backpressure:
-
-* channels should be bounded; if overloaded:
-
-    * drop policy for audio (or apply sampling)
-    * never block the WS thread indefinitely
-* log overload events with session context
-
----
-
-## 9) Refined delivery (HTTP callback) — no Kafka dependency
-
-WhisperX worker calls:
-
-* `POST /api/internal/refined`
-  Payload includes:
-* `session_id`
-* `segments` or a single segment
-* timing fields (`start_s`, `end_s`)
-* `text`, `speaker`, `lang`
-
-BFF behavior:
-
-* validate request (Malli)
-* apply merge logic (pure function in `transcript/model.clj`)
-* persist refined state (DB)
-* emit UI events with correct `seq` ordering
-
-Security:
-
-* Preferred: worker uses Keycloak client credentials token
-* Alternative: signed HMAC header (short-term)
-
----
-
-## 10) Persistence responsibilities
-
-* BFF creates session row on session start.
-* WhisperX/finalizer update transcript/recording info; BFF stores canonical metadata.
-* Real-time partials do **not** have to be persisted initially (MVP); refined/final should be.
-
-(We can later add an option to store “live window” snapshots if needed.)
-
----
-
-## 11) Testing strategy (must-have)
-
-### Unit tests (fast)
-
-* Pure transcript merge ordering (live vs refined)
-* Schema validations
-* tenant/user principal extraction logic
-* event sequencing and session state transitions
-
-### Integration tests (Docker via testcontainers-clj)
-
-Run against real containers:
-
-* Postgres with migrations applied
-* Kafka broker
-* (Optional) rtservice container if feasible; otherwise mock gRPC with an in-process server
-
-Coverage targets:
-
-* Session start persists correct DB rows
-* WS audio produces Kafka messages and triggers gRPC stream calls
-* Refined callback updates transcript and pushes events to WS events subscribers
-
-### End-to-end tests (etaoin)
-
-* Bring up stack (compose or testcontainers)
-* Open UI, login flow (or test mode bypass)
-* Validate websocket connects and transcript updates appear
-* Validate refined callback causes UI replacement/updates
-
-Notes:
-
-* We should support a **test auth mode** (e.g. `AUTH_REQUIRED=false`) for local/E2E unless we explicitly want to test Keycloak in CI.
-* But we should still have at least one CI job that validates OIDC against a Keycloak container or a mocked JWKS endpoint.
-
----
-
-## 12) Operational practices
-
-* All endpoints and events must log with:
-
-    * `session-id`
-    * `tenant-id`
-    * `user-id` (if present)
-    * `event-seq`
-* Provide `/health` and `/ready` endpoints
-* Provide a `/metrics` endpoint if/when we add metrics
-
----
-
-## 13) Logging
-
-Use org.corfield.logging4j2 for logging. To new namespaces, import it as follows: [org.corfield.logging4j2 :as log] . Do not use `print` and `println` for logging.
-
-## 14) “Golden decisions” recap
-
-* Keep Kafka publishing in BFF.
-* Use Reitit + Malli for typed, explicit API.
-* Use Integrant for lifecycle.
-* Use core.async for pipelines.
-* Use http-kit for WebSockets.
-* Receive refined transcripts via HTTP callback (not Kafka).
-* Keycloak integration: prefer keycloak-clojure; otherwise Java interop for JWT+JWKS.
-* Tests: unit + testcontainers integration + etaoin E2E.
-* Use org.corfield.logging4j2 for logging
-
----
-
-
