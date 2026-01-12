@@ -55,6 +55,32 @@ Notes:
 - The compiled JS bundle is large (shadow-cljs dev output). Avoid printing it to the terminal.
 - If you change CLJS code, shadow-cljs will hot-reload via `^:dev/after-load`.
 
+#### UI structure & conventions
+
+The UI lives under `src/cljs/samuraibff/ui/` and is intentionally small, with a few simple rules:
+
+- **Rendering**: React + **HSX** (Hiccup-ish) via `io.factorhouse/hsx`.
+  - Components are plain functions that return hiccup-like vectors.
+  - We do **not** use Reagent.
+- **Entry point**: `samuraibff.ui.core`
+  - owns the React root (`react-dom/client`)
+  - calls `init` and provides the hot-reload hook (`^:dev/after-load`)
+- **Components**: `samuraibff.ui.components`
+  - add new UI pieces here as small, pure render functions
+  - keep side-effects (WS, audio, fetch) out of component render bodies
+- **State**: `samuraibff.ui.store`
+  - use the store atom as the single source of truth for session id, ws status, transcript segments and log
+  - mutate state via explicit functions (`set-…!`, `append-…!`, etc.)
+- **Effects / I/O**:
+  - HTTP calls in `samuraibff.ui.api` (e.g. create session)
+  - events WS client in `samuraibff.ui.ws`
+  - microphone capture + audio WS streaming in `samuraibff.ui.audio`
+
+Adding a new feature typically means:
+1. extend the store data + add a small `…!` mutator in `store.cljs`
+2. add the I/O code in `api.cljs` / `ws.cljs` / `audio.cljs`
+3. add a small rendering function in `components.cljs` and mount it from `components/app`
+
 Defaults:
 - HTTP server: `0.0.0.0:8000`
 - Health endpoint: `GET /health`
