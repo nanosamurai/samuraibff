@@ -43,10 +43,13 @@ In terminal 2 (UI watcher):
 clojure -M:cljs watch app
 ```
 
-Then open:
-- http://127.0.0.1:8000/
+Then open one of:
+- http://127.0.0.1:8000/recordings (default landing page)
+- http://127.0.0.1:8000/live
 
 The UI will:
+- show an **app shell** (top bar + sidebar) branded as **nanosamur.ai**
+- manage an **in-memory** list of recordings (MVP only; no persistence yet)
 - create a new session via `POST /api/sessions`
 - open `/ws/events?session_id=<uuid>` and display realtime transcript events
 - capture microphone audio (PCM16LE) and stream it to `/ws/audio?session_id=<uuid>&lang=en&sample_rate=16000`
@@ -86,9 +89,13 @@ Defaults:
 - Health endpoint: `GET /health`
 - WebSockets:
   - `GET /ws/events?session_id=<uuid>`
-  - `GET /ws/audio?session_id=<uuid>&lang=en&sample_rate=16000`
-- UI:
+  - `GET /ws/audio?session_id=<uuid>&lang=<code>&sample_rate=16000`
+- UI (SPA routes served as index.html for deep-link refresh):
   - `GET /` (SPA index)
+  - `GET /recordings`
+  - `GET /recordings/:session_id`
+  - `GET /live`
+- UI helpers:
   - `POST /api/sessions`
 - rtservice: `localhost:50052` (see `resources/system.edn`)
 
