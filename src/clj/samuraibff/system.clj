@@ -23,12 +23,14 @@
 (defn read-system-config
   "Read Integrant configuration from `resources/system.edn`.
 
+  This uses Integrant's EDN readers so tags like `#ig/ref` work.
+
   Returns: config map." 
   []
   (-> "system.edn"
       io/resource
       slurp
-      edn/read-string))
+      ig/read-string))
 
 (defn start!
   "Initialize the Integrant system from `resources/system.edn`.

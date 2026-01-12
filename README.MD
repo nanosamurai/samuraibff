@@ -1,11 +1,86 @@
-## nREPL server
-To run nREPL server: `clojure -M:nrepl`
+# samuraibff
+
+Clojure rewrite of the **drsynth** BFF (backend-for-frontend).
+
+This repo currently focuses on the **MVP realtime path**:
+- accept browser audio via WebSocket (`/ws/audio`) as **binary PCM16LE**
+- forward audio frames to **rtservice** via **gRPC** (bidirectional stream)
+- stream realtime events back to the UI via WebSocket (`/ws/events`) as **JSON**
+
+> OIDC/Keycloak, Kafka, DB persistence, and refined transcript callback are **not implemented yet** (separate PRs).
+
+## Running the server
+
+### Start the HTTP server (dev)
+
+The system configuration lives in `resources/system.edn`.
+
+In a terminal:
+
+```bash
+clojure -M:run
+```
+
+Defaults:
+- HTTP server: `0.0.0.0:8000`
+- Health endpoint: `GET /health`
+- WebSockets:
+  - `GET /ws/events?session_id=<uuid>`
+  - `GET /ws/audio?session_id=<uuid>&lang=en&sample_rate=16000`
+- UI:
+  - `GET /` (SPA index)
+  - `POST /api/sessions`
+- rtservice: `localhost:50052` (see `resources/system.edn`)
+
+## nREPL
+
+Start an nREPL server on port **7888**:
+
+```bash
+clojure -M:nrepl
+```
 
 ### nREPL MCP Server
+
 To run the clojure repl MCP server:
-`clojure -X:mcp :not-cwd true :port 7888`
 
-### gRPC proto files 
-to trigger generation and compilation of proto files:
-`clj -T:build proto+compile`
+```bash
+clojure -X:mcp :not-cwd true :port 7888
+```
 
+## gRPC proto generation
+
+To trigger generation and compilation of proto files:
+
+```bash
+clj -T:build proto+compile
+```
+
+## Running tests
+
+Run all unit + integration tests:
+
+```bash
+clojure -X:test
+```
+
+### WS integration test (requires rtservice)
+
+The test namespace is:
+- `test/samuraibff/ws/ws_integration_test.clj` (`samuraibff.ws.ws-integration-test`)
+
+Prerequisite:
+- **rtservice must be reachable at `localhost:50052`**.
+  - If rtservice is not reachable, the test is **skipped**.
+
+Run it via the normal test runner:
+
+```bash
+clojure -X:test
+```
+
+Notes:
+- The test opens `/ws/events` and `/ws/audio`, sends a few dummy audio frames,
+  and asserts a `{"type":"status" ...}` event arrives.
+- The test uses `com.neovisionaries/nv-websocket-client` (test-only dependency)
+  because the JDK WebSocket client was unreliable against http-kit for us.

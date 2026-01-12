@@ -97,6 +97,7 @@
                                                                                      :received (str (type payload))})
                                  ;; no close: keep socket open; client bug should be visible via logs
                                  false)))
-               :on-close (fn [_ch _status]
-                           (log/info "WS /ws/audio closed" {:session-id session-id})
+               :on-close (fn [_ch status]
+                           (log/info "WS /ws/audio closed" {:session-id session-id
+                                                            :status status})
                            (ws.registry/mark-audio-disconnected! ws-registry session))})))))))

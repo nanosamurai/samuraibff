@@ -1,0 +1,17 @@
+{:source-paths
+ ["src/cljs"]
+
+ :dependencies
+ [[io.factorhouse/hsx "0.1.24"]]
+
+ :builds
+ {:app
+  {:target :browser
+   :output-dir "resources/public/js"
+   :asset-path "/js"
+
+   ;; Keep it simple: a single bundle.
+   :modules {:main {:entries [samuraibff.ui.core]}}
+
+   ;; For local development; hit backend at http://localhost:8000
+   :devtools {:after-load samuraibff.ui.core/reload}}}}

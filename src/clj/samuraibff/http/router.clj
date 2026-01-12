@@ -19,6 +19,7 @@
    [reitit.core]
    [samuraibff.ws.audio :as ws.audio]
    [samuraibff.ws.events :as ws.events]
+   [samuraibff.http.ui :as http.ui]
    [reitit.ring.coercion :as rrc]
    [reitit.coercion.malli]
    [reitit.swagger :as swagger]
@@ -27,7 +28,10 @@
    [malli.util :as mu]
    [reitit.ring.middleware.exception :as exception]
    [reitit.ring.middleware.muuntaja :as muuntaja]
-   [reitit.ring.middleware.parameters :as parameters]))
+   [reitit.ring.middleware.parameters :as parameters]
+   [ring.middleware.content-type :refer [wrap-content-type]]
+   [ring.middleware.not-modified :refer [wrap-not-modified]]
+   [ring.middleware.resource :refer [wrap-resource]]))
 
 ;; --- Schemas ---
 
@@ -63,25 +67,48 @@
 
   Returns a Ring handler function." 
   [deps]
-  (ring/ring-handler
-   (ring/router
-    [;; Health check endpoint
-     (healthcheck-route)
+  (let [router
+        (ring/router
+          [["/" {:get {:handler http.ui/index-handler}}]
 
-     ;; WebSockets
-     ["/ws" {:tags ["ws"]}
-      ["/audio" {:get {:handler (ws.audio/handler deps)}}]
-      ["/events" {:get {:handler (ws.events/handler deps)}}]]]
+           ;; Small UI helpers
+           ["/api" {:tags ["api"]}
+            ["/sessions" {:post {:summary "Create a new session id"
+                                 :handler http.ui/create-session-handler}}]]
 
-    {:data {:muuntaja mc/instance
-            :coercion reitit.coercion.malli/coercion
-            :malli/options {:error-keys #(mu/keys HealthCheckResponse)}
-            :swagger {:id ::api}
-            :middleware [parameters/parameters-middleware ; decoding query & form params
-                         muuntaja/format-middleware       ; content negotiation
-                         exception/exception-middleware   ; converting exceptions to HTTP responses
-                         rrc/coerce-request-middleware
-                         rrc/coerce-response-middleware]}})))
+           ;; Health check endpoint
+           (healthcheck-route)
+
+           ;; WebSockets
+           ["/ws" {:tags ["ws"]}
+            ["/audio" {:get {:handler (ws.audio/handler deps)}}]
+            ["/events" {:get {:handler (ws.events/handler deps)}}]]]
+
+          {:data {:muuntaja mc/instance
+                  :coercion reitit.coercion.malli/coercion
+                  :malli/options {:error-keys #(mu/keys HealthCheckResponse)}
+                  :swagger {:id ::api}
+                  :middleware [parameters/parameters-middleware ; decoding query & form params
+                               muuntaja/format-middleware       ; content negotiation
+                               exception/exception-middleware   ; converting exceptions to HTTP responses
+                               rrc/coerce-request-middleware
+                               rrc/coerce-response-middleware]}})
+
+        ;; Static classpath assets under resources/public.
+        ;;
+        ;; NOTE: We intentionally do NOT use `reitit.ring/create-resource-handler`
+        ;; here because it redirects `/js/main.js` -> `/js/main.js/` (302) and the
+        ;; redirected URL ends up serving index.html. That breaks JS loading in the
+        ;; browser ("expected expression, got '<'").
+        static-handler (-> (fn [_] nil)
+                           (wrap-resource "public")
+                           (wrap-content-type)
+                           (wrap-not-modified))]
+    (ring/ring-handler
+      router
+      (ring/routes
+        static-handler
+        (ring/create-default-handler)))))
 
 ;; --- Integrant Component ---
 
@@ -99,3 +126,6 @@
 
   No cleanup needed for the router."
   nil)
+
+;; (create-router deps) returns a Ring handler function; no additional
+;; lifecycle cleanup required.
