@@ -5,6 +5,7 @@
   (:require
     [io.factorhouse.hsx.core :as hsx]
     [samuraibff.ui.components :as components]
+    [samuraibff.ui.router :as router]
     [samuraibff.ui.store :as store]
     ["react-dom/client" :refer [createRoot]]))
 
@@ -22,12 +23,14 @@
   "Initialize the UI." 
   []
   (store/append-log! "[boot] UI init")
+  (router/init-router!)
   (render!))
 
 (defn ^:dev/after-load reload
   "Hot-reload hook for shadow-cljs." 
   []
   (components/memo-clear!)
+  (router/memo-clear!)
   (render!))
 
 (init)
