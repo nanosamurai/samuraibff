@@ -70,6 +70,9 @@
   (let [router
         (ring/router
           [["/" {:get {:handler http.ui/index-handler}}]
+           ["/recordings" {:get {:handler http.ui/index-handler}}]
+           ["/recordings/:session_id" {:get {:handler http.ui/index-handler}}]
+           ["/live" {:get {:handler http.ui/index-handler}}]
 
            ;; Small UI helpers
            ["/api" {:tags ["api"]}
