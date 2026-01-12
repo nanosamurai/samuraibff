@@ -14,6 +14,10 @@
   (:require
     [samuraibff.ui.util :as util]))
 
+(defonce route*
+  (atom {:page :recordings
+         :params {}}))
+
 (defonce session*
   (atom {:id ""
          :lang "cs"}))
@@ -31,8 +35,22 @@
 (defonce running?*
   (atom false))
 
+(defonce recordings*
+  (atom []))
+
 (def ^:private max-log-lines 200)
 (def ^:private max-segments 400)
+
+(defn set-route!
+  "Set the current route.
+
+  Input:
+  - route: {:page keyword :params map}
+
+  Returns: nil."
+  [route]
+  (reset! route* route)
+  nil)
 
 (defn set-session-id!
   "Set the current session id (string)."
@@ -45,9 +63,46 @@
   (swap! session* assoc :lang (or lang "")))
 
 (defn set-running!
-  "Set whether the UI is currently streaming audio."
+  "Set whether the UI is currently streaming audio." 
   [running?]
   (reset! running?* (boolean running?)))
+
+(defn add-recording!
+  "Add an in-memory recording session.
+
+  Inputs:
+  - rec: map with keys:
+    - :session_id string
+    - :created_at_ms int
+    - :status keyword (:ready|:recording|:stopped)
+
+  Returns: nil."
+  [rec]
+  (swap! recordings*
+         (fn [xs]
+           (let [xs (vec xs)
+                 sid (:session_id rec)
+                 xs (remove #(= sid (:session_id %)) xs)]
+             (conj (vec xs) rec))))
+  nil)
+
+(defn set-recording-status!
+  "Update a recording status in the in-memory list.
+
+  Inputs:
+  - session-id: string
+  - status: keyword (:ready|:recording|:stopped)
+
+  Returns: nil."
+  [session-id status]
+  (swap! recordings*
+         (fn [xs]
+           (mapv (fn [r]
+                   (if (= session-id (:session_id r))
+                     (assoc r :status status)
+                     r))
+                 xs)))
+  nil)
 
 (defn set-ws-status!
   "Update websocket status.
