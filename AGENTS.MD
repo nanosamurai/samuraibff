@@ -112,6 +112,11 @@ For the data model, please look at C:\Users\miros\PycharmProjects\drsynth\proto\
     * Never hide side effects: name side-effecting fns with verbs (`start!`, `stop!`, `persist!`, `publish!`, `send!`).
     * Keep logs structured and consistent (include `session-id`, `tenant-id`, `user-id` when applicable).
 
+
+### Use of replace_in_file
+
+* For replace_in_file, ensure you use correct indentation. If search and replace fails after 2 attempts, fall back to write_to_file or ask the user for help.
+
 ---
 
 ## 1) Core goals for the new BFF
