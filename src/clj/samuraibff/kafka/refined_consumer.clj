@@ -16,8 +16,8 @@
 
   Config (under `:kafka` in global config map):
   - :bootstrap-servers
-  - :topics {:refined "transcripts.refined"}
-  - :consumer-group-id (optional, default "samuraibff-refined")
+  - :topics {:refined 'transcripts.refined'}
+  - :consumer-group-id (optional, default 'samuraibff-refined')
   - :poll-ms (optional, default 250)
 
   Public API:
@@ -37,8 +37,11 @@
 (defn- consumer-props
   "Build Kafka consumer properties.
 
+  Inputs:
+  - {:keys [bootstrap-servers consumer-group-id auto-offset-reset]}
+
   Returns: java.util.Properties" 
-  [{:keys [bootstrap-servers consumer-group-id]}]
+  [{:keys [bootstrap-servers consumer-group-id auto-offset-reset]}]
   (doto (Properties.)
     (.put "bootstrap.servers" (or bootstrap-servers "localhost:9092"))
     (.put "group.id" (or consumer-group-id "samuraibff-refined"))
@@ -49,7 +52,7 @@
 
     ;; Prefer explicit commits after processing.
     (.put "enable.auto.commit" "false")
-    (.put "auto.offset.reset" "latest")))
+    (.put "auto.offset.reset" (or auto-offset-reset "latest"))))
 
 (defn- normalize-base-uri
   "Normalize a base URI by removing a trailing slash.
@@ -95,7 +98,7 @@
 
   Inputs:
   - ws-registry: ws registry component
-  - callback-path: string (e.g. "/internal/refined")
+  - callback-path: string (e.g. '/internal/refined')
   - ^ConsumerRecord rec
 
   Returns: boolean delivered?" 
@@ -136,6 +139,9 @@
                                                                :offset (.offset ^ConsumerRecord rec)}))))
           (try
             (.commitSync consumer)
+            (catch org.apache.kafka.common.errors.WakeupException _
+              ;; Normal during shutdown.
+              nil)
             (catch Exception e
               (log/warn e "Kafka commitSync failed"))))))
     (catch Exception e
@@ -155,7 +161,9 @@
         poll-ms (or (get-in kafka-cfg [:poll-ms]) 250)
         consumer (KafkaConsumer. (consumer-props {:bootstrap-servers (:bootstrap-servers kafka-cfg)
                                                  :consumer-group-id (or (:consumer-group-id kafka-cfg)
-                                                                        "samuraibff-refined")}))
+                                                                        "samuraibff-refined")
+                                                 :auto-offset-reset (or (:auto-offset-reset kafka-cfg)
+                                                                        "latest")}))
         _ (.subscribe consumer (Collections/singletonList topic))
         running?* (atom true)
         thread (doto (Thread. #(run-loop! {:consumer consumer
