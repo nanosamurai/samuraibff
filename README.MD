@@ -2,12 +2,21 @@
 
 Clojure rewrite of the **drsynth** BFF (backend-for-frontend).
 
-This repo currently focuses on the **MVP realtime path**:
+This repo currently focuses on:
+
+### 1) MVP realtime path
 - accept browser audio via WebSocket (`/ws/audio`) as **binary PCM16LE**
 - forward audio frames to **rtservice** via **gRPC** (bidirectional stream)
 - stream realtime events back to the UI via WebSocket (`/ws/events`) as **JSON**
 
-> OIDC/Keycloak, Kafka, DB persistence, and refined transcript callback are **not implemented yet** (separate PRs).
+### 2) Near-realtime refinement path (Kafka + cross-instance routing)
+- publish `AudioChunk` protobuf messages to Kafka topic **`audio.raw`**
+- consume `RefinedEvent` protobuf messages from Kafka topic **`transcripts.refined`**
+- forward refined events to the **originating BFF instance** using an internal callback:
+  - `POST /internal/refined` with `application/x-protobuf`
+- push refined transcript segments to the UI over `/ws/events` as `{"type":"refined", ...}` events
+
+> OIDC/Keycloak and Postgres persistence are **not implemented yet**.
 
 ## Running the server
 
@@ -90,6 +99,8 @@ Defaults:
 - WebSockets:
   - `GET /ws/events?session_id=<uuid>`
   - `GET /ws/audio?session_id=<uuid>&lang=<code>&sample_rate=16000`
+- Internal callback (BFF-to-BFF):
+  - `POST /internal/refined` (`application/x-protobuf` body of `RefinedEvent`)
 - UI (SPA routes served as index.html for deep-link refresh):
   - `GET /` (SPA index)
   - `GET /recordings`
@@ -98,6 +109,10 @@ Defaults:
 - UI helpers:
   - `POST /api/sessions`
 - rtservice: `localhost:50052` (see `resources/system.edn`)
+
+Kafka topics (defaults in `resources/system.edn`):
+- `audio.raw`
+- `transcripts.refined`
 
 ## nREPL
 
