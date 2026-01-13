@@ -88,7 +88,10 @@
 (def RefinedEvent
   "Refined transcript event from BFF to UI.
    - emitted after whisperx callback merge
-   - semantics: refined updates replace overlapping live window."
+   - semantics: refined updates replace overlapping live window.
+
+   Note: `:supersedes_seq` is optional and may be present when workers link
+   refined segments to realtime seq numbers." 
   (mu/merge
     BaseWsEvent
     [:map
@@ -97,7 +100,8 @@
      [:end_s Sec]
      [:text :string]
      [:lang {:optional true} LangCode]
-     [:speaker {:optional true} SpeakerLabel]]))
+     [:speaker {:optional true} SpeakerLabel]
+     [:supersedes_seq {:optional true} [:sequential NonNegInt]]]))
 
 (def StatusEvent
   "Status event for UI debug and lifecycle."
@@ -215,4 +219,3 @@
   [schema value]
   (let [coerced (m/coerce schema value json-transformer)]
     (validate! schema coerced)))
-
