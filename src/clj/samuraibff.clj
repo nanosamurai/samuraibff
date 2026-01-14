@@ -19,6 +19,9 @@
     [samuraibff.http.router]
     [samuraibff.http.server]
     [samuraibff.http.ui]
+    [samuraibff.http.internal]
+    [samuraibff.kafka.producer]
+    [samuraibff.kafka.refined-consumer]
     [samuraibff.ws.audio]
     [samuraibff.ws.events]
     [samuraibff.ws.registry]))

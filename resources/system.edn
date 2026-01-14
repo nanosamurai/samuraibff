@@ -28,24 +28,37 @@
           :client-id "samuraibff"
           :acks "all"
           :compression-type "zstd"
+          ;; consumer group id for transcripts.refined
+          :consumer-group-id "samuraibff-refined"
           :topics {:audio-raw "audio.raw"
-                   ;; refined will come via HTTP callback instead of Kafka consume
-                   :refined-callback "transcripts.refined.callback"}}
+                   :refined "transcripts.refined"}}
+
+  ;; --- BFF instance identity (reply-to) ---
+  ;; In production you MUST set :origin-uri to an address other BFF instances can reach.
+  ;; In dev, if omitted, we derive from [:http :host]/[:http :port].
+  :bff {:origin-uri "http://127.0.0.1:8000"
+        :callback-path "/internal/refined"}
 
   ;; --- gRPC ---
   :grpc {:rtservice-addr "localhost:50052"}}
 
  ;; --- Integrant components ---
 
- ;; NOTE: DB / Kafka / session-registry components are intentionally not
- ;; wired yet (separate PR). Keep this system.edn minimal so `samuraibff.system`
- ;; can start the HTTP+WS+gRPC pipeline.
+ ;; NOTE: DB/session persistence is intentionally not wired yet.
+
+ :samuraibff/kafka-producer
+ {:config #ig/ref :samuraibff/config}
 
  :samuraibff/grpc-client
  {:config #ig/ref :samuraibff/config}
 
  :samuraibff/ws-registry
- {:config #ig/ref :samuraibff/config}
+ {:config #ig/ref :samuraibff/config
+  :kafka-producer #ig/ref :samuraibff/kafka-producer}
+
+ :samuraibff/refined-consumer
+ {:config #ig/ref :samuraibff/config
+  :ws-registry #ig/ref :samuraibff/ws-registry}
 
  :samuraibff/router
  {:config      #ig/ref :samuraibff/config

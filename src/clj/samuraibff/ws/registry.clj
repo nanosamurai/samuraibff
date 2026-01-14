@@ -56,10 +56,11 @@
     [integrant.core :as ig]
     [org.corfield.logging4j2 :as log]
     [samuraibff.grpc.client :as grpc]
+    [samuraibff.kafka.producer :as kafka.producer]
     [samuraibff.schemas :as schemas])
   (:import
     (com.google.protobuf ByteString)
-    (samuraibff.proto AsrType AudioChunk)))
+    (samuraibff.proto AsrType AudioChunk RefinedEvent)))
 
 (def ^:private default-sample-rate
   "Default sample rate for PCM16 audio when not specified by the client."
@@ -82,6 +83,8 @@
   "Increment the given atom and return the new value."
   [seq*]
   (swap! seq* inc))
+
+(declare publish!)
 
 (defn- status-event
   "Build a status WS event map.
@@ -146,22 +149,76 @@
   "Build a protobuf AudioChunk message.
 
   Inputs:
-  - session-id   string
-  - lang         string
-  - sample-rate  int
-  - chunk-seq    integer
-  - bytes        byte-array
+  - session-id      string
+  - lang            string
+  - sample-rate     int
+  - chunk-seq       integer
+  - bytes           byte-array
+  - bff-origin-uri  string (base URI, e.g. http://127.0.0.1:8000)
 
   Returns: `samuraibff.proto.AudioChunk`"
-  [session-id lang sample-rate chunk-seq bytes]
-  (-> (AudioChunk/newBuilder)
-      (.setSessionId session-id)
-      (.setSeq (long chunk-seq))
-      (.setT0Ns (System/nanoTime))
-      (.setSampleRate (int sample-rate))
-      (.setLang (or lang ""))
-      (.setPcm16Le (ByteString/copyFrom ^bytes bytes))
-      (.build)))
+  [session-id lang sample-rate chunk-seq bytes bff-origin-uri]
+  (cond-> (-> (AudioChunk/newBuilder)
+              (.setSessionId session-id)
+              (.setSeq (long chunk-seq))
+              (.setT0Ns (System/nanoTime))
+              (.setSampleRate (int sample-rate))
+              (.setLang (or lang ""))
+              (.setPcm16Le (ByteString/copyFrom ^bytes bytes)))
+    (some? bff-origin-uri) (.setBffOriginUri (str bff-origin-uri))
+    :always (.build)))
+
+(defn- resolve-bff-origin-uri
+  "Resolve the base URI that this BFF instance should advertise in outgoing
+  Kafka messages as `bff_origin_uri`.
+
+  Precedence:
+  1) `[:bff :origin-uri]` from config (recommended in production)
+  2) derived from `[:http :host]` and `[:http :port]` (dev convenience)
+
+  Returns: string or nil." 
+  [config]
+  (or (get-in config [:bff :origin-uri])
+      (let [port (get-in config [:http :port])
+            host0 (or (get-in config [:http :host]) "127.0.0.1")
+            host (if (= host0 "0.0.0.0") "127.0.0.1" host0)]
+        (when port
+          (str "http://" host ":" port)))))
+
+(defn- refined-event->map
+  "Convert a protobuf RefinedEvent message into a WS event map.
+
+  Output matches (and is validated against) `samuraibff.schemas/RefinedEvent`." 
+  [seq* ^RefinedEvent ev]
+  {:type "refined"
+   :session_id (.getSessionId ev)
+   :seq (next-seq! seq*)
+   :ts_ms (now-ms)
+   :start_s (.getStartS ev)
+   :end_s (.getEndS ev)
+   :text (.getText ev)
+   :lang (.getLang ev)
+   :speaker (.getSpeaker ev)
+   :supersedes_seq (mapv long (.getSupersedesSeqList ev))})
+
+(defn publish-refined-proto!
+  "Publish a refined transcript event to the local WS session (if present).
+
+  This is used by:
+  - the internal callback endpoint (`POST /internal/refined`)
+  - the local Kafka refined consumer (fast-path when the consumer happens to be
+    on the same instance as the UI session)
+
+  Inputs:
+  - ws-registry: registry component
+  - ev: protobuf `samuraibff.proto.RefinedEvent`
+
+  Returns: boolean (true if delivered to a local session, false otherwise)." 
+  [{:keys [sessions] :as ws-registry} ^RefinedEvent ev]
+  (let [session-id (.getSessionId ev)
+        session (get @sessions session-id)]
+    (when session
+      (publish! ws-registry session (refined-event->map (:seq* session) ev)))))
 
 (defn- new-session
   "Create a new in-memory session state entry.
@@ -430,12 +487,19 @@
 
                 :else
                 (let [chunk-id (next-seq! (:chunk-seq* session))
+                      bff-origin-uri (resolve-bff-origin-uri (:config registry))
                       audio-chunk (build-chunk
                                     session-id
                                     (:lang session)
                                     (:sample-rate session)
                                     chunk-id
-                                    v)]
+                                    v
+                                    bff-origin-uri)]
+                  ;; Publish to Kafka for near-realtime refinement workers.
+                  (when-let [kafka-producer (:kafka-producer registry)]
+                    (kafka.producer/send-audio-chunk! kafka-producer session-id audio-chunk))
+
+                  ;; Forward to realtime gRPC ASR service.
                   (try
                     ((:send! stream) audio-chunk)
                     (catch Exception e
@@ -448,8 +512,9 @@
     session))
 
 (defmethod ig/init-key :samuraibff/ws-registry
-  [_ {:keys [config]}]
+  [_ {:keys [config kafka-producer]}]
   {:config config
+   :kafka-producer kafka-producer
    :sessions (atom {})})
 
 (defmethod ig/halt-key! :samuraibff/ws-registry

@@ -30,6 +30,16 @@ For the data model, please look at C:\Users\miros\PycharmProjects\drsynth\proto\
     * per-session channels (`:audio-ch`, `:events-ch`) and `mult` for event fanout
     * per-session monotonic `:seq` and `:chunk-seq`
     * backpressure: drops audio frames when buffer is full (with throttled warning logging)
+    * can publish refined events into existing local sessions (`publish-refined-proto!`)
+* **Kafka producer** (Integrant key `:samuraibff/kafka-producer`)
+    * publishes `AudioChunk` protobuf messages to Kafka topic `audio.raw`
+    * includes `lang` and `bff_origin_uri` (reply-to) in produced messages
+* **Kafka refined consumer** (Integrant key `:samuraibff/refined-consumer`)
+    * consumes `RefinedEvent` protobuf messages from Kafka topic `transcripts.refined`
+    * if session exists locally: delivers to WS
+    * otherwise forwards to origin BFF via `POST /internal/refined` (protobuf body)
+* **Internal HTTP callback endpoint**
+    * `POST /internal/refined` – accepts protobuf `RefinedEvent` and delivers it only if session exists locally
 * **gRPC client** to rtservice (Integrant key `:samuraibff/grpc-client`)
     * opens bidirectional stream and forwards `AudioChunk` messages
     * converts incoming `AsrEvent` to WS event maps
@@ -59,9 +69,10 @@ For the data model, please look at C:\Users\miros\PycharmProjects\drsynth\proto\
 ### Pending / not yet implemented (planned PRs)
 
 * OIDC / Keycloak authentication and tenant/user derivation
-* Kafka integration (publish audio chunks, etc.)
+* Kafka integration (further work)
+    * end-to-end worker compatibility (see notes: worker must copy `bff_origin_uri`)
 * Postgres persistence (sessions/transcripts)
-* HTTP callback for refined transcripts (whisperx worker) + merge logic
+* Refined transcript merge logic (windowing / overlap resolution) + UI rendering polish
 * OpenAPI/Swagger polishing for non-WS endpoints (WS not covered by OpenAPI)
 * Operational endpoints `/ready`, `/metrics`
 
@@ -111,6 +122,11 @@ For the data model, please look at C:\Users\miros\PycharmProjects\drsynth\proto\
     * Use `let` bindings with meaningful names; avoid “x/y/z” except in tight math code.
     * Never hide side effects: name side-effecting fns with verbs (`start!`, `stop!`, `persist!`, `publish!`, `send!`).
     * Keep logs structured and consistent (include `session-id`, `tenant-id`, `user-id` when applicable).
+
+
+### Use of replace_in_file
+
+* For replace_in_file, ensure you use correct indentation. If search and replace fails after 2 attempts, fall back to write_to_file or ask the user for help.
 
 ---
 

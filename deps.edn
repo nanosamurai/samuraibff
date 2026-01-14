@@ -45,7 +45,7 @@
   io.grpc/grpc-netty-shaded         {:mvn/version "1.77.0"}
   io.grpc/grpc-protobuf             {:mvn/version "1.77.0"}
   io.grpc/grpc-stub                 {:mvn/version "1.77.0"}
-  com.google.protobuf/protobuf-java {:mvn/version "4.33.2"}}
+  com.google.protobuf/protobuf-java {:mvn/version "4.33.4"}}
 
  :aliases
  {:nrepl {:extra-paths ["src/clj" "resources" "test"]

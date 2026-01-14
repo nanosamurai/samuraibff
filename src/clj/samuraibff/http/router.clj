@@ -19,6 +19,7 @@
    [reitit.core]
    [samuraibff.ws.audio :as ws.audio]
    [samuraibff.ws.events :as ws.events]
+   [samuraibff.http.internal :as http.internal]
    [samuraibff.http.ui :as http.ui]
    [reitit.ring.coercion :as rrc]
    [reitit.coercion.malli]
@@ -81,6 +82,11 @@
 
            ;; Health check endpoint
            (healthcheck-route)
+
+           ;; Internal callbacks (between BFF instances)
+           ["/internal" {:tags ["internal"]}
+            ["/refined" {:post {:summary "BFF-to-BFF refined callback (protobuf)"
+                                :handler (http.internal/refined-callback-handler deps)}}]]
 
            ;; WebSockets
            ["/ws" {:tags ["ws"]}
