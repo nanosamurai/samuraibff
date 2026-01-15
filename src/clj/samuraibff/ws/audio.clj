@@ -14,6 +14,7 @@
     [clojure.string :as str]
     [org.corfield.logging4j2 :as log]
     [org.httpkit.server :as http]
+    [samuraibff.ws.auth :as ws.auth]
     [samuraibff.ws.registry :as ws.registry])
   (:import
     (java.nio ByteBuffer)))
@@ -49,15 +50,20 @@
   "Return a Ring handler that upgrades `/ws/audio` connections and ingests binary
   audio frames.
 
+  Auth:
+  - If [:auth :required?] is true, the request must include a valid access token
+    (Authorization header, ?token=..., or auth cookie) or it is rejected with 403.
+
   Query parameters:
   - session_id   (required) string
   - lang         (optional) string
   - sample_rate  (optional) integer (defaults to 16000)
 
   Dependencies:
+  - `:config`      (required)
   - `:ws-registry` (required)
   - `:grpc`        (required) – passed through to start the gRPC stream" 
-  [{:keys [ws-registry grpc]}]
+  [{:keys [config ws-registry grpc]}]
   (fn [{:keys [params] :as request}]
     (let [session-id (let [val (or (get params :session_id) (get params "session_id"))]
                        (when (and val (not (str/blank? (str val)))) (str val)))
@@ -68,36 +74,38 @@
         {:status 400
          :headers {"content-type" "application/json"}
          :body "{\"error\":\"session_id is required\"}"}
-        (do
-          (let [session (ws.registry/ensure-session! ws-registry session-id {:lang lang
-                                                                            :sample-rate sample-rate})]
-            (ws.registry/start-rt! ws-registry grpc session)
-            ;; IMPORTANT: return the AsyncChannel from `http/as-channel`.
-            ;; Returning nil can cause some Ring stacks/middlewares to close the
-            ;; connection immediately even though `as-channel` was called.
-            (http/as-channel
-              request
-              {:on-open (fn [_ch]
-                          (ws.registry/mark-audio-connected! ws-registry session)
-                          (log/info "WS /ws/audio connected" {:session-id session-id}))
-               :on-receive (fn [_ payload]
-                             (cond
-                               (instance? ByteBuffer payload)
-                               (let [buf ^ByteBuffer payload
-                                     arr (byte-array (.remaining buf))]
-                                 (.get buf arr)
-                                 (ws.registry/offer-audio! ws-registry session arr))
+        (let [{:keys [ok? response]} (ws.auth/require-auth-or-continue config request)]
+          (if-not ok?
+            response
+            (let [session (ws.registry/ensure-session! ws-registry session-id {:lang lang
+                                                                              :sample-rate sample-rate})]
+              (ws.registry/start-rt! ws-registry grpc session)
+              ;; IMPORTANT: return the AsyncChannel from `http/as-channel`.
+              ;; Returning nil can cause some Ring stacks/middlewares to close the
+              ;; connection immediately even though `as-channel` was called.
+              (http/as-channel
+                request
+                {:on-open (fn [_ch]
+                            (ws.registry/mark-audio-connected! ws-registry session)
+                            (log/info "WS /ws/audio connected" {:session-id session-id}))
+                 :on-receive (fn [_ payload]
+                               (cond
+                                 (instance? ByteBuffer payload)
+                                 (let [buf ^ByteBuffer payload
+                                       arr (byte-array (.remaining buf))]
+                                   (.get buf arr)
+                                   (ws.registry/offer-audio! ws-registry session arr))
 
-                               (bytes? payload)
-                               (ws.registry/offer-audio! ws-registry session payload)
+                                 (bytes? payload)
+                                 (ws.registry/offer-audio! ws-registry session payload)
 
-                               :else
-                               (do
-                                 (log/warn "Non-binary frame received on /ws/audio" {:session-id session-id
-                                                                                     :received (str (type payload))})
-                                 ;; no close: keep socket open; client bug should be visible via logs
-                                 false)))
-               :on-close (fn [_ch status]
-                           (log/info "WS /ws/audio closed" {:session-id session-id
-                                                            :status status})
-                           (ws.registry/mark-audio-disconnected! ws-registry session))})))))))
+                                 :else
+                                 (do
+                                   (log/warn "Non-binary frame received on /ws/audio" {:session-id session-id
+                                                                                       :received (str (type payload))})
+                                   ;; no close: keep socket open; client bug should be visible via logs
+                                   false)))
+                 :on-close (fn [_ch status]
+                             (log/info "WS /ws/audio closed" {:session-id session-id
+                                                              :status status})
+                             (ws.registry/mark-audio-disconnected! ws-registry session))}))))))))
