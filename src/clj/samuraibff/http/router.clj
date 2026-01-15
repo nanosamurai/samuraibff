@@ -19,6 +19,7 @@
    [reitit.core]
    [samuraibff.ws.audio :as ws.audio]
    [samuraibff.ws.events :as ws.events]
+   [samuraibff.http.auth :as http.auth]
    [samuraibff.http.internal :as http.internal]
    [samuraibff.http.ui :as http.ui]
    [reitit.ring.coercion :as rrc]
@@ -32,7 +33,8 @@
    [reitit.ring.middleware.parameters :as parameters]
    [ring.middleware.content-type :refer [wrap-content-type]]
    [ring.middleware.not-modified :refer [wrap-not-modified]]
-   [ring.middleware.resource :refer [wrap-resource]]))
+   [ring.middleware.resource :refer [wrap-resource]]
+   [ring.middleware.cookies :refer [wrap-cookies]]))
 
 ;; --- Schemas ---
 
@@ -63,20 +65,38 @@
   "Create and return a Reitit router with all routes.
 
   deps - map with keys:
+  - :config      global config
   - :grpc        gRPC client component
   - :ws-registry ws registry component
 
   Returns a Ring handler function." 
   [deps]
-  (let [router
+  (let [config (:config deps)
+        wrap-authenticate (fn [handler]
+                            (http.auth/wrap-authenticate handler config))
+        wrap-require-auth (fn [handler]
+                            (http.auth/wrap-require-auth handler config))
+        router
         (ring/router
           [["/" {:get {:handler http.ui/index-handler}}]
            ["/recordings" {:get {:handler http.ui/index-handler}}]
            ["/recordings/:session_id" {:get {:handler http.ui/index-handler}}]
            ["/live" {:get {:handler http.ui/index-handler}}]
 
+           ;; Auth endpoints (browser login flow)
+           ["/auth" {:tags ["auth"]}
+            ["/login" {:get {:summary "Start OIDC login (redirect to Keycloak)"
+                             :handler (http.auth/login-handler config)}}]
+            ["/callback" {:get {:summary "OIDC callback endpoint (code -> token)"
+                                :handler (http.auth/callback-handler config)}}]
+            ["/logout" {:post {:summary "Logout (clear auth cookie)"
+                               :handler (http.auth/logout-handler config)}}]]
+
            ;; Small UI helpers
-           ["/api" {:tags ["api"]}
+           ["/api" {:tags ["api"]
+                    :middleware [wrap-require-auth]}
+            ["/me" {:get {:summary "Current authenticated user"
+                          :handler (http.auth/me-handler config)}}]
             ["/sessions" {:post {:summary "Create a new session id"
                                  :handler http.ui/create-session-handler}}]]
 
@@ -98,6 +118,8 @@
                   :malli/options {:error-keys #(mu/keys HealthCheckResponse)}
                   :swagger {:id ::api}
                   :middleware [parameters/parameters-middleware ; decoding query & form params
+                               wrap-cookies
+                               wrap-authenticate
                                muuntaja/format-middleware       ; content negotiation
                                exception/exception-middleware   ; converting exceptions to HTTP responses
                                rrc/coerce-request-middleware
