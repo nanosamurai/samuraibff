@@ -38,6 +38,10 @@
 (defonce recordings*
   (atom []))
 
+(defonce auth*
+  (atom {:status :unknown
+         :detail nil}))
+
 (def ^:private max-log-lines 200)
 (def ^:private max-segments 400)
 
@@ -139,6 +143,18 @@
   "Clear transcript segments."
   []
   (reset! segments* [])
+  nil)
+
+(defn set-auth-status!
+  "Set authentication status.
+
+  Inputs:
+  - status: keyword (:unknown | :loading | :authenticated | :anonymous)
+  - detail: optional map (e.g. {:user {...} :tenant_id \"...\"})
+
+  Returns: nil." 
+  [status detail]
+  (reset! auth* {:status status :detail detail})
   nil)
 
 (defn upsert-asr!

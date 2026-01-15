@@ -16,6 +16,7 @@
     [jsonista.core :as json]
     [org.corfield.logging4j2 :as log]
     [org.httpkit.server :as http]
+    [samuraibff.ws.auth :as ws.auth]
     [samuraibff.ws.registry :as ws.registry]))
 
 (def ^:private json-mapper
@@ -35,10 +36,15 @@
 (defn handler
   "Return a Ring handler that upgrades `/ws/events` and streams JSON events.
 
+  Auth:
+  - If [:auth :required?] is true, the request must include a valid access token
+    (Authorization header, ?token=..., or auth cookie) or it is rejected with 403.
+
   Dependencies:
+  - `:config`      (required)
   - `:ws-registry` (required)
   - `:grpc`        (required)" 
-  [{:keys [ws-registry grpc]}]
+  [{:keys [config ws-registry grpc]}]
   (fn [{:keys [params] :as request}]
     (let [session-id (let [val (or (get params :session_id) (get params "session_id"))]
                        (when (and val (not (str/blank? (str val)))) (str val)))]
@@ -46,50 +52,52 @@
         {:status 400
          :headers {"content-type" "application/json"}
          :body "{\"error\":\"session_id is required\"}"}
-        (do
-          (let [session (ws.registry/ensure-session! ws-registry session-id {})
-                out-ch (async/chan 64)
-                stop?* (atom false)]
-            (ws.registry/tap-events! session out-ch)
-            ;; IMPORTANT: return the AsyncChannel from `http/as-channel`.
-            ;; Returning nil can cause some Ring stacks/middlewares to close the
-            ;; connection immediately even though `as-channel` was called.
-            (http/as-channel
-              request
-              {:on-open (fn [ch]
-                          (ws.registry/mark-events-connected! ws-registry session)
-                          (log/info "WS /ws/events connected" {:session-id session-id})
+        (let [{:keys [ok? response]} (ws.auth/require-auth-or-continue config request)]
+          (if-not ok?
+            response
+            (let [session (ws.registry/ensure-session! ws-registry session-id {})
+                  out-ch (async/chan 64)
+                  stop?* (atom false)]
+              (ws.registry/tap-events! session out-ch)
+              ;; IMPORTANT: return the AsyncChannel from `http/as-channel`.
+              ;; Returning nil can cause some Ring stacks/middlewares to close the
+              ;; connection immediately even though `as-channel` was called.
+              (http/as-channel
+                request
+                {:on-open (fn [ch]
+                            (ws.registry/mark-events-connected! ws-registry session)
+                            (log/info "WS /ws/events connected" {:session-id session-id})
 
-                          ;; Send events coming from `out-ch` to this websocket.
-                          ;; This runs on a core.async thread pool, not the WS thread.
-                          (async/go-loop []
-                            (when-not @stop?*
-                              (if-let [event (async/<! out-ch)]
-                                (do
-                                  (try
-                                    (http/send! ch (write-json event))
-                                    (catch Exception e
-                                      (log/warn e "Failed sending ws event" {:session-id session-id
-                                                                            :event-type (:type event)})))
-                                  (recur))
-                                ;; channel closed
-                                (reset! stop?* true))))
+                            ;; Send events coming from `out-ch` to this websocket.
+                            ;; This runs on a core.async thread pool, not the WS thread.
+                            (async/go-loop []
+                              (when-not @stop?*
+                                (if-let [event (async/<! out-ch)]
+                                  (do
+                                    (try
+                                      (http/send! ch (write-json event))
+                                      (catch Exception e
+                                        (log/warn e "Failed sending ws event" {:session-id session-id
+                                                                              :event-type (:type event)})))
+                                    (recur))
+                                  ;; channel closed
+                                  (reset! stop?* true))))
 
-                          ;; Publish a monotonic status event for UI.
-                          (ws.registry/publish! ws-registry session
-                                                {:type "status"
-                                                 :session_id session-id
-                                                 :seq (swap! (:seq* session) inc)
-                                                 :ts_ms (System/currentTimeMillis)
-                                                 :status "connected"
-                                                 :detail "events-subscribed"})
+                            ;; Publish a monotonic status event for UI.
+                            (ws.registry/publish! ws-registry session
+                                                  {:type "status"
+                                                   :session_id session-id
+                                                   :seq (swap! (:seq* session) inc)
+                                                   :ts_ms (System/currentTimeMillis)
+                                                   :status "connected"
+                                                   :detail "events-subscribed"})
 
-                          ;; Ensure gRPC stream is running once events are subscribed.
-                          (ws.registry/start-rt! ws-registry grpc session))
-               :on-close (fn [_ch status]
-                           (reset! stop?* true)
-                           (ws.registry/untap-events! session out-ch)
-                           (async/close! out-ch)
-                           (ws.registry/mark-events-disconnected! ws-registry session)
-                           (log/info "WS /ws/events closed" {:session-id session-id
-                                                             :status status}))})))))))
+                            ;; Ensure gRPC stream is running once events are subscribed.
+                            (ws.registry/start-rt! ws-registry grpc session))
+                 :on-close (fn [_ch status]
+                             (reset! stop?* true)
+                             (ws.registry/untap-events! session out-ch)
+                             (async/close! out-ch)
+                             (ws.registry/mark-events-disconnected! ws-registry session)
+                             (log/info "WS /ws/events closed" {:session-id session-id
+                                                               :status status}))}))))))))

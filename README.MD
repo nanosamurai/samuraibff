@@ -16,7 +16,74 @@ This repo currently focuses on:
   - `POST /internal/refined` with `application/x-protobuf`
 - push refined transcript segments to the UI over `/ws/events` as `{"type":"refined", ...}` events
 
-> OIDC/Keycloak and Postgres persistence are **not implemented yet**.
+## Auth (OIDC / Keycloak)
+
+OIDC login is implemented similarly to the original Python BFF (drsynth).
+
+### Endpoints
+
+Browser (Authorization Code + PKCE):
+- `GET /auth/login?next=/live` – redirect to Keycloak login; stores PKCE cookies
+- `GET /auth/callback?code=...&state=...` – exchanges `code` for tokens; stores access token in an **HttpOnly cookie**
+- `POST /auth/logout` – clears the access token cookie
+
+API helpers:
+- `GET /api/me` – returns current user info (or unauthenticated)
+
+### Tokens / transport
+
+The backend accepts access tokens from:
+1) `Authorization: Bearer <token>` header
+2) `?token=<token>` query param (useful for WS/dev)
+3) HttpOnly cookie (default name: `access_token`)
+
+WebSockets `/ws/events` and `/ws/audio` enforce auth **before upgrade** when `:auth {:required? true}`.
+
+### Configuration
+
+See `resources/system.edn`:
+
+- `:auth`
+  - `:required?` (boolean)
+  - `:issuer` (Keycloak realm issuer URL)
+- `:audience` (JWT audience / usually the Keycloak client id)
+    - Note: Some Keycloak setups emit access tokens with `aud=["account"]` and put the real client id into `azp`.
+      We accept either `aud` containing the expected value OR `azp == expected`.
+  - `:client-id` (OAuth client id for `/auth/login`; defaults to `:audience`)
+  - `:cookie-name` (default: `access_token`)
+- `:bff :origin-uri`
+  - Used to build the OIDC `redirect_uri` (`<origin-uri>/auth/callback`).
+  - Keycloak matches this **exactly** against client "Valid Redirect URIs".
+
+### How to debug the redirect_uri (curl)
+
+You can see the exact Keycloak redirect URL (and therefore the computed `redirect_uri`) without using the browser:
+
+```bash
+curl -s -D - -o NUL --max-redirs 0 "http://localhost:8000/auth/login?next=%2Flive"
+```
+
+Look at the `Location:` header. It should contain:
+
+- `redirect_uri=http%3A%2F%2Flocalhost%3A8000%2Fauth%2Fcallback` (or `127.0.0.1` depending on your config)
+
+If Keycloak shows `Invalid parameter: redirect_uri`, fix either:
+- `resources/system.edn` `:bff :origin-uri`, or
+- Keycloak client settings → **Valid Redirect URIs** (e.g. `http://localhost:8000/*`).
+
+### Note on automated auth testing
+
+Right now our automated test suite covers auth mechanics (token extraction and WS rejection when auth is required),
+but it does **not** run a real Keycloak.
+
+A good next step is to add a dockerized Keycloak to integration tests (e.g. via **testcontainers-clj**) so we can:
+- create a realm + client dynamically
+- fetch a real token from Keycloak
+- validate the full `/auth/login` → `/auth/callback` flow end-to-end
+
+(We haven't implemented that yet.)
+
+> Postgres persistence is **not implemented yet**.
 
 ## Running the server
 

@@ -38,8 +38,11 @@
   org.apache.kafka/kafka-clients    {:mvn/version "4.1.1"}
 
   ;; --- Auth / OIDC (Keycloak) ---
+  ;; NOTE: keycloak-clojure is kept for now (may still be useful for admin APIs),
+  ;; but our JWT verification uses Nimbus directly for transparency and control.
   keycloak-clojure/keycloak-clojure {:mvn/version "1.31.5"
                                      :exclusions [com.google.cloud/google-cloud-secretmanager]}
+  com.nimbusds/nimbus-jose-jwt      {:mvn/version "10.7"}
 
   ;; --- gRPC client stack (Java stubs) ---
   io.grpc/grpc-netty-shaded         {:mvn/version "1.77.0"}

@@ -1,0 +1,64 @@
+(ns samuraibff.ui.auth
+  "OIDC/auth helpers for the CLJS UI.
+
+  We support a *hybrid* model:
+  - preferred: backend-managed login that stores access token in HttpOnly cookie
+    (via /auth/login + /auth/callback)
+  - optional/dev: if `sessionStorage.access_token` exists, WS connections will
+    also include it as `?token=...` (non-cookie clients)
+
+  Public API:
+  - fetch-me!
+  - login!
+  - logout!"
+  (:require
+    [samuraibff.ui.store :as store]))
+
+(defn fetch-me!
+  "Fetch current user info from GET /api/me.
+
+  Returns: Promise" 
+  []
+  (store/set-auth-status! :loading nil)
+  (-> (js/fetch "/api/me" #js {:method "GET"})
+      (.then (fn [res]
+               (if (.-ok res)
+                 (.json res)
+                 (js/Promise.reject (js/Error. (str "HTTP " (.-status res)))))))
+      (.then (fn [body]
+               (let [authed? (boolean (aget body "authenticated"))]
+                 (if authed?
+                   (store/set-auth-status! :authenticated {:user (js->clj (aget body "user") :keywordize-keys true)
+                                                           :tenant_id (aget body "tenant_id")})
+                   (store/set-auth-status! :anonymous nil))
+                 body)))
+      (.catch (fn [e]
+                ;; If /api/me is protected and returns 401/403, treat as anonymous.
+                (store/set-auth-status! :anonymous nil)
+                e))))
+
+(defn login!
+  "Start login flow by navigating to /auth/login.
+
+  We keep routing simple by full-page redirect.
+
+  Inputs:
+  - next-path: string (e.g. \"/live\")" 
+  [next-path]
+  (let [next-path (or next-path "/recordings")
+        url (str "/auth/login?next=" (js/encodeURIComponent next-path))]
+    (set! (.-location js/window) url)))
+
+(defn logout!
+  "Logout by POSTing to /auth/logout (clears cookie).
+
+  Returns: Promise" 
+  []
+  (-> (js/fetch "/auth/logout" #js {:method "POST"})
+      (.then (fn [_]
+               (store/set-auth-status! :anonymous nil)
+               (store/append-log! "[auth] logged out")
+               true))
+      (.catch (fn [e]
+                (store/append-log! (str "[auth] logout failed: " e))
+                (throw e)))))

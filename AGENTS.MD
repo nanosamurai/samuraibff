@@ -68,7 +68,20 @@ For the data model, please look at C:\Users\miros\PycharmProjects\drsynth\proto\
 
 ### Pending / not yet implemented (planned PRs)
 
-* OIDC / Keycloak authentication and tenant/user derivation
+* Postgres persistence (sessions/transcripts)
+* Refined transcript merge logic (windowing / overlap resolution) + UI rendering polish
+* OpenAPI/Swagger polishing for non-WS endpoints (WS not covered by OpenAPI)
+* Operational endpoints `/ready`, `/metrics`
+
+### Recently implemented
+
+* **OIDC / Keycloak authentication** (mirrors drsynth Python BFF)
+    * browser login flow: `GET /auth/login` → Keycloak → `GET /auth/callback` (PKCE)
+    * stores access token in HttpOnly cookie (`:auth :cookie-name`, default `access_token`)
+    * `GET /api/me` to fetch current user (used by UI)
+    * `POST /auth/logout` clears cookie
+    * WS `/ws/audio` and `/ws/events` enforce auth **before upgrade** when `:auth {:required? true}`
+
 * Kafka integration (further work)
     * end-to-end worker compatibility (see notes: worker must copy `bff_origin_uri`)
 * Postgres persistence (sessions/transcripts)
