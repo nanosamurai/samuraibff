@@ -16,6 +16,10 @@
   - path: string, e.g. \"/ws/events\"
   - query-params: map string->string
 
+  Behavior:
+  - If sessionStorage.access_token is present, it is appended as `token=`.
+    This supports non-cookie clients / dev usage.
+
   Returns: string (absolute ws://... URL)." 
   [path query-params]
   (let [loc (.-location js/window)
@@ -24,6 +28,11 @@
         qs (js/URLSearchParams.)]
     (doseq [[k v] query-params]
       (.set qs (name k) (str v)))
+
+    (when-let [t (.getItem (.-sessionStorage js/window) "access_token")]
+      (when (and (string? t) (not (empty? t)))
+        (.set qs "token" t)))
+
     (str proto "//" host path "?" (.toString qs))))
 
 (defn fmt-sec

@@ -12,6 +12,7 @@
     [clojure.string :as str]
     [samuraibff.ui.api :as api]
     [samuraibff.ui.audio :as audio]
+    [samuraibff.ui.auth :as auth]
     [samuraibff.ui.hooks :as hooks]
     [samuraibff.ui.router :as router]
     [samuraibff.ui.store :as store]
@@ -336,12 +337,38 @@
 (defn topbar
   "Top application bar (logo + product name + breadcrumbs)." 
   [route]
-  [:header {:class "topbar"}
-   [:div {:class "brand"}
-    [:img {:class "logo" :src "/img/nonosamurai_art.jpg" :alt "nanosamur.ai"}]
-    [:div {:class "brand-name"} "nanosamur.ai"]]
-   [breadcrumbs route]
-   [:div {:class "topbar-right"}]])
+  (let [{:keys [status detail]} (hooks/use-atom store/auth*)
+        user (get detail :user)
+        tenant-id (get detail :tenant_id)]
+    [:header {:class "topbar"}
+     [:div {:class "brand"}
+      [:img {:class "logo" :src "/img/nonosamurai_art.jpg" :alt "nanosamur.ai"}]
+      [:div {:class "brand-name"} "nanosamur.ai"]]
+     [breadcrumbs route]
+     [:div {:class "topbar-right"}
+      (cond
+        (= status :loading)
+        [:span {:class "muted"} "auth: loading…"]
+
+        (= status :authenticated)
+        [:div {:class "row"}
+         [:span {:class "badge ok"}
+          (or (:preferred_username user) (:email user) (:sub user) "user")]
+         (when tenant-id
+           [:span {:class "badge muted"} (str "tenant " tenant-id)])
+         [:button {:class "btn"
+                   :on-click (fn [_]
+                               (-> (auth/logout!)
+                                   (.then (fn [_] (auth/fetch-me!)))))}
+          "Logout"]]
+
+        :else
+        [:div {:class "row"}
+         [:span {:class "badge muted"} "anonymous"]
+         [:button {:class "btn primary"
+                   :on-click (fn [_]
+                               (auth/login! (router/route->href route)))}
+          "Login"]])]]))
 
 (defn app
   "Root app component." 

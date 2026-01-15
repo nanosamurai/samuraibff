@@ -4,6 +4,7 @@
   Shadow-cljs builds this namespace into resources/public/js/main.js (see shadow-cljs.edn)."
   (:require
     [io.factorhouse.hsx.core :as hsx]
+    [samuraibff.ui.auth :as auth]
     [samuraibff.ui.components :as components]
     [samuraibff.ui.router :as router]
     [samuraibff.ui.store :as store]
@@ -24,6 +25,10 @@
   []
   (store/append-log! "[boot] UI init")
   (router/init-router!)
+  ;; Load auth status early so UI can show login/user info.
+  (-> (auth/fetch-me!)
+      (.then (fn [_] (store/append-log! "[auth] /api/me loaded")))
+      (.catch (fn [_] (store/append-log! "[auth] /api/me failed (treated as anonymous)"))))
   (render!))
 
 (defn ^:dev/after-load reload
