@@ -11,9 +11,14 @@
          :port 8000}
 
   ;; --- Auth / Keycloak ---
-  :auth {:required? false
+  :auth {:required? true
          :issuer "https://auth.nanosamur.ai/realms/nanosamurai"
+         ;; JWT audience (Keycloak client id used by the browser)
          :audience "bff-web"
+         ;; OAuth client id for /auth/login (defaults to :audience if omitted)
+         :client-id "bff-web"
+         ;; Access token cookie name used by the UI login flow
+         :cookie-name "access_token"
          ;; where to find tenant in claims; we’ll standardize on this later
          :tenant-claim "tenant_id"}
 
@@ -36,7 +41,11 @@
   ;; --- BFF instance identity (reply-to) ---
   ;; In production you MUST set :origin-uri to an address other BFF instances can reach.
   ;; In dev, if omitted, we derive from [:http :host]/[:http :port].
-  :bff {:origin-uri "http://127.0.0.1:8000"
+  ;; IMPORTANT:
+  ;; `:origin-uri` is also used to build the OIDC redirect_uri for /auth/callback.
+  ;; Keycloak compares redirect_uri *exactly* against the client's "Valid redirect URIs".
+  ;; If your Keycloak client allows only http://localhost:8000/* then keep localhost here.
+  :bff {:origin-uri "http://localhost:8000"
         :callback-path "/internal/refined"}
 
   ;; --- gRPC ---
