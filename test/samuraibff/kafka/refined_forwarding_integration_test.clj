@@ -49,17 +49,19 @@
       ;; Ensure the session exists locally (represents a connected WS session).
       (samuraibff.ws.registry/ensure-session!
         (get sys :samuraibff/ws-registry)
+        "tenant-a"
         session-id
         {:lang "en" :sample-rate 16000})
 
       ;; Tap BEFORE posting, otherwise we might miss the event.
       (let [registry (get sys :samuraibff/ws-registry)
-            session (samuraibff.ws.registry/get-session registry session-id)
+            session (samuraibff.ws.registry/get-session registry "tenant-a" session-id)
             out (async/chan 4)]
         (samuraibff.ws.registry/tap-events! session out)
         (try
           (let [ev (-> (RefinedEvent/newBuilder)
                        (.setSessionId session-id)
+                       (.setTenantId "tenant-a")
                        (.setStartS 0.0)
                        (.setEndS 1.0)
                        (.setText "hello")

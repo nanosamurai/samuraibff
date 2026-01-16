@@ -135,17 +135,19 @@
             ;; Create local session on A and tap events BEFORE producing.
             (samuraibff.ws.registry/ensure-session!
               (get sys-a :samuraibff/ws-registry)
+              "tenant-a"
               session-id
               {:lang "en" :sample-rate 16000})
 
             (let [registry-a (get sys-a :samuraibff/ws-registry)
-                  session-a (samuraibff.ws.registry/get-session registry-a session-id)
+                  session-a (samuraibff.ws.registry/get-session registry-a "tenant-a" session-id)
                   out (async/chan 8)]
               (samuraibff.ws.registry/tap-events! session-a out)
               (try
                 (with-open [p (producer bootstrap)]
                   (let [ev (-> (RefinedEvent/newBuilder)
                                (.setSessionId session-id)
+                               (.setTenantId "tenant-a")
                                (.setStartS 0.0)
                                (.setEndS 1.0)
                                (.setText "hello from kafka")

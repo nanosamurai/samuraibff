@@ -54,26 +54,32 @@
   - producer: component map returned by `:samuraibff/kafka-producer`
   - session-id: string
   - chunk: protobuf AudioChunk
+  - opts: map with optional keys:
+      - :tenant-id string (added as Kafka header `tenant_id`)
 
   Behavior:
   - sends asynchronously (does not block for ack)
   - logs a warning on callback error
 
   Returns: nil." 
-  [{:keys [^KafkaProducer producer topic-audio-raw]} session-id ^AudioChunk chunk]
-  (when (and producer topic-audio-raw)
-    (let [record (ProducerRecord. topic-audio-raw session-id (.toByteArray chunk))]
-      (.send
-        producer
-        record
-        (reify org.apache.kafka.clients.producer.Callback
-          (onCompletion [_ metadata exception]
-            (when exception
-              (log/warn exception "Kafka send failed" {:topic topic-audio-raw
-                                                       :session-id session-id
-                                                       :partition (when metadata (.partition metadata))
-                                                       :offset (when metadata (.offset metadata))})))))))
-  nil)
+  ([producer session-id chunk]
+   (send-audio-chunk! producer session-id chunk {}))
+  ([{:keys [^KafkaProducer producer topic-audio-raw]} session-id ^AudioChunk chunk {:keys [tenant-id]}]
+   (when (and producer topic-audio-raw)
+     (let [record (doto (ProducerRecord. topic-audio-raw session-id (.toByteArray chunk))
+                    (cond-> tenant-id
+                      (-> (.headers) (.add "tenant_id" (.getBytes (str tenant-id) "UTF-8")))))]
+       (.send
+         producer
+         record
+         (reify org.apache.kafka.clients.producer.Callback
+           (onCompletion [_ metadata exception]
+             (when exception
+               (log/warn exception "Kafka send failed" {:topic topic-audio-raw
+                                                        :session-id session-id
+                                                        :partition (when metadata (.partition metadata))
+                                                        :offset (when metadata (.offset metadata))})))))))
+   nil))
 
 (defmethod ig/init-key :samuraibff/kafka-producer
   [_ {:keys [config]}]

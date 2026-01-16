@@ -17,7 +17,8 @@
     [org.corfield.logging4j2 :as log]
     [org.httpkit.server :as http]
     [samuraibff.ws.auth :as ws.auth]
-    [samuraibff.ws.registry :as ws.registry]))
+    [samuraibff.ws.registry :as ws.registry]
+    [samuraibff.ws.tenant :as ws.tenant]))
 
 (def ^:private json-mapper
   (json/object-mapper {:encode-key-fn name}))
@@ -52,12 +53,13 @@
         {:status 400
          :headers {"content-type" "application/json"}
          :body "{\"error\":\"session_id is required\"}"}
-        (let [{:keys [ok? response]} (ws.auth/require-auth-or-continue config request)]
+        (let [{:keys [ok? response tenant-id]} (ws.auth/require-auth-or-continue config request)]
           (if-not ok?
             response
-            (let [session (ws.registry/ensure-session! ws-registry session-id {})
-                  out-ch (async/chan 64)
-                  stop?* (atom false)]
+            (try
+              (let [session (ws.tenant/assert-session-access! config ws-registry tenant-id session-id)
+                    out-ch (async/chan 64)
+                    stop?* (atom false)]
               (ws.registry/tap-events! session out-ch)
               ;; IMPORTANT: return the AsyncChannel from `http/as-channel`.
               ;; Returning nil can cause some Ring stacks/middlewares to close the
@@ -100,4 +102,11 @@
                              (async/close! out-ch)
                              (ws.registry/mark-events-disconnected! ws-registry session)
                              (log/info "WS /ws/events closed" {:session-id session-id
-                                                               :status status}))}))))))))
+                                                               :tenant-id (:tenant-id session)
+                                                               :status status}))}))
+              (catch clojure.lang.ExceptionInfo e
+                (let [{:keys [type]} (ex-data e)]
+                  (case type
+                    :samuraibff.ws/missing-tenant-id (ws.tenant/forbidden-response "missing-tenant-id")
+                    :samuraibff.ws/unknown-session (ws.tenant/forbidden-response "unknown-session")
+                    (throw e)))))))))))

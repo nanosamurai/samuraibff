@@ -9,6 +9,11 @@ out/
 resources/public/js/
 resources/public/js/compiled/
 node_modules/
+src/java/samuraibff/proto/
+
+# Local scratch / npm lockfile (not tracked)
+old-plan.txt
+package-lock.json
 
 # IDE and editor files
 .idea/
@@ -95,3 +100,4 @@ __pycache__/
 # Git specific
 /.git/
 
+/.nrepl-port
