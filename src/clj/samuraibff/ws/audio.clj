@@ -69,8 +69,8 @@
           (if-not ok?
             response
             (try
-              (let [session (ws.tenant/assert-tenant-match!
-                              config ws-registry session-id tenant-id
+              (let [session (ws.tenant/assert-session-access!
+                              config ws-registry tenant-id session-id
                               {:lang lang :sample-rate sample-rate})]
                 ;; Ensure gRPC stream is running once audio is connected.
                 (ws.registry/start-rt! ws-registry grpc session)
@@ -111,5 +111,4 @@
                   (case type
                     :samuraibff.ws/missing-tenant-id (ws.tenant/forbidden-response "missing-tenant-id")
                     :samuraibff.ws/unknown-session (ws.tenant/forbidden-response "unknown-session")
-                    :samuraibff.ws/tenant-mismatch (ws.tenant/forbidden-response "tenant-mismatch")
                     (throw e)))))))))))

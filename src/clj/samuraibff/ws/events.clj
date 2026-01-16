@@ -57,7 +57,7 @@
           (if-not ok?
             response
             (try
-              (let [session (ws.tenant/assert-tenant-match! config ws-registry session-id tenant-id)
+              (let [session (ws.tenant/assert-session-access! config ws-registry tenant-id session-id)
                     out-ch (async/chan 64)
                     stop?* (atom false)]
               (ws.registry/tap-events! session out-ch)
@@ -109,5 +109,4 @@
                   (case type
                     :samuraibff.ws/missing-tenant-id (ws.tenant/forbidden-response "missing-tenant-id")
                     :samuraibff.ws/unknown-session (ws.tenant/forbidden-response "unknown-session")
-                    :samuraibff.ws/tenant-mismatch (ws.tenant/forbidden-response "tenant-mismatch")
                     (throw e)))))))))))
