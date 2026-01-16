@@ -13,4 +13,9 @@
   asr:
     {:type asr, :session_id <string>, :seq <int>, :ts_ms <int>,
      :start_s <double>, :end_s <double>, :text <string>,
-     :speaker <string?>, :lang <string?>, :final <boolean>}")
+     :speaker <string?>, :lang <string?>, :final <boolean>}
+
+  refined:
+    {:type refined, :session_id <string>, :seq <int>, :ts_ms <int>,
+     :start_s <double>, :end_s <double>, :text <string>,
+     :speaker <string?>, :lang <string?>, :supersedes_seq <[int]?>}")
