@@ -34,7 +34,11 @@
   [_req]
   (if-let [_res (io/resource "public/index.html")]
     (-> (resp/resource-response "public/index.html")
-        (resp/content-type "text/html; charset=utf-8"))
+        (resp/content-type "text/html; charset=utf-8")
+        ;; Ensure UI changes (CSS/layout) are always picked up during dev.
+        ;; The JS bundle is not content-hashed, so caching can be confusing.
+        (resp/header "Cache-Control" "no-store, max-age=0")
+        (resp/header "Pragma" "no-cache"))
     (do
       (log/error "Missing public/index.html on classpath")
       {:status 500
