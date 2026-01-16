@@ -32,6 +32,20 @@ API helpers:
 
 ### Tokens / transport
 
+### Tenant isolation (current model)
+
+At the moment, isolation is enforced **per-tenant** (not per-user):
+
+- `POST /api/sessions` creates a new `session_id` server-side and binds it to the
+  authenticated tenant (`tenant_id` claim).
+- `/ws/events` and `/ws/audio` will only accept a `session_id` if it belongs to
+  the same tenant as the currently authenticated user.
+- When auth is required, **WS endpoints will not create sessions**; unknown
+  session ids are rejected.
+
+This prevents a tenant from subscribing to another tenant’s session, even if a
+`session_id` leaks.
+
 The backend accepts access tokens from:
 1) `Authorization: Bearer <token>` header
 2) `?token=<token>` query param (useful for WS/dev)
