@@ -206,18 +206,32 @@
 (defn- refined-event->map
   "Convert a protobuf RefinedEvent message into a WS event map.
 
-  Output matches (and is validated against) `samuraibff.schemas/RefinedEvent`." 
+  Output matches (and is validated against) `samuraibff.schemas/RefinedEvent`.
+
+  Debugging note:
+  - In protobuf3, missing doubles default to 0.0.
+  - If WhisperX worker forgets to populate start/end, the UI will see 0..0.
+    We log that here so it’s obvious on the backend side." 
   [seq* ^RefinedEvent ev]
-  {:type "refined"
-   :session_id (.getSessionId ev)
-   :seq (next-seq! seq*)
-   :ts_ms (now-ms)
-   :start_s (.getStartS ev)
-   :end_s (.getEndS ev)
-   :text (.getText ev)
-   :lang (.getLang ev)
-   :speaker (.getSpeaker ev)
-   :supersedes_seq (mapv long (.getSupersedesSeqList ev))})
+  (let [start (.getStartS ev)
+        end (.getEndS ev)]
+    (when (and (number? start) (number? end) (<= (double end) (double start)))
+      (log/warn "Suspicious refined times (start/end)" {:session-id (.getSessionId ev)
+                                                        :start_s start
+                                                        :end_s end
+                                                        :supersedes_seq (vec (.getSupersedesSeqList ev))
+                                                        :text-len (count (str (.getText ev)))
+                                                        :lang (.getLang ev)}))
+    {:type "refined"
+     :session_id (.getSessionId ev)
+     :seq (next-seq! seq*)
+     :ts_ms (now-ms)
+     :start_s start
+     :end_s end
+     :text (.getText ev)
+     :lang (.getLang ev)
+     :speaker (.getSpeaker ev)
+     :supersedes_seq (mapv long (.getSupersedesSeqList ev))}))
 
 (defn publish-refined-proto!
   "Publish a refined transcript event to the local WS session (if present).
