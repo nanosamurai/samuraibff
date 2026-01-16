@@ -16,8 +16,10 @@
     [samuraibff.ui.hooks :as hooks]
     [samuraibff.ui.router :as router]
     [samuraibff.ui.store :as store]
+    [samuraibff.ui.transcript :as transcript]
     [samuraibff.ui.util :as util]
-    [samuraibff.ui.ws :as ws]))
+    [samuraibff.ui.ws :as ws]
+    ["react" :as react]))
 
 (defn- status-dot-class
   "Translate websocket status keyword to CSS class name." 
@@ -89,6 +91,8 @@
       [:button {:class "btn primary"
                 :disabled (or running? (empty? (str id)))
                 :on-click (fn [_]
+                            ;; Starting a new capture run; reset transcript time base.
+                            (store/clear-segments!)
                             (store/set-running! true)
                             (store/set-recording-status! id :recording)
                             (store/append-log! "[ui] start")
@@ -121,24 +125,76 @@
      [:div {:class "hint"}
       "Tip: run backend on port 8000, then start shadow watch so /js/main.js exists."]]))
 
+(defn- message-key
+  [idx msg]
+  (str "msg-" idx "-" (:seq msg) "-" (:ts_ms msg)))
+
+(defn- badge
+  [{:keys [kind final]}]
+  (cond
+    (= kind "refined")
+    [:span {:class "badge refined"} "★ refined"]
+
+    (and (= kind "asr") (false? final))
+    [:span {:class "badge muted"} "partial"]
+
+    :else
+    nil))
+
 (defn transcript
-  "Transcript display (Slack-like feed)." 
+  "Transcript display (Slack-like feed).
+
+  Renders transcript as a message thread:
+  - avatar
+  - speaker name
+  - timestamp
+  - message bubble
+
+  Refined messages are visually marked (★ refined) and replace overlapping
+  realtime messages (handled in store)." 
   []
-  (let [segs (hooks/use-atom store/segments*)]
+  (let [msgs (hooks/use-atom store/segments*)
+        container-ref (react/useRef nil)
+        ;; Auto-scroll unless the user scrolled up.
+        auto-scroll?* (react/useRef true)]
+
+    (react/useEffect
+      (fn []
+        (when-let [el (.-current container-ref)]
+          (when (true? (.-current auto-scroll?*))
+            (set! (.-scrollTop el) (.-scrollHeight el))))
+        js/undefined)
+      #js [(count msgs)])
+
     [:div {:class "transcript"}
-     (if (empty? segs)
+     (if (empty? msgs)
        [:div {:class "empty"}
         [:div {:class "empty-title"} "Live transcript"]
         [:div {:class "muted"} "No ASR events yet…"]]
-       [:div {:class "transcript-feed"}
-        (for [[idx s] (map-indexed vector segs)]
-          ^{:key (str "seg-" idx "-" (:received_at_ms s))}
-          [:div {:class (str "seg" (when-not (:final s) " partial"))}
-           [:div {:class "meta"}
-            (str (util/fmt-sec (:start_s s)) " → " (util/fmt-sec (:end_s s))
-                 (when-let [sp (:speaker s)] (str " · " sp))
-                 (when-not (:final s) " · partial"))]
-           [:div {:class "text"} (:text s)]])])]))
+       [:div {:class "transcript-feed"
+              :ref container-ref
+              :on-scroll (fn [e]
+                           (let [el (.-target e)
+                                 dist (- (.-scrollHeight el)
+                                         (.-scrollTop el)
+                                         (.-clientHeight el))]
+                             (set! (.-current auto-scroll?*) (<= dist 48))))}
+        (for [[idx msg] (map-indexed vector msgs)]
+          ^{:key (message-key idx msg)}
+          (let [speaker (:speaker msg)
+                who (transcript/speaker->display-name speaker)
+                avatar (transcript/speaker->avatar-text speaker)
+                start-ts (util/fmt-sec (:start_s msg))
+                end-ts (util/fmt-sec (:end_s msg))
+                bubble-class (str "bubble" (when (and (= "asr" (:kind msg)) (false? (:final msg))) " draft"))]
+            [:div {:class "msg"}
+             [:div {:class "avatar"} avatar]
+             [:div {:class "msgBody"}
+              [:div {:class "msgHeader"}
+               [:span {:class "who"} who]
+               [:span {:class "ts"} (str start-ts " → " end-ts)]
+               (badge msg)]
+              [:div {:class bubble-class} (:text msg)]]]))])]))
 
 (defn log-view
   "Debug log view." 
