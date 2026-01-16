@@ -14,6 +14,7 @@
   A session entry is a map with keys:
 
   - `:session-id`   string
+  - `:tenant-id`    (or string nil) ; tenant ownership / isolation boundary
   - `:lang`         string (empty string means auto)
   - `:sample-rate`  int
 
@@ -227,17 +228,19 @@
   - session-id  string
   - config      full config map
   - opts        map with optional keys:
-      :lang          string
-      :sample-rate   int
+      :tenant-id    string (optional)
+      :lang         string
+      :sample-rate  int
 
   Returns a session map (see namespace docstring)."
-  [session-id config {:keys [lang sample-rate]
+  [session-id config {:keys [tenant-id lang sample-rate]
                       :or {lang ""}}]
   (let [audio-buf-size (or (get-in config [:ws :audio-buffer-size])
                            default-audio-buffer-size)
         events-buf-size (or (get-in config [:ws :events-buffer-size])
                             default-events-buffer-size)]
     {:session-id session-id
+     :tenant-id tenant-id
      :lang lang
      :sample-rate (or sample-rate default-sample-rate)
 
@@ -273,6 +276,7 @@
   - registry   ws-registry component
   - session-id string
   - opts       map with keys:
+      :tenant-id    string (optional)
       :lang         string (optional)
       :sample-rate  int (optional; defaults to 16000)
 
@@ -292,6 +296,7 @@
           session-id)]
     (when @created?*
       (log/info "Created ws session" {:session-id session-id
+                                      :tenant-id (:tenant-id session)
                                       :lang (:lang session)
                                       :sample-rate (:sample-rate session)}))
     session))
@@ -497,7 +502,8 @@
                                     bff-origin-uri)]
                   ;; Publish to Kafka for near-realtime refinement workers.
                   (when-let [kafka-producer (:kafka-producer registry)]
-                    (kafka.producer/send-audio-chunk! kafka-producer session-id audio-chunk))
+                    (kafka.producer/send-audio-chunk! kafka-producer session-id audio-chunk
+                                                      {:tenant-id (:tenant-id session)}))
 
                   ;; Forward to realtime gRPC ASR service.
                   (try
