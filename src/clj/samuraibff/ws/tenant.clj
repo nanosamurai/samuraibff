@@ -67,7 +67,14 @@
                                              :session-id session-id})))
 
      (cond
-       existing existing
+       existing
+       (do
+         ;; Sessions are typically created first via POST /api/sessions without
+         ;; lang/sample-rate, and then the browser connects /ws/audio with these
+         ;; controls as query params.
+         (when (seq opts)
+           (ws.registry/update-session-controls! ws-registry tenant-id session-id opts))
+         (ws.registry/get-session ws-registry tenant-id session-id))
 
        required?
        (throw (ex-info "Unknown session" {:type :samuraibff.ws/unknown-session
