@@ -43,9 +43,8 @@
 
   Dependencies:
   - `:config`      (required)
-  - `:ws-registry` (required)
-  - `:grpc`        (required)" 
-  [{:keys [config ws-registry grpc]}]
+  - `:ws-registry` (required)"
+  [{:keys [config ws-registry]}]
   (fn [{:keys [params] :as request}]
     (let [session-id (let [val (or (get params :session_id) (get params "session_id"))]
                        (when (and val (not (str/blank? (str val)))) (str val)))]
@@ -93,17 +92,18 @@
                                                    :ts_ms (System/currentTimeMillis)
                                                    :status "connected"
                                                    :detail "events-subscribed"})
-
-                            ;; Ensure gRPC stream is running once events are subscribed.
-                            (ws.registry/start-rt! ws-registry grpc session))
+                            (comment "NOTE: We intentionally do NOT start the realtime gRPC stream here.
+                            The browser typically connects /ws/events before /ws/audio,
+                            but the language + sample-rate controls are only available on /ws/audio.
+                            Starting the stream here would lock in the default (empty) :lang."))
                  :on-close (fn [_ch status]
                              (reset! stop?* true)
                              (ws.registry/untap-events! session out-ch)
                              (async/close! out-ch)
                              (ws.registry/mark-events-disconnected! ws-registry session)
                              (log/info "WS /ws/events closed" {:session-id session-id
-                                                               :tenant-id (:tenant-id session)
-                                                               :status status}))}))
+                                                               :tenant-id  (:tenant-id session)
+                                                               :status     status}))}))
               (catch clojure.lang.ExceptionInfo e
                 (let [{:keys [type]} (ex-data e)]
                   (case type

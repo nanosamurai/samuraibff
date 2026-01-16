@@ -43,6 +43,28 @@
       ;; drain
       (is (bytes? (async/<!! (:audio-ch session)))))))
 
+(deftest update-session-controls-test
+  (testing "update-session-controls! updates lang/sample-rate when stream not running"
+    (let [registry {:config {:env :test}
+                    :sessions (atom {})}
+          _ (reg/ensure-session! registry "t-1" "s-uc" {})
+          updated (reg/update-session-controls! registry "t-1" "s-uc" {:lang "cs"
+                                                                       :sample-rate 8000})]
+      (is (= "cs" (:lang updated)))
+      (is (= 8000 (:sample-rate updated)))
+      ;; also persisted into registry
+      (is (= "cs" (:lang (reg/get-session registry "t-1" "s-uc"))))))
+
+  (testing "update-session-controls! does not update controls when stream already running"
+    (let [registry {:config {:env :test}
+                    :sessions (atom {})}
+          s (reg/ensure-session! registry "t-1" "s-running" {:lang "en" :sample-rate 16000})]
+      (reset! (:running?* s) true)
+      (let [updated (reg/update-session-controls! registry "t-1" "s-running" {:lang "cs"
+                                                                              :sample-rate 8000})]
+        (is (= "en" (:lang updated)))
+        (is (= 16000 (:sample-rate updated)))))))
+
 (deftest close-session-removes-test
   (testing "close-session! removes session from registry and closes channels"
     (let [registry {:config {:env :test}

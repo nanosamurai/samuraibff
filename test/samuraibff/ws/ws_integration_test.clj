@@ -28,7 +28,7 @@
     [samuraibff.grpc.client]
     [samuraibff.http.router]
     [samuraibff.http.server]
-    [samuraibff.ws.registry])
+    [samuraibff.ws.registry :as reg])
   (:import
     (com.neovisionaries.ws.client WebSocket WebSocketAdapter WebSocketFactory)
     (java.net InetSocketAddress Socket)
@@ -165,6 +165,12 @@
                   (connect-ws!
                     (ws-url port "/ws/audio" (str "session_id=" session-id "&lang=en&sample_rate=16000"))
                     {:on-close (fn [_ _] nil)}))
+
+          ;; Ensure that /ws/audio control params (lang) were applied to the session
+          ;; before the realtime stream starts.
+          (let [ws-registry (get system :samuraibff/ws-registry)
+                session (reg/get-session ws-registry nil session-id)]
+            (is (= "en" (:lang session)) (str "Expected :lang to be updated, got " (pr-str (select-keys session [:lang :sample-rate])))))
 
           ;; Send a few dummy frames (rtservice should handle silence)
           (dotimes [_ 3]
