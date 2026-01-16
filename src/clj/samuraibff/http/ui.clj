@@ -71,7 +71,7 @@
         (let [session-id (str (java.util.UUID/randomUUID))]
           ;; Create/bind session in registry immediately so WS endpoints can be
           ;; strict and disallow session creation via WS when auth is required.
-          (ws.registry/ensure-session! ws-registry session-id {:tenant-id tenant-id})
+          (ws.registry/ensure-session! ws-registry tenant-id session-id {})
           {:status 200
            :headers {"content-type" "application/json"}
            :body (json/write-value-as-string {:session_id session-id} json-mapper)})))))
