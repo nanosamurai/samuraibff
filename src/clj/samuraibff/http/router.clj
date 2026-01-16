@@ -98,7 +98,7 @@
             ["/me" {:get {:summary "Current authenticated user"
                           :handler (http.auth/me-handler config)}}]
             ["/sessions" {:post {:summary "Create a new session id"
-                                 :handler http.ui/create-session-handler}}]]
+                                 :handler (http.ui/create-session-handler deps)}}]]
 
            ;; Health check endpoint
            (healthcheck-route)
