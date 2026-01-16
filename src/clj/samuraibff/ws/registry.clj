@@ -9,6 +9,20 @@
   The registry is intentionally in-memory only (MVP). Persistence, tenant/user,
   and session metadata will be handled in later PRs.
 
+  ## Multi-tenant model
+
+  Sessions are stored *per tenant*:
+
+  `tenant-id -> session-id -> session`.
+
+  This allows all UI/WS entry points to look up sessions only within the
+  authenticated tenant, making cross-tenant access impossible by construction.
+
+  IMPORTANT:
+  - When auth is required, `tenant-id` must be non-nil.
+  - Internal refined delivery (`/internal/refined` and refined Kafka consumer)
+    relies on `RefinedEvent.tenant_id` being present.
+
   ## Session state
 
   A session entry is a map with keys:
@@ -54,6 +68,7 @@
   - `:samuraibff/ws-registry`"
   (:require
     [clojure.core.async :as async]
+    [clojure.string :as str]
     [integrant.core :as ig]
     [org.corfield.logging4j2 :as log]
     [samuraibff.grpc.client :as grpc]
@@ -151,6 +166,7 @@
 
   Inputs:
   - session-id      string
+  - tenant-id       string (or nil in dev)
   - lang            string
   - sample-rate     int
   - chunk-seq       integer
@@ -158,7 +174,7 @@
   - bff-origin-uri  string (base URI, e.g. http://127.0.0.1:8000)
 
   Returns: `samuraibff.proto.AudioChunk`"
-  [session-id lang sample-rate chunk-seq bytes bff-origin-uri]
+  [session-id tenant-id lang sample-rate chunk-seq bytes bff-origin-uri]
   (cond-> (-> (AudioChunk/newBuilder)
               (.setSessionId session-id)
               (.setSeq (long chunk-seq))
@@ -166,6 +182,7 @@
               (.setSampleRate (int sample-rate))
               (.setLang (or lang ""))
               (.setPcm16Le (ByteString/copyFrom ^bytes bytes)))
+    (some? tenant-id) (.setTenantId (str tenant-id))
     (some? bff-origin-uri) (.setBffOriginUri (str bff-origin-uri))
     :always (.build)))
 
@@ -214,27 +231,36 @@
   - ws-registry: registry component
   - ev: protobuf `samuraibff.proto.RefinedEvent`
 
+  Behavior:
+  - requires `RefinedEvent.tenant_id` to be non-blank
+
   Returns: boolean (true if delivered to a local session, false otherwise)." 
   [{:keys [sessions] :as ws-registry} ^RefinedEvent ev]
   (let [session-id (.getSessionId ev)
-        session (get @sessions session-id)]
-    (when session
-      (publish! ws-registry session (refined-event->map (:seq* session) ev)))))
+        tenant-id (let [t (.getTenantId ev)]
+                    (when (and t (not (str/blank? t))) t))]
+    (if-not tenant-id
+      (do
+        (log/warn "RefinedEvent missing tenant_id; dropping" {:session-id session-id})
+        false)
+      (let [session (get-in @sessions [tenant-id session-id])]
+        (when session
+          (publish! ws-registry session (refined-event->map (:seq* session) ev)))))))
 
 (defn- new-session
   "Create a new in-memory session state entry.
 
   Arguments:
+  - tenant-id   string or nil
   - session-id  string
   - config      full config map
   - opts        map with optional keys:
-      :tenant-id    string (optional)
       :lang         string
       :sample-rate  int
 
   Returns a session map (see namespace docstring)."
-  [session-id config {:keys [tenant-id lang sample-rate]
-                      :or {lang ""}}]
+  [tenant-id session-id config {:keys [lang sample-rate]
+                                :or {lang ""}}]
   (let [audio-buf-size (or (get-in config [:ws :audio-buffer-size])
                            default-audio-buffer-size)
         events-buf-size (or (get-in config [:ws :events-buffer-size])
@@ -262,41 +288,42 @@
   "Get a session state from the registry.
 
   Inputs:
-  - registry  ws-registry component
+  - registry   ws-registry component
+  - tenant-id  string (or nil in dev)
   - session-id string
 
   Returns: session map or nil."
-  [{:keys [sessions]} session-id]
-  (get @sessions session-id))
+  [{:keys [sessions]} tenant-id session-id]
+  (get-in @sessions [tenant-id session-id]))
 
 (defn ensure-session!
   "Ensure a session state exists in the registry.
 
   Inputs:
   - registry   ws-registry component
+  - tenant-id  string (or nil in dev)
   - session-id string
   - opts       map with keys:
-      :tenant-id    string (optional)
       :lang         string (optional)
       :sample-rate  int (optional; defaults to 16000)
 
   Returns: the current session state map." 
-  [{:keys [sessions config]} session-id opts]
+  [{:keys [sessions config]} tenant-id session-id opts]
   (let [created?* (atom false)
         session
-        (get
+        (get-in
           (swap! sessions
                  (fn [m]
-                   (if (contains? m session-id)
+                   (if (get-in m [tenant-id session-id])
                      m
-                     (let [s0 (new-session session-id config opts)
+                     (let [s0 (new-session tenant-id session-id config opts)
                            s (assoc s0 :events-mult (async/mult (:events-ch s0)))]
                        (reset! created?* true)
-                       (assoc m session-id s)))))
-          session-id)]
+                       (assoc-in m [tenant-id session-id] s)))))
+          [tenant-id session-id])]
     (when @created?*
       (log/info "Created ws session" {:session-id session-id
-                                      :tenant-id (:tenant-id session)
+                                      :tenant-id tenant-id
                                       :lang (:lang session)
                                       :sample-rate (:sample-rate session)}))
     session))
@@ -353,6 +380,7 @@
   (let [n (swap! (:drops* session) inc)]
     (when (zero? (mod n 100))
       (log/warn "Dropping audio frames due to backpressure" {:session-id (:session-id session)
+                                                             :tenant-id (:tenant-id session)
                                                              :dropped n}))))
 
 (defn offer-audio!
@@ -385,6 +413,7 @@
 
   Inputs:
   - registry    ws-registry component
+  - tenant-id   string (or nil)
   - session-id  string
   - reason      string/keyword (for logging)
 
@@ -394,15 +423,15 @@
   - removes session from registry
 
   Returns: nil." 
-  [{:keys [sessions]} session-id reason]
-  (when-let [session (get @sessions session-id)]
-    (log/info "Closing ws session" {:session-id session-id :reason reason})
-    (swap! sessions dissoc session-id)
+  [{:keys [sessions]} tenant-id session-id reason]
+  (when-let [session (get-in @sessions [tenant-id session-id])]
+    (log/info "Closing ws session" {:session-id session-id :tenant-id tenant-id :reason reason})
+    (swap! sessions update tenant-id dissoc session-id)
     (try
       (when-let [stream @(:grpc-stream* session)]
         (grpc/close! stream))
       (catch Exception e
-        (log/warn e "Failed to close gRPC stream" {:session-id session-id})))
+        (log/warn e "Failed to close gRPC stream" {:session-id session-id :tenant-id tenant-id})))
     (doseq [ch [(:stop-ch session) (:audio-ch session) (:events-ch session)]]
       (try (async/close! ch) (catch Exception _ nil))))
   nil)
@@ -412,7 +441,7 @@
   [registry session]
   (when (and (zero? @(:events-subs* session))
              (zero? @(:audio-socks* session)))
-    (close-session! registry (:session-id session) "no-active-sockets")))
+    (close-session! registry (:tenant-id session) (:session-id session) "no-active-sockets")))
 
 (defn mark-audio-connected!
   "Increment the count of connected `/ws/audio` sockets for this session." 
@@ -459,20 +488,21 @@
   [registry grpc-client session]
   (if (compare-and-set! (:running?* session) false true)
     (do
-      (let [session-id (:session-id session)]
-        (log/info "Starting realtime gRPC stream" {:session-id session-id})
+      (let [session-id (:session-id session)
+            tenant-id (:tenant-id session)]
+        (log/info "Starting realtime gRPC stream" {:session-id session-id :tenant-id tenant-id})
         (publish! registry session (status-event session-id (:seq* session) "started" nil))
         (let [stream (grpc/start-stream!
                       grpc-client
                       {:on-next (fn [event]
                                   (publish! registry session (asr-event->map (:seq* session) event)))
                        :on-error (fn [t]
-                                   (log/error t "gRPC stream error" {:session-id session-id})
+                                   (log/error t "gRPC stream error" {:session-id session-id :tenant-id tenant-id})
                                    (publish! registry session
                                              (error-event session-id (:seq* session) "grpc-error" (.getMessage t)))
-                                   (close-session! registry session-id "grpc-error"))
+                                   (close-session! registry tenant-id session-id "grpc-error"))
                        :on-complete (fn []
-                                      (log/info "gRPC stream completed" {:session-id session-id})
+                                      (log/info "gRPC stream completed" {:session-id session-id :tenant-id tenant-id})
                                       (publish! registry session
                                                 (status-event session-id (:seq* session)
                                                               "stopped" "grpc-stream-completed")))})]
@@ -482,37 +512,38 @@
               (cond
                 (= ch (:stop-ch session))
                 (do
-                  (log/info "Stopping audio->gRPC loop" {:session-id session-id})
+                  (log/info "Stopping audio->gRPC loop" {:session-id session-id :tenant-id tenant-id})
                   (grpc/close! stream))
 
                 (nil? v)
                 (do
-                  (log/info "Audio channel closed" {:session-id session-id})
+                  (log/info "Audio channel closed" {:session-id session-id :tenant-id tenant-id})
                   (grpc/close! stream))
 
                 :else
                 (let [chunk-id (next-seq! (:chunk-seq* session))
                       bff-origin-uri (resolve-bff-origin-uri (:config registry))
                       audio-chunk (build-chunk
-                                    session-id
-                                    (:lang session)
-                                    (:sample-rate session)
-                                    chunk-id
-                                    v
-                                    bff-origin-uri)]
+                                   session-id
+                                   tenant-id
+                                   (:lang session)
+                                   (:sample-rate session)
+                                   chunk-id
+                                   v
+                                   bff-origin-uri)]
                   ;; Publish to Kafka for near-realtime refinement workers.
                   (when-let [kafka-producer (:kafka-producer registry)]
                     (kafka.producer/send-audio-chunk! kafka-producer session-id audio-chunk
-                                                      {:tenant-id (:tenant-id session)}))
+                                                      {:tenant-id tenant-id}))
 
                   ;; Forward to realtime gRPC ASR service.
                   (try
                     ((:send! stream) audio-chunk)
                     (catch Exception e
-                      (log/error e "gRPC send failed" {:session-id session-id})
+                      (log/error e "gRPC send failed" {:session-id session-id :tenant-id tenant-id})
                       (publish! registry session
                                 (error-event session-id (:seq* session) "grpc-send-failed" (.getMessage e)))
-                      (close-session! registry session-id "grpc-send-failed")))
+                      (close-session! registry tenant-id session-id "grpc-send-failed")))
                   (recur))))))
         session))
     session))
@@ -521,12 +552,14 @@
   [_ {:keys [config kafka-producer]}]
   {:config config
    :kafka-producer kafka-producer
+   ;; tenant-id -> session-id -> session
    :sessions (atom {})})
 
 (defmethod ig/halt-key! :samuraibff/ws-registry
   [_ {:keys [sessions] :as registry}]
   (when (instance? clojure.lang.IAtom sessions)
-    (doseq [session-id (keys @sessions)]
-      (close-session! registry session-id "integrant-halt"))
+    (doseq [[tenant-id sessions-by-id] @sessions
+            session-id (keys sessions-by-id)]
+      (close-session! registry tenant-id session-id "integrant-halt"))
     (reset! sessions {}))
   nil)
