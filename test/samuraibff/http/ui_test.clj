@@ -7,7 +7,11 @@
 
 (deftest create-session-handler-test
   (testing "POST /api/sessions returns a uuid"
-    (let [resp (http.ui/create-session-handler {})
+    (let [ws-registry {:config {:env :test}
+                       :sessions (atom {})}
+          handler (http.ui/create-session-handler {:config {:auth {:required? false}}
+                                                   :ws-registry ws-registry})
+          resp (handler {})
           body (cheshire/parse-string (:body resp) true)
           sid (:session_id body)]
       (is (= 200 (:status resp)))
