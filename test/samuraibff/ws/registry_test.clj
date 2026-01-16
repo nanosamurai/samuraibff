@@ -9,9 +9,10 @@
   (testing "ensure-session! creates once and returns the same session on subsequent calls"
     (let [registry {:config {:env :test}
                     :sessions (atom {})}
-          s1 (reg/ensure-session! registry "s-1" {:lang "en" :sample-rate 16000})
-          s2 (reg/ensure-session! registry "s-1" {:lang "cs" :sample-rate 8000})]
+          s1 (reg/ensure-session! registry "t-1" "s-1" {:lang "en" :sample-rate 16000})
+          s2 (reg/ensure-session! registry "t-1" "s-1" {:lang "cs" :sample-rate 8000})]
       (is (= "s-1" (:session-id s1)))
+      (is (= "t-1" (:tenant-id s1)))
       (is (identical? s1 s2) "Should return the same map instance from registry")
       (is (= "en" (:lang s1)) "First creation should win")
       (is (= 16000 (:sample-rate s1))))))
@@ -20,7 +21,7 @@
   (testing "publish! pushes events to tapped channels"
     (let [registry {:config {:env :test}
                     :sessions (atom {})}
-          session (reg/ensure-session! registry "s-2" {})
+          session (reg/ensure-session! registry "t-1" "s-2" {})
           out (async/chan 10)]
       (reg/tap-events! session out)
       (is (true? (reg/publish! registry session
@@ -37,7 +38,7 @@
   (testing "offer-audio! is non-blocking and returns boolean"
     (let [registry {:config {:env :test}
                     :sessions (atom {})}
-          session (reg/ensure-session! registry "s-3" {})]
+          session (reg/ensure-session! registry "t-1" "s-3" {})]
       (is (true? (reg/offer-audio! registry session (byte-array 10))))
       ;; drain
       (is (bytes? (async/<!! (:audio-ch session)))))))
@@ -46,6 +47,6 @@
   (testing "close-session! removes session from registry and closes channels"
     (let [registry {:config {:env :test}
                     :sessions (atom {})}
-          session (reg/ensure-session! registry "s-4" {})]
-      (reg/close-session! registry "s-4" "test")
-      (is (nil? (reg/get-session registry "s-4"))))))
+          session (reg/ensure-session! registry "t-1" "s-4" {})]
+      (reg/close-session! registry "t-1" "s-4" "test")
+      (is (nil? (reg/get-session registry "t-1" "s-4"))))))

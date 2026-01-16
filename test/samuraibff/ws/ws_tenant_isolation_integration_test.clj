@@ -84,7 +84,7 @@
             ws-registry (get system :samuraibff/ws-registry)]
         (try
           ;; Pre-create the session bound to tenant A.
-          (ws.registry/ensure-session! ws-registry session-id {:tenant-id tenant-a})
+          (ws.registry/ensure-session! ws-registry tenant-a session-id {})
 
           (is (true?
                 (connect-fails? (ws-url port "/ws/events" (str "session_id=" session-id "&token=b"))))
