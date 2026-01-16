@@ -328,6 +328,46 @@
                                       :sample-rate (:sample-rate session)}))
     session))
 
+(defn update-session-controls!
+  "Update session control fields (:lang / :sample-rate) for an existing session.
+
+  This is used primarily by `/ws/audio`, because sessions are often created first
+  via `POST /api/sessions` (without lang), and only later the UI connects audio
+  with `?lang=...&sample_rate=...`.
+
+  Safety:
+  - If the realtime stream is already running (`@(:running?* session)`), controls
+    are not modified.
+
+  Inputs:
+  - ws-registry: registry component
+  - tenant-id: string or nil
+  - session-id: string
+  - opts: map with optional keys:
+      :lang string
+      :sample-rate int
+
+  Returns:
+  - the (possibly updated) session map, or nil if session not found." 
+  [{:keys [sessions]} tenant-id session-id {:keys [lang sample-rate]}]
+  (let [updated* (atom nil)]
+    (swap! sessions
+           (fn [m]
+             (if-let [session (get-in m [tenant-id session-id])]
+               (if @(:running?* session)
+                 (do
+                   (reset! updated* session)
+                   m)
+                 (let [session' (cond-> session
+                                  (some? lang) (assoc :lang (str lang))
+                                  (some? sample-rate) (assoc :sample-rate (int sample-rate)))]
+                   (reset! updated* session')
+                   (assoc-in m [tenant-id session-id] session')))
+               (do
+                 (reset! updated* nil)
+                 m))))
+    @updated*))
+
 (defn publish!
   "Publish a WS event into the session's outbound event stream.
 
