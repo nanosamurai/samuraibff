@@ -60,6 +60,10 @@ For the data model, please look at C:\Users\miros\PycharmProjects\drsynth\proto\
       * Recording detail placeholder view
     * microphone capture + PCM16LE streaming to `/ws/audio`
     * realtime transcript display via `/ws/events`
+    * **refined transcript rendering** via `/ws/events` (`{"type":"refined" ...}`)
+      * UI is Slack-like (avatar/name/time + bubble)
+      * refined segments are marked and replace ASR segments based on time window containment
+      * UI shows `start → end` for debugging time alignment
 * **Tests**
     * unit tests for ws registry
     * integration tests for http server + grpc client
@@ -70,6 +74,7 @@ For the data model, please look at C:\Users\miros\PycharmProjects\drsynth\proto\
 
 * Postgres persistence (sessions/transcripts)
 * Refined transcript merge logic (windowing / overlap resolution) + UI rendering polish
+  (Note: UI-side refined replacement is now implemented; backend merge/windowing may still evolve.)
 * OpenAPI/Swagger polishing for non-WS endpoints (WS not covered by OpenAPI)
 * Operational endpoints `/ready`, `/metrics`
 
