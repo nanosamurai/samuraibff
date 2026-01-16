@@ -94,8 +94,12 @@
                                                    :status "connected"
                                                    :detail "events-subscribed"})
 
-                            ;; Ensure gRPC stream is running once events are subscribed.
-                            (ws.registry/start-rt! ws-registry grpc session))
+                            ;; NOTE: We intentionally do NOT start the realtime gRPC stream
+                            ;; here. The browser typically connects /ws/events before /ws/audio,
+                            ;; but the language + sample-rate controls are only available on
+                            ;; /ws/audio. Starting the stream here would lock in the default
+                            ;; (empty) :lang.
+                            )
                  :on-close (fn [_ch status]
                              (reset! stop?* true)
                              (ws.registry/untap-events! session out-ch)
