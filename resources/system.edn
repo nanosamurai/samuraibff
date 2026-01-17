@@ -53,7 +53,8 @@
 
  ;; --- Integrant components ---
 
- ;; NOTE: DB/session persistence is intentionally not wired yet.
+ :samuraibff/db
+ {:config #ig/ref :samuraibff/config}
 
  :samuraibff/kafka-producer
  {:config #ig/ref :samuraibff/config}
@@ -71,6 +72,7 @@
 
  :samuraibff/router
  {:config      #ig/ref :samuraibff/config
+  :db          #ig/ref :samuraibff/db
   :ws-registry #ig/ref :samuraibff/ws-registry
   :grpc        #ig/ref :samuraibff/grpc-client}
 

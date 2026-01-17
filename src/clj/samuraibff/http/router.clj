@@ -67,6 +67,7 @@
 
   deps - map with keys:
   - :config      global config
+  - :db          db component (HikariCP pool)
   - :grpc        gRPC client component
   - :ws-registry ws registry component
 
