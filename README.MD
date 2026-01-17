@@ -122,7 +122,41 @@ A good next step is to add a dockerized Keycloak to integration tests (e.g. via 
 
 (We haven't implemented that yet.)
 
-> Postgres persistence is **not implemented yet**.
+## Postgres persistence (sessions)
+
+Session persistence is now implemented:
+
+- Integrant component: `:samuraibff/db` (HikariCP pool)
+- `POST /api/sessions` generates a **UUIDv7** session id and inserts a row into `sessions`.
+- Keycloak user mapping: `app_users.external_id` should contain Keycloak `sub`.
+
+### Unauthenticated / dev fallback
+
+If `:auth {:required? false}` we still need to satisfy the DB schema constraint `sessions.tenant_id NOT NULL`.
+
+The server will use a fallback tenant id:
+- `00000000-0000-0000-0000-000000000000`
+
+Optionally, if you want `sessions.user_id` to resolve in unauthenticated mode, add a guest user:
+- `app_users.external_id = "guest"` within that tenant.
+
+### Config
+
+See `resources/system.edn`:
+
+```edn
+:db {:jdbc-url "jdbc:postgresql://localhost:5432/drsynth"
+     :username "drsynth"
+     :password "drsynth"
+     :maximum-pool-size 10}
+```
+
+### Tests
+
+We have an integration test that boots Postgres via Testcontainers and asserts the row is inserted:
+- `test/samuraibff/http/ui_test.clj` (`create-session-handler-persisted-integration-test`)
+
+> Note: transcripts/recordings persistence is still not implemented.
 
 ## Running the server
 

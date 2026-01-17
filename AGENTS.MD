@@ -12,6 +12,10 @@ For the data model, please look at C:\Users\miros\PycharmProjects\drsynth\proto\
 
 ### Implemented (as of now)
 
+* **Postgres DB pool** via HikariCP (Integrant key `:samuraibff/db`)
+    * configured via `:db` section in `resources/system.edn`
+    * provides `{:ds <javax.sql.DataSource>}` to handlers/components
+
 * **HTTP server** via Ring + http-kit (Integrant key `:samuraibff/http-server`)
 * **Reitit router** (Integrant key `:samuraibff/router`)
     * `GET /health`
@@ -22,6 +26,9 @@ For the data model, please look at C:\Users\miros\PycharmProjects\drsynth\proto\
       * `GET /recordings/:session_id` – SPA route (serves index.html; deep-link safe)
       * `GET /live` – SPA route (serves index.html; deep-link safe)
       * `POST /api/sessions` – returns `{ "session_id": "<uuid>" }`
+        * session id is generated as **UUIDv7**
+        * a `sessions` row is inserted into Postgres (tenant + optional user)
+        * when auth is disabled, a dev fallback tenant id is used (`00000000-0000-0000-0000-000000000000`)
       * static assets from `resources/public/*` (incl. shadow-cljs output under `/js/*`)
 * **WebSockets** (http-kit)
     * `GET /ws/audio` – accepts **binary** PCM16LE frames and enqueues them (non-blocking) into a per-session bounded `core.async` channel.
@@ -67,12 +74,14 @@ For the data model, please look at C:\Users\miros\PycharmProjects\drsynth\proto\
 * **Tests**
     * unit tests for ws registry
     * integration tests for http server + grpc client
+    * Postgres integration test for session persistence using **Testcontainers**
+      (`test/samuraibff/http/ui_test.clj`)
     * WS integration test that opens `/ws/events` and `/ws/audio` and asserts a `status` event is received
       (requires rtservice on `localhost:50052`; otherwise skipped)
 
 ### Pending / not yet implemented (planned PRs)
 
-* Postgres persistence (sessions/transcripts)
+* Postgres persistence (transcripts/recordings)
 * Refined transcript merge logic (windowing / overlap resolution) + UI rendering polish
   (Note: UI-side refined replacement is now implemented; backend merge/windowing may still evolve.)
 * OpenAPI/Swagger polishing for non-WS endpoints (WS not covered by OpenAPI)
