@@ -34,6 +34,10 @@
   com.zaxxer/HikariCP               {:mvn/version "7.0.2"}
   org.postgresql/postgresql         {:mvn/version "42.7.8"}
 
+  ;; --- UUID ---
+  ;; Used for UUIDv7 generation (time-ordered UUIDs).
+  com.github.f4b6a3/uuid-creator    {:mvn/version "6.1.0"}
+
   ;; --- Kafka producer (Java client) ---
   org.apache.kafka/kafka-clients    {:mvn/version "4.1.1"}
 
