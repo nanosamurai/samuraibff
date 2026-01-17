@@ -1,4 +1,4 @@
-{:paths     ["src/clj" "resources" "target/classes"]
+{:paths     ["src/clj" "src/cljs" "src/shared" "resources" "target/classes"]
  :mvn/repos {"central" {:url "https://repo1.maven.org/maven2/"}
              "clojars" {:url "https://repo.clojars.org/"}}
  :deps

@@ -34,7 +34,8 @@
    [ring.middleware.content-type :refer [wrap-content-type]]
    [ring.middleware.not-modified :refer [wrap-not-modified]]
    [ring.middleware.resource :refer [wrap-resource]]
-   [ring.middleware.cookies :refer [wrap-cookies]]))
+   [ring.middleware.cookies :refer [wrap-cookies]]
+   [ring.util.response :as resp]))
 
 ;; --- Schemas ---
 
@@ -131,10 +132,25 @@
         ;; here because it redirects `/js/main.js` -> `/js/main.js/` (302) and the
         ;; redirected URL ends up serving index.html. That breaks JS loading in the
         ;; browser ("expected expression, got '<'").
+        wrap-no-cache
+        (fn [handler]
+          (fn [req]
+            (let [resp (handler req)
+                  uri (:uri req)]
+              (if (and resp (string? uri) (re-find #"\\.(?:html|js)$" uri))
+                (-> resp
+                    (resp/header "Cache-Control" "no-store, max-age=0")
+                    (resp/header "Pragma" "no-cache"))
+                resp))))
+
+        ;; NOTE: We do NOT use wrap-not-modified here.
+        ;; We have seen cases where the browser ends up with a stale cached
+        ;; `/js/main.js` while `index.html` changed (or vice versa), which makes
+        ;; CSS selectors not match the rendered DOM ("unstyled" transcript).
         static-handler (-> (fn [_] nil)
                            (wrap-resource "public")
                            (wrap-content-type)
-                           (wrap-not-modified))]
+                           (wrap-no-cache))]
     (ring/ring-handler
       router
       (ring/routes

@@ -6,12 +6,13 @@
   Atoms:
   - `session*`   : current session form state
   - `ws-status*` : statuses of events/audio websockets
-  - `segments*`  : transcript segments (realtime ASR)
+  - `segments*`  : transcript messages (realtime ASR + refined)
   - `log*`       : debug log lines
   - `running?*`  : whether capture/streaming is running
 
   All public functions are side-effecting and named with verbs."
   (:require
+    [samuraibff.ui.transcript :as transcript]
     [samuraibff.ui.util :as util]))
 
 (defonce route*
@@ -28,6 +29,9 @@
 
 (defonce segments*
   (atom []))
+
+(defonce transcript-zero-s*
+  (atom nil))
 
 (defonce log*
   (atom []))
@@ -57,9 +61,16 @@
   nil)
 
 (defn set-session-id!
-  "Set the current session id (string)."
+  "Set the current session id (string).
+
+  Note: we clear transcript state because session_id is an isolation boundary
+  for the transcript." 
   [session-id]
-  (swap! session* assoc :id (or session-id "")))
+  (swap! session* assoc :id (or session-id ""))
+  ;; clear-segments! is defined later in this namespace.
+  (reset! segments* [])
+  (reset! transcript-zero-s* nil)
+  nil)
 
 (defn set-lang!
   "Set current language code (string; empty allowed for auto)."
@@ -140,9 +151,10 @@
   nil)
 
 (defn clear-segments!
-  "Clear transcript segments."
+  "Clear transcript segments/messages and reset transcript time base." 
   []
   (reset! segments* [])
+  (reset! transcript-zero-s* nil)
   nil)
 
 (defn set-auth-status!
@@ -157,41 +169,81 @@
   (reset! auth* {:status status :detail detail})
   nil)
 
-(defn upsert-asr!
-  "Insert or update a realtime ASR segment.
+(defn- rebase-event-times
+  "Rebase an ASR/refined event to start at 0.0 in the UI.
 
-  For MVP we keep this simple:
-  - if the newest segment is also non-final, replace it (partial updates)
-  - otherwise append
+  Problem this solves:
+  - backend `start_s/end_s` can be absolute (e.g. derived from monotonic clock)
+    and may not start at 0 when the user hits Start.
+
+  Approach:
+  - capture the first observed `start_s` as UI zero
+  - subtract it from all subsequent events
+
+  Inputs:
+  - ev: map with :start_s/:end_s
+
+  Returns: updated event map." 
+  [ev]
+  (let [start (double (or (:start_s ev) 0))
+        end (double (or (:end_s ev) 0))
+        zero (or @transcript-zero-s*
+                 (do (reset! transcript-zero-s* start)
+                     start))
+        start' (max 0 (- start zero))
+        end' (max start' (- end zero))]
+    (assoc ev :start_s start' :end_s end')))
+
+(defn upsert-asr!
+  "Insert or update a realtime ASR message.
 
   Input:
   - ev: map decoded from ws event, expects keys:
-    :start_s, :end_s, :text, :speaker (optional), :lang (optional), :final
+    :seq, :ts_ms, :start_s, :end_s, :text, :speaker (optional), :lang (optional), :final
+
+  Returns: nil." 
+  [ev]
+  (let [ev' (rebase-event-times ev)]
+    (swap! segments*
+           (fn [xs]
+             (let [xs (transcript/upsert-asr xs ev')
+                   xs (if (> (count xs) max-segments)
+                        (subvec (vec xs) (- (count xs) max-segments))
+                        (vec xs))]
+               xs))))
+  nil)
+
+(defn apply-refined!
+  "Apply a refined transcript message.
+
+  Important:
+  - For now we do NOT rebase refined events in the UI.
+
+  Reason:
+  - in practice, refined (WhisperX) timestamps may already be relative to the
+    recording start, while realtime ASR timestamps can be offset (e.g. session-
+    relative). Rebasing refined using the ASR-derived baseline can collapse
+    times to 0..0, which breaks replacement.
+
+  We log missing/degenerate timing for debugging.
+
+  Input:
+  - ev: map decoded from ws event, expects keys:
+    :seq, :ts_ms, :start_s, :end_s, :text, :speaker (optional), :lang (optional)
 
   Returns: nil."
   [ev]
-  (let [seg {:type "asr"
-             :start_s (double (or (:start_s ev) 0))
-             :end_s (double (or (:end_s ev) 0))
-             :text (str (or (:text ev) ""))
-             :speaker (some-> (:speaker ev) str)
-             :lang (some-> (:lang ev) str)
-             :final (boolean (:final ev))
-             :received_at_ms (util/now-ms)}]
+  (let [start (:start_s ev)
+        end (:end_s ev)]
+    (when (or (nil? start) (nil? end) (= (double (or start 0)) (double (or end 0))))
+      (append-log! (str "[refined] suspicious times start=" (pr-str start)
+                        " end=" (pr-str end)
+                        " (no-rebase)")))
     (swap! segments*
            (fn [xs]
-             (let [xs (vec xs)
-                   n (count xs)
-                   last-seg (when (pos? n) (nth xs (dec n)))
-                   xs (cond
-                        (and last-seg
-                             (= "asr" (:type last-seg))
-                             (false? (:final last-seg)))
-                        (assoc xs (dec n) seg)
-
-                        :else
-                        (conj xs seg))]
-               (if (> (count xs) max-segments)
-                 (subvec xs (- (count xs) max-segments))
-                 xs))))
-    nil))
+             (let [xs (transcript/apply-refined xs ev)
+                   xs (if (> (count xs) max-segments)
+                        (subvec (vec xs) (- (count xs) max-segments))
+                        (vec xs))]
+               xs))))
+  nil)

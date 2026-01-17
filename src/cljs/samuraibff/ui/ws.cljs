@@ -36,6 +36,13 @@
                     (when-let [d (:detail ev)] (str " (" d ")"))))
     "error" (store/append-log! (str "[events] error " (:message ev)))
     "asr" (store/upsert-asr! ev)
+    "refined" (do
+                ;; Helpful debugging: refined timing must be present and sane.
+                (store/append-log!
+                  (str "[events] refined raw start=" (pr-str (:start_s ev))
+                       " end=" (pr-str (:end_s ev))
+                       (when-let [xs (:supersedes_seq ev)] (str " supersedes=" (pr-str xs)))))
+                (store/apply-refined! ev))
     (store/append-log! (str "[events] unknown event: " (pr-str ev)))))
 
 (defn connect-events!

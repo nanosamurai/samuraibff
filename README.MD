@@ -16,6 +16,31 @@ This repo currently focuses on:
   - `POST /internal/refined` with `application/x-protobuf`
 - push refined transcript segments to the UI over `/ws/events` as `{"type":"refined", ...}` events
 
+### 3) Refined transcripts handling (UI semantics)
+The UI receives both realtime and refined transcript events over `/ws/events`:
+
+- realtime ASR: `{"type":"asr", "start_s": <double>, "end_s": <double>, "final": <bool>, ...}`
+- refined (WhisperX): `{"type":"refined", "start_s": <double>, "end_s": <double>, ...}`
+
+The **Live Recording** transcript is rendered as a Slack-like message thread (avatar/name/timestamp + bubble).
+
+#### Replacement heuristic
+When a refined segment arrives with time window `[r0, r1]`, the UI removes only **ASR** messages whose time window is fully contained:
+
+- `r0 <= asr.start_s` and `asr.end_s <= r1` (inclusive)
+
+Then it inserts the refined message (marked with `★ refined`) and re-sorts by time.
+
+#### Timebases and debugging
+In practice, ASR and refined timestamps can come from different sources.
+
+- ASR events are **rebased in the UI** to make the timeline start at `00:00.xx` when you hit **Start**.
+- Refined events are currently **NOT rebased** (they are displayed using the raw `start_s/end_s`).
+
+The UI shows `start → end` in the message header to make it easier to debug window alignment.
+
+If you see refined segments with `00:00.00 → 00:00.00`, check backend logs: protobuf3 defaults missing doubles to `0.0`, which usually means the worker didn’t populate `start_s/end_s`.
+
 ## Auth (OIDC / Keycloak)
 
 OIDC login is implemented similarly to the original Python BFF (drsynth).
