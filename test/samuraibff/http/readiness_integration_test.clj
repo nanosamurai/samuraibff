@@ -11,6 +11,7 @@
   (:require
     [clojure.test :refer :all]
     [integrant.core :as ig]
+    [jsonista.core :as json]
     [org.httpkit.client :as http]
     ;; Ensure Integrant init methods are loaded.
     [samuraibff.config]
@@ -34,6 +35,10 @@
                                       :username "drsynth"
                                       :password "drsynth"
                                       :maximum-pool-size 2}
+                                 ;; Closed local port: Kafka readiness should be down.
+                                 :kafka {:bootstrap-servers "127.0.0.1:1"}
+                                 ;; Closed local port: rtservice readiness should be down.
+                                 :grpc {:rtservice-addr "127.0.0.1:1"}
                                  ;; Disable auth in this test so /health and /ready
                                  ;; are simple unauthenticated requests.
                                  :auth {:required? false}}
@@ -54,16 +59,20 @@
         (is (fn? (get-in sys [:samuraibff/http-server :server]))))
 
       (testing "liveness is OK"
-        (let [resp @(http/get (format "http://127.0.0.1:%d/health" port) {:timeout 2000})]
+        (let [resp @(http/get (format "http://127.0.0.1:%d/health" port) {:timeout 2000 :as :text})]
           (is (= 200 (:status resp)))))
 
-      (testing "readiness is 503 when DB is unreachable"
+      (testing "readiness is 503 when dependencies are unreachable"
         ;; Note: readiness may block until Hikari's connectionTimeout elapses
         ;; (configured in samuraibff.db.core). Give it enough time to return.
-        (let [resp @(http/get (format "http://127.0.0.1:%d/ready" port) {:timeout 8000})]
+        (let [resp @(http/get (format "http://127.0.0.1:%d/ready" port) {:timeout 8000 :as :text})]
           (when-let [err (:error resp)]
             (is false (str "Unexpected HTTP client error calling /ready: " err)))
-          (is (= 503 (:status resp)))))
+          (is (= 503 (:status resp)))
+          (let [body (json/read-value (:body resp) (json/object-mapper {:decode-key-fn keyword}))]
+            (is (= false (get-in body [:db :up?])))
+            (is (= false (get-in body [:kafka :up?])))
+            (is (= false (get-in body [:grpc :up?]))))))
 
       (finally
         (ig/halt! sys)))))
