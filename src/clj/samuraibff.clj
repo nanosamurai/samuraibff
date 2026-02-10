@@ -15,6 +15,7 @@
   (:require
     ;; Integrant components
     [samuraibff.config]
+    [samuraibff.db.core]
     [samuraibff.grpc.client]
     [samuraibff.http.router]
     [samuraibff.http.server]

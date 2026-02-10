@@ -122,9 +122,76 @@ A good next step is to add a dockerized Keycloak to integration tests (e.g. via 
 
 (We haven't implemented that yet.)
 
-> Postgres persistence is **not implemented yet**.
+## Postgres persistence (sessions)
+
+Session persistence is now implemented:
+
+- Integrant component: `:samuraibff/db` (HikariCP pool)
+- `POST /api/sessions` generates a **UUIDv7** session id and inserts a row into `sessions`.
+- Keycloak user mapping: `app_users.external_id` should contain Keycloak `sub`.
+
+### Unauthenticated / dev fallback
+
+If `:auth {:required? false}` we still need to satisfy the DB schema constraint `sessions.tenant_id NOT NULL`.
+
+The server will use a fallback tenant id:
+- `00000000-0000-0000-0000-000000000000`
+
+Optionally, if you want `sessions.user_id` to resolve in unauthenticated mode, add a guest user:
+- `app_users.external_id = "guest"` within that tenant.
+
+### Config
+
+See `resources/system.edn`:
+
+```edn
+:db {:jdbc-url "jdbc:postgresql://localhost:5432/drsynth"
+     :username "drsynth"
+     :password "drsynth"
+     :maximum-pool-size 10}
+```
+
+### Tests
+
+We have an integration test that boots Postgres via Testcontainers and asserts the row is inserted:
+- `test/samuraibff/http/ui_test.clj` (`create-session-handler-persisted-integration-test`)
+
+> Note: transcripts/recordings persistence is still not implemented.
 
 ## Running the server
+
+## Health & readiness (HA behavior)
+
+The app exposes two probe-style endpoints:
+
+- `GET /health` – **liveness**. Returns **200** when the process is up.
+- `GET /ready` – **readiness**. Returns **200** only when critical dependencies are reachable.
+
+Current readiness checks:
+
+- Postgres (simple `select 1`)
+- Kafka (TCP reachability to at least one `:kafka :bootstrap-servers` host:port)
+- rtservice (TCP reachability to `:grpc :rtservice-addr`)
+
+If any dependency is down, `/ready` returns **503** and includes per-dependency flags:
+
+```json
+{
+  "status": "degraded",
+  "db": {"up?": false},
+  "kafka": {"up?": false},
+  "grpc": {"up?": false}
+}
+```
+
+Startup is **graceful** under dependency outages:
+
+- If Postgres is down at boot, the process still starts and serves HTTP/WS.
+- If Kafka is down at boot, the process still starts; the Kafka producer is disabled and
+  the refined consumer retries in the background.
+
+This is intended for Kubernetes / load balancers so that dependency outages affect
+**readiness** (traffic routing) rather than **liveness** (restart loops).
 
 ### Start the HTTP server (dev)
 

@@ -15,6 +15,8 @@
    {:config #ig/ref :samuraibff/config}}"
   (:require
    [integrant.core :as ig]
+   [clojure.string :as str]
+   [next.jdbc :as jdbc]
    [reitit.ring :as ring]
    [reitit.core]
    [samuraibff.ws.audio :as ws.audio]
@@ -46,6 +48,23 @@
    [:timestamp inst?]
    [:version string?]])
 
+(def ReadinessResponse
+  "Schema for readiness response.
+
+  Readiness is intended for load balancers / Kubernetes readiness probes.
+  Unlike liveness (/health), readiness may return a non-200 when a required
+  dependency (e.g. Postgres) is unavailable." 
+  [:map
+   [:status [:enum "ok" "degraded"]]
+   [:timestamp inst?]
+   [:version string?]
+   [:db [:map
+         [:up? boolean?]]]
+   [:kafka [:map
+            [:up? boolean?]]]
+   [:grpc [:map
+           [:up? boolean?]]]])
+
 ;; --- Routes ---
 
 (defn- healthcheck-route []
@@ -60,6 +79,149 @@
                              :timestamp (java.util.Date.)
                              :version "0.1.0"}})}}])
 
+(defn- db-up?
+  "Best-effort DB connectivity check.
+
+  Inputs:
+  - deps: router deps map, expects optional :db {:ds DataSource}
+
+  Returns:
+  - boolean (true if DB is reachable)
+
+  Notes:
+  - We use a small timeout via next.jdbc options rather than blocking for a
+    potentially long driver connect timeout.
+  - This is meant for readiness checks, not for normal query execution." 
+  [deps]
+  (let [ds (get-in deps [:db :ds])]
+    (if-not ds
+      false
+      (try
+        (jdbc/execute-one! ds ["select 1 as ok"] {:timeout 2})
+        true
+        (catch Exception _
+          false)))))
+
+(defn- parse-host-port
+  "Parse a host:port pair.
+
+  Inputs:
+  - s: string, expected in the form 'host:port'
+
+  Returns:
+  - {:host string :port int} or nil." 
+  [s]
+  (let [s0 (some-> s str str/trim not-empty)
+        ;; Accept schemes commonly seen in config values:
+        ;; - PLAINTEXT://host:port (Kafka)
+        ;; - dns:///host:port (gRPC)
+        s (when s0
+            (-> s0
+                (str/replace #"^[a-zA-Z][a-zA-Z0-9+.-]*:///" "")
+                (str/replace #"^[a-zA-Z][a-zA-Z0-9+.-]*://" "")
+                (str/replace #"/+$" "")))]
+    (when (and s (str/includes? s ":"))
+      (let [[host port-str] (str/split s #":" 2)
+            host (str/trim host)
+            port-str (str/trim port-str)]
+        (when (and (not (str/blank? host)) (not (str/blank? port-str)))
+          (try
+            {:host host :port (Integer/parseInt port-str)}
+            (catch Exception _
+              nil)))))))
+
+(defn- tcp-up?
+  "Best-effort TCP reachability check.
+
+  Inputs:
+  - host string
+  - port int
+  - timeout-ms int
+
+  Returns:
+  - boolean" 
+  [host port timeout-ms]
+  (try
+    (with-open [sock (java.net.Socket.)]
+      (.connect sock (java.net.InetSocketAddress. ^String host (int port)) (int timeout-ms))
+      true)
+    (catch Exception _
+      false)))
+
+(defn- kafka-up?
+  "Best-effort Kafka reachability check.
+
+  We treat Kafka as reachable when we can establish a TCP connection to at
+  least one bootstrap server.
+
+  Inputs:
+  - deps: router deps map, expects :config
+
+  Returns:
+  - boolean" 
+  [deps]
+  (let [bootstrap (some-> (get-in deps [:config :kafka :bootstrap-servers]) str)]
+    (if (str/blank? bootstrap)
+      true
+      (let [servers (->> (str/split bootstrap #",")
+                         (map str/trim)
+                         (remove str/blank?)
+                         (keep parse-host-port))]
+        (boolean
+          (some (fn [{:keys [host port]}]
+                  (tcp-up? host port 500))
+                servers))))))
+
+(defn- grpc-up?
+  "Best-effort rtservice (gRPC) reachability check.
+
+  We treat rtservice as reachable when we can establish a TCP connection to
+  the configured `[:grpc :rtservice-addr]` host:port.
+
+  Inputs:
+  - deps: router deps map, expects :config
+
+  Returns:
+  - boolean" 
+  [deps]
+  (let [addr (some-> (get-in deps [:config :grpc :rtservice-addr]) str str/trim)]
+    (if (str/blank? addr)
+      true
+      (if-let [{:keys [host port]} (parse-host-port addr)]
+        (tcp-up? host port 500)
+        false))))
+
+(defn- readiness-route
+  "Create readiness route definition.
+
+  Readiness returns 200 only when critical dependencies are available.
+  Currently we check:
+  - Postgres
+  - Kafka (TCP reachability to bootstrap)
+  - rtservice (gRPC) (TCP reachability)
+
+  Returns a Reitit route vector." 
+  [deps]
+  ["/ready"
+   {:get {:summary "Readiness check"
+          :description "Returns readiness status (dependency checks)."
+          :responses {200 {:body ReadinessResponse}
+                      503 {:body ReadinessResponse}}
+          :handler (fn [_]
+                     (let [db-ok? (db-up? deps)
+                           kafka-ok? (kafka-up? deps)
+                           grpc-ok? (grpc-up? deps)
+                           ok? (and db-ok? kafka-ok? grpc-ok?)
+                           status (if ok? 200 503)
+                           body {:status (if ok? "ok" "degraded")
+                                 :timestamp (java.util.Date.)
+                                 :version "0.1.0"
+                                 :db {:up? (boolean db-ok?)}
+                                 :kafka {:up? (boolean kafka-ok?)}
+                                 :grpc {:up? (boolean grpc-ok?)}}]
+                       {:status status
+                        :body body}))}}])
+
 ;; --- Router ---
 
 (defn create-router
@@ -67,6 +229,7 @@
 
   deps - map with keys:
   - :config      global config
+  - :db          db component (HikariCP pool)
   - :grpc        gRPC client component
   - :ws-registry ws registry component
 
@@ -103,6 +266,9 @@
 
            ;; Health check endpoint
            (healthcheck-route)
+
+           ;; Readiness (dependency status)
+           (readiness-route deps)
 
            ;; Internal callbacks (between BFF instances)
            ["/internal" {:tags ["internal"]}
