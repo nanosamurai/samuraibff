@@ -43,6 +43,24 @@
               (.setUsername (or username ""))
               (.setPassword (or password ""))
               (.setMaximumPoolSize (int maximum-pool-size))
+
+              ;; High-availability / graceful-start behavior:
+              ;;
+              ;; By default, Hikari validates connectivity during pool startup.
+              ;; If Postgres is down, that throws and Integrant aborts the whole
+              ;; process. For HA we want the *process* to stay up and report
+              ;; "not ready" instead, so we disable fail-fast initialization.
+              ;;
+              ;; Semantics (HikariCP):
+              ;; - initializationFailTimeout < 0 => do not fail startup
+              ;; - the pool will keep trying to acquire connections in the
+              ;;   background and will recover once DB becomes available.
+              (.setInitializationFailTimeout -1)
+
+              ;; Avoid attempting to eagerly keep idle connections on startup.
+              ;; When DB is down this reduces noisy retries at boot.
+              (.setMinimumIdle 0)
+
               ;; useful defaults
               (.setPoolName "samuraibff-hikari")
               ;; keep it reasonably fail-fast in dev

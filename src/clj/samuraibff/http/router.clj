@@ -15,6 +15,7 @@
    {:config #ig/ref :samuraibff/config}}"
   (:require
    [integrant.core :as ig]
+   [next.jdbc :as jdbc]
    [reitit.ring :as ring]
    [reitit.core]
    [samuraibff.ws.audio :as ws.audio]
@@ -46,6 +47,19 @@
    [:timestamp inst?]
    [:version string?]])
 
+(def ReadinessResponse
+  "Schema for readiness response.
+
+  Readiness is intended for load balancers / Kubernetes readiness probes.
+  Unlike liveness (/health), readiness may return a non-200 when a required
+  dependency (e.g. Postgres) is unavailable." 
+  [:map
+   [:status [:enum "ok" "degraded"]]
+   [:timestamp inst?]
+   [:version string?]
+   [:db [:map
+         [:up? boolean?]]]])
+
 ;; --- Routes ---
 
 (defn- healthcheck-route []
@@ -59,6 +73,52 @@
                       :body {:status "ok"
                              :timestamp (java.util.Date.)
                              :version "0.1.0"}})}}])
+
+(defn- db-up?
+  "Best-effort DB connectivity check.
+
+  Inputs:
+  - deps: router deps map, expects optional :db {:ds DataSource}
+
+  Returns:
+  - boolean (true if DB is reachable)
+
+  Notes:
+  - We use a small timeout via next.jdbc options rather than blocking for a
+    potentially long driver connect timeout.
+  - This is meant for readiness checks, not for normal query execution." 
+  [deps]
+  (let [ds (get-in deps [:db :ds])]
+    (if-not ds
+      false
+      (try
+        (jdbc/execute-one! ds ["select 1 as ok"] {:timeout 2})
+        true
+        (catch Exception _
+          false)))))
+
+(defn- readiness-route
+  "Create readiness route definition.
+
+  Readiness returns 200 only when critical dependencies are available.
+  Currently we check Postgres only.
+
+  Returns a Reitit route vector." 
+  [deps]
+  ["/ready"
+   {:get {:summary "Readiness check"
+          :description "Returns readiness status (dependency checks)."
+          :responses {200 {:body ReadinessResponse}
+                      503 {:body ReadinessResponse}}
+          :handler (fn [_]
+                     (let [db-ok? (db-up? deps)
+                           status (if db-ok? 200 503)
+                           body {:status (if db-ok? "ok" "degraded")
+                                 :timestamp (java.util.Date.)
+                                 :version "0.1.0"
+                                 :db {:up? (boolean db-ok?)}}]
+                       {:status status
+                        :body body}))}}])
 
 ;; --- Router ---
 
@@ -104,6 +164,9 @@
 
            ;; Health check endpoint
            (healthcheck-route)
+
+           ;; Readiness (dependency status)
+           (readiness-route deps)
 
            ;; Internal callbacks (between BFF instances)
            ["/internal" {:tags ["internal"]}
