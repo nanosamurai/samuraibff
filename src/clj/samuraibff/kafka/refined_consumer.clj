@@ -34,6 +34,10 @@
     (org.apache.kafka.clients.consumer ConsumerRecord KafkaConsumer)
     (samuraibff.proto RefinedEvent)))
 
+(def ^:private default-restart-backoff-ms
+  "Default backoff between consumer restarts when Kafka is unavailable." 
+  2000)
+
 (defn- consumer-props
   "Build Kafka consumer properties.
 
@@ -133,6 +137,10 @@
           (doseq [rec records]
             (try
               (process-record! ws-registry callback-path rec)
+              (catch InterruptedException _
+                ;; Normal during shutdown (eg thread interrupted while waiting
+                ;; on an HTTP forward to origin).
+                nil)
               (catch Exception e
                 (log/warn e "Failed processing refined record" {:topic (.topic ^ConsumerRecord rec)
                                                                :partition (.partition ^ConsumerRecord rec)
@@ -153,44 +161,88 @@
           (log/warn e "Failed closing refined Kafka consumer")))
       (log/info "Refined consumer loop stopped"))))
 
-(defmethod ig/init-key :samuraibff/refined-consumer
-  [_ {:keys [config ws-registry]}]
+(defn- start-consumer
+  "Start a KafkaConsumer and subscribe it to the refined topic.
+
+  Inputs:
+  - kafka-cfg: config map under [:kafka]
+  - topic: string
+  - group-id: string
+
+  Returns:
+  - KafkaConsumer
+
+  Throws:
+  - Exception if consumer cannot be created/subscribed." 
+  [kafka-cfg topic group-id]
+  (let [consumer (KafkaConsumer. (consumer-props {:bootstrap-servers (:bootstrap-servers kafka-cfg)
+                                                 :consumer-group-id group-id
+                                                 :auto-offset-reset (or (:auto-offset-reset kafka-cfg)
+                                                                        "latest")}))]
+    (.subscribe consumer (Collections/singletonList topic))
+    consumer))
+
+(defn- run-supervised!
+  "Run the refined consumer loop under a simple supervisor.
+
+  If Kafka is unavailable at startup or the poll loop crashes, we retry after
+  a backoff.
+
+  Inputs:
+  - {:keys [config ws-registry running?*]}
+
+  Returns: nil." 
+  [{:keys [config ws-registry running?*]}]
   (let [kafka-cfg (:kafka config)
         topic (get-in kafka-cfg [:topics :refined] "transcripts.refined")
         callback-path (or (get-in config [:bff :callback-path]) "/internal/refined")
         poll-ms (or (get-in kafka-cfg [:poll-ms]) 250)
-        consumer (KafkaConsumer. (consumer-props {:bootstrap-servers (:bootstrap-servers kafka-cfg)
-                                                 :consumer-group-id (or (:consumer-group-id kafka-cfg)
-                                                                        "samuraibff-refined")
-                                                 :auto-offset-reset (or (:auto-offset-reset kafka-cfg)
-                                                                        "latest")}))
-        _ (.subscribe consumer (Collections/singletonList topic))
-        running?* (atom true)
-        thread (doto (Thread. #(run-loop! {:consumer consumer
-                                           :running?* running?*
-                                           :ws-registry ws-registry
-                                           :callback-path callback-path
-                                           :poll-ms poll-ms})
+        group-id (or (:consumer-group-id kafka-cfg) "samuraibff-refined")
+        backoff-ms (or (get-in kafka-cfg [:restart-backoff-ms]) default-restart-backoff-ms)]
+    (while @running?*
+      (try
+        (log/info "Starting refined Kafka consumer" {:bootstrap-servers (:bootstrap-servers kafka-cfg)
+                                                     :topic topic
+                                                     :group group-id
+                                                     :callback-path callback-path})
+        (let [consumer (start-consumer kafka-cfg topic group-id)]
+          (run-loop! {:consumer consumer
+                      :running?* running?*
+                      :ws-registry ws-registry
+                      :callback-path callback-path
+                      :poll-ms poll-ms}))
+        (catch Exception e
+          (when @running?*
+            (log/error e "Refined consumer crashed / failed to start; will retry" {:topic topic
+                                                                                   :group group-id
+                                                                                   :backoff-ms backoff-ms})
+            (try
+              (Thread/sleep (long backoff-ms))
+              (catch InterruptedException _
+                (reset! running?* false)))))))))
+
+(defmethod ig/init-key :samuraibff/refined-consumer
+  [_ {:keys [config ws-registry]}]
+  (let [running?* (atom true)
+        thread (doto (Thread. #(run-supervised! {:config config
+                                                 :ws-registry ws-registry
+                                                 :running?* running?*})
                               "samuraibff-refined-consumer")
                  (.setDaemon true)
                  (.start))]
-    (log/info "Started refined Kafka consumer" {:bootstrap-servers (:bootstrap-servers kafka-cfg)
-                                               :topic topic
-                                               :group (or (:consumer-group-id kafka-cfg) "samuraibff-refined")
-                                               :callback-path callback-path})
     {:thread thread
      :running?* running?*
-     :consumer consumer
      :ws-registry ws-registry
      :config config}))
 
 (defmethod ig/halt-key! :samuraibff/refined-consumer
-  [_ {:keys [running?* ^Thread thread ^KafkaConsumer consumer]}]
+  [_ {:keys [running?* ^Thread thread]}]
   (when running?*
     (reset! running?* false))
-  (when consumer
+  ;; Ensure we break out of Thread/sleep backoff promptly.
+  (when thread
     (try
-      (.wakeup consumer)
+      (.interrupt thread)
       (catch Exception _ nil)))
   (when thread
     (try

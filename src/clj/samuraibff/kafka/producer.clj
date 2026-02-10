@@ -87,9 +87,18 @@
         topic-audio-raw (get-in kafka-cfg [:topics :audio-raw] "audio.raw")]
     (log/info "Starting Kafka producer" {:bootstrap-servers (:bootstrap-servers kafka-cfg)
                                          :topic-audio-raw topic-audio-raw})
-    {:producer (KafkaProducer. (props kafka-cfg))
-     :topic-audio-raw topic-audio-raw
-     :config config}))
+    (try
+      {:producer (KafkaProducer. (props kafka-cfg))
+       :topic-audio-raw topic-audio-raw
+       :config config}
+      (catch Exception e
+        ;; HA behavior: treat Kafka as optional at process startup.
+        ;; If Kafka is down, we still want the HTTP/WS server to come up.
+        ;; Readiness should report Kafka unavailable.
+        (log/error e "Kafka producer failed to start; continuing without Kafka" {:bootstrap-servers (:bootstrap-servers kafka-cfg)})
+        {:producer nil
+         :topic-audio-raw topic-audio-raw
+         :config config}))))
 
 (defmethod ig/halt-key! :samuraibff/kafka-producer
   [_ {:keys [^KafkaProducer producer]}]
