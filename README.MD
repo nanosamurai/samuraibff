@@ -160,6 +160,39 @@ We have an integration test that boots Postgres via Testcontainers and asserts t
 
 ## Running the server
 
+## Health & readiness (HA behavior)
+
+The app exposes two probe-style endpoints:
+
+- `GET /health` – **liveness**. Returns **200** when the process is up.
+- `GET /ready` – **readiness**. Returns **200** only when critical dependencies are reachable.
+
+Current readiness checks:
+
+- Postgres (simple `select 1`)
+- Kafka (TCP reachability to at least one `:kafka :bootstrap-servers` host:port)
+- rtservice (TCP reachability to `:grpc :rtservice-addr`)
+
+If any dependency is down, `/ready` returns **503** and includes per-dependency flags:
+
+```json
+{
+  "status": "degraded",
+  "db": {"up?": false},
+  "kafka": {"up?": false},
+  "grpc": {"up?": false}
+}
+```
+
+Startup is **graceful** under dependency outages:
+
+- If Postgres is down at boot, the process still starts and serves HTTP/WS.
+- If Kafka is down at boot, the process still starts; the Kafka producer is disabled and
+  the refined consumer retries in the background.
+
+This is intended for Kubernetes / load balancers so that dependency outages affect
+**readiness** (traffic routing) rather than **liveness** (restart loops).
+
 ### Start the HTTP server (dev)
 
 The system configuration lives in `resources/system.edn`.
