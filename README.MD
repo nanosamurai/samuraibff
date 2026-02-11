@@ -160,6 +160,108 @@ We have an integration test that boots Postgres via Testcontainers and asserts t
 
 ## Running the server
 
+## Docker (Kubernetes-oriented)
+
+This service is intended to run in Kubernetes.
+
+The repo includes a multi-stage `Dockerfile` that produces a **self-contained**
+image:
+- builds the CLJS UI bundle (`shadow-cljs release`) into `resources/public/js`
+- generates protobuf Java stubs (`buf generate`) and compiles them
+- builds an **uberjar** (`target/samuraibff.jar`) and runs it via `java -jar`
+
+### Build the image
+
+```bash
+docker build -t samuraibff:local .
+```
+
+### Run the container (example)
+
+At minimum you must provide configuration for external dependencies, otherwise
+the process will still start but readiness (`/ready`) will be degraded.
+
+```bash
+docker run --rm -p 8000:8000 \
+  -e SAMURAIBFF_HTTP_HOST=0.0.0.0 \
+  -e SAMURAIBFF_HTTP_PORT=8000 \
+  -e SAMURAIBFF_DB_JDBC_URL=jdbc:postgresql://postgres:5432/drsynth \
+  -e SAMURAIBFF_DB_USERNAME=drsynth \
+  -e SAMURAIBFF_DB_PASSWORD=drsynth \
+  -e SAMURAIBFF_KAFKA_BOOTSTRAP_SERVERS=kafka:9092 \
+  -e SAMURAIBFF_GRPC_RTSERVICE_ADDR=rtservice:50052 \
+  -e SAMURAIBFF_ORIGIN_URI=https://bff.example.com \
+  samuraibff:local
+```
+
+### Health probes
+
+- `GET /health` – liveness (process is up)
+- `GET /ready` – readiness (DB/Kafka/gRPC reachability)
+
+### Configuration in Kubernetes
+
+You can configure the service either:
+1) via **environment variables** (`SAMURAIBFF_*`), or
+2) by mounting an EDN config file and pointing the process to it:
+
+```bash
+SAMURAIBFF_CONFIG_PATH=/etc/samuraibff/system.edn
+```
+
+`SAMURAIBFF_CONFIG_PATH` is useful when you want to keep the Integrant config as
+a single ConfigMap/Secret. Environment variables are then applied as an overlay
+(only variables that are set override the EDN).
+
+### Environment variables
+
+The container reads configuration from `resources/system.edn` (or
+`SAMURAIBFF_CONFIG_PATH`) and then applies overrides from these env vars:
+
+#### Core
+- `SAMURAIBFF_ENV` = `dev|prod|test` (keyword)
+
+#### HTTP / WS
+- `SAMURAIBFF_HTTP_HOST` (default: from EDN; recommended `0.0.0.0` in k8s)
+- `SAMURAIBFF_HTTP_PORT`
+- `SAMURAIBFF_WS_HOST`
+- `SAMURAIBFF_WS_PORT`
+
+#### Auth / OIDC (defaults to secure)
+- `SAMURAIBFF_AUTH_REQUIRED` (`true|false`) – **defaults to true** via EDN
+- `SAMURAIBFF_AUTH_ISSUER`
+- `SAMURAIBFF_AUTH_AUDIENCE`
+- `SAMURAIBFF_AUTH_CLIENT_ID`
+- `SAMURAIBFF_AUTH_COOKIE_NAME`
+- `SAMURAIBFF_AUTH_TENANT_CLAIM`
+
+#### Database
+- `SAMURAIBFF_DB_JDBC_URL`
+- `SAMURAIBFF_DB_USERNAME`
+- `SAMURAIBFF_DB_PASSWORD`
+- `SAMURAIBFF_DB_MAX_POOL_SIZE`
+
+#### Kafka
+- `SAMURAIBFF_KAFKA_BOOTSTRAP_SERVERS`
+- `SAMURAIBFF_KAFKA_CLIENT_ID`
+- `SAMURAIBFF_KAFKA_ACKS`
+- `SAMURAIBFF_KAFKA_COMPRESSION_TYPE`
+- `SAMURAIBFF_KAFKA_CONSUMER_GROUP_ID`
+- `SAMURAIBFF_KAFKA_TOPIC_AUDIO_RAW`
+- `SAMURAIBFF_KAFKA_TOPIC_REFINED`
+
+#### gRPC
+- `SAMURAIBFF_GRPC_RTSERVICE_ADDR`
+
+#### BFF instance identity (important for multi-replica refined routing)
+- `SAMURAIBFF_ORIGIN_URI` – the externally reachable base URL of this BFF
+  (also used to compute the OIDC `redirect_uri`).
+- `SAMURAIBFF_CALLBACK_PATH` (default `/internal/refined`)
+
+> Kubernetes note: for multiple replicas, `SAMURAIBFF_ORIGIN_URI` must be a
+> routable address other instances can reach (typically a stable service DNS
+> name, or an internal ingress).
+
 ## Health & readiness (HA behavior)
 
 The app exposes two probe-style endpoints:

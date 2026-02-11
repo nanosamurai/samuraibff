@@ -33,8 +33,10 @@
   Returns the server instance." 
   [config handler]
   (let [port (or (:port config) (get-in config [:http :port]))
-        server (org.httpkit.server/run-server handler {:port port})]
-    (log/info (format "HTTP server started on port %d" port))
+        ip (or (:ip config) (get-in config [:http :host]))
+        server (org.httpkit.server/run-server handler {:port port
+                                                       :ip ip})]
+    (log/info (format "HTTP server started on %s:%d" (or ip "<default>") port))
     server))
 
 (defn stop-server [server]
