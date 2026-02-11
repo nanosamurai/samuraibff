@@ -6,10 +6,14 @@
 .cljs_node_modules/
 .shadow-cljs/
 out/
+target/
 resources/public/js/
 resources/public/js/compiled/
 node_modules/
 src/java/samuraibff/proto/
+
+# Scratch directory accidentally created by inspecting tools.build jar (never commit)
+clojure/
 
 # Local scratch / npm lockfile (not tracked)
 old-plan.txt

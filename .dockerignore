@@ -1,0 +1,26 @@
+.git
+.idea
+.vscode
+.cpcache
+target
+out
+.shadow-cljs
+.cljs_node_modules
+node_modules
+
+# large / irrelevant local files
+*.log
+*.tmp
+
+# keep docker context small
+test
+test-resources
+coverage
+test-results
+
+# Allow generated artifacts in image build, but we generate them in Docker anyway.
+#
+# Note: do NOT ignore package-lock.json because we intentionally don't commit it
+# today; if we start committing it later, Docker caching improves automatically.
+resources/public/js
+src/java/samuraibff/proto

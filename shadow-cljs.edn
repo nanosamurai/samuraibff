@@ -1,5 +1,6 @@
 {:source-paths
- ["src/cljs"]
+ ["src/cljs"
+  "src/shared"]
 
  :dependencies
  [[io.factorhouse/hsx "0.1.24"]]
