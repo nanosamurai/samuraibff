@@ -546,20 +546,28 @@
             tenant-id (:tenant-id session)]
         (log/info "Starting realtime gRPC stream" {:session-id session-id :tenant-id tenant-id})
         (publish! registry session (status-event session-id (:seq* session) "started" nil))
-        (let [stream (grpc/start-stream!
-                      grpc-client
-                      {:on-next (fn [event]
-                                  (publish! registry session (asr-event->map (:seq* session) event)))
-                       :on-error (fn [t]
-                                   (log/error t "gRPC stream error" {:session-id session-id :tenant-id tenant-id})
-                                   (publish! registry session
-                                             (error-event session-id (:seq* session) "grpc-error" (.getMessage t)))
-                                   (close-session! registry tenant-id session-id "grpc-error"))
-                       :on-complete (fn []
-                                      (log/info "gRPC stream completed" {:session-id session-id :tenant-id tenant-id})
+        (let [stream (try
+                       (grpc/start-stream!
+                         grpc-client
+                         {:on-next (fn [event]
+                                     (publish! registry session (asr-event->map (:seq* session) event)))
+                          :on-error (fn [t]
+                                      (log/error t "gRPC stream error" {:session-id session-id :tenant-id tenant-id})
                                       (publish! registry session
-                                                (status-event session-id (:seq* session)
-                                                              "stopped" "grpc-stream-completed")))})]
+                                                (error-event session-id (:seq* session) "grpc-error" (.getMessage t)))
+                                      (close-session! registry tenant-id session-id "grpc-error"))
+                          :on-complete (fn []
+                                         (log/info "gRPC stream completed" {:session-id session-id :tenant-id tenant-id})
+                                         (publish! registry session
+                                                   (status-event session-id (:seq* session)
+                                                                 "stopped" "grpc-stream-completed")))})
+                       (catch Throwable t
+                         ;; If startup fails, allow retry + make failure obvious.
+                         (reset! (:running?* session) false)
+                         (log/error t "Failed to start realtime gRPC stream" {:session-id session-id :tenant-id tenant-id})
+                         (publish! registry session
+                                   (error-event session-id (:seq* session) "grpc-start-failed" (.getMessage t)))
+                         (throw t)))]
           (reset! (:grpc-stream* session) stream)
           (async/go-loop []
             (let [[v ch] (async/alts! [(:stop-ch session) (:audio-ch session)] :priority true)]
