@@ -122,6 +122,61 @@ A good next step is to add a dockerized Keycloak to integration tests (e.g. via 
 
 (We haven't implemented that yet.)
 
+## Enrolled speakers (multi-tenant)
+
+The BFF now supports **enrolled speakers** for diarization, stored per tenant
+in S3 and persisted in Postgres.
+
+### API endpoints
+
+- `GET /api/speakers` – list speakers for the authenticated tenant
+- `POST /api/speakers` – multipart upload with fields:
+  - `label` (string)
+  - `sample` (WAV file)
+- `DELETE /api/speakers/:speaker_id` – delete speaker (S3 + DB)
+
+### S3 layout
+
+```
+s3://<bucket>/<enrollment-prefix>/<tenant_id>/speakers/<speaker_id>/
+  speaker.json
+  samples/<sample_id>.wav
+```
+
+The `speaker.json` is a per-speaker manifest containing the label and sample URL.
+
+### Configuration
+
+Add S3 config in `resources/system.edn` (or env overrides):
+
+```edn
+:s3 {:bucket "drsynth-enrollment"
+     :enrollment-prefix "enrollment"
+     :region ""
+     :endpoint ""          ;; localstack/minio
+     :access-key ""
+     :secret-key ""
+     :force-path-style? true}
+```
+
+Environment variables:
+
+- `SAMURAIBFF_S3_BUCKET`
+- `SAMURAIBFF_S3_ENROLLMENT_PREFIX`
+- `SAMURAIBFF_S3_REGION`
+- `SAMURAIBFF_S3_ENDPOINT`
+- `SAMURAIBFF_S3_ACCESS_KEY`
+- `SAMURAIBFF_S3_SECRET_KEY`
+- `SAMURAIBFF_S3_FORCE_PATH_STYLE`
+
+### Tests (LocalStack)
+
+Integration tests use LocalStack S3 via Testcontainers:
+
+```
+clojure -X:test :nses '[samuraibff.http.speakers-integration-test]'
+```
+
 ## Postgres persistence (sessions)
 
 Session persistence is now implemented:
@@ -381,6 +436,7 @@ Defaults:
   - `GET /recordings`
   - `GET /recordings/:session_id`
   - `GET /live`
+  - `GET /speakers`
 - UI helpers:
   - `POST /api/sessions`
 - rtservice: `localhost:50052` (see `resources/system.edn`)
