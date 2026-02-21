@@ -42,6 +42,9 @@
 (defonce recordings*
   (atom []))
 
+(defonce speakers*
+  (atom []))
+
 (defonce auth*
   (atom {:status :unknown
          :detail nil}))
@@ -167,6 +170,41 @@
   Returns: nil." 
   [status detail]
   (reset! auth* {:status status :detail detail})
+  nil)
+
+(defn set-speakers!
+  "Replace the speakers list in state.
+
+  Inputs:
+  - items: vector of speaker maps
+
+  Returns: nil." 
+  [items]
+  (reset! speakers* (vec (or items [])))
+  nil)
+
+(defn remove-speaker!
+  "Remove a speaker by id from state.
+
+  Inputs:
+  - speaker-id: string
+
+  Returns: nil." 
+  [speaker-id]
+  (swap! speakers* (fn [xs]
+                     (vec (remove #(= speaker-id (:id %)) xs))))
+  nil)
+
+(defn prepend-speaker!
+  "Add a speaker to the front of the list.
+
+  Inputs:
+  - item: speaker map
+
+  Returns: nil." 
+  [item]
+  (swap! speakers* (fn [xs]
+                     (vec (cons item (or xs [])))))
   nil)
 
 (defn- rebase-event-times
