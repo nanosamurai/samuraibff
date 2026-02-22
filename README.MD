@@ -382,6 +382,24 @@ In terminal 2 (UI watcher):
 clojure -M:cljs watch app
 ```
 
+If you only run the server (`clojure -M:run`) without a CLJS build, the browser may still load an older
+`resources/public/js/main.js`. For a fresh bundle run:
+
+```bash
+clojure -M:cljs release app
+```
+
+### Running with local k8s (rtservice in Kubernetes)
+
+Some integration tests (and the websocket + realtime ASR path) expect rtservice reachable at `localhost:50052`.
+If you run rtservice inside Kubernetes, port-forward it before running the full test suite:
+
+```bash
+kubectl port-forward svc/nanosamurai-stack-rtservice 50052:50052
+```
+
+Alternatively, the gRPC client integration test will be skipped when rtservice is not reachable.
+
 Then open one of:
 - http://127.0.0.1:8000/recordings (default landing page)
 - http://127.0.0.1:8000/live
