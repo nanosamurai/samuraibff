@@ -11,8 +11,19 @@
     [samuraibff.testcontainers.localstack :as tc.localstack]
     [samuraibff.testcontainers.postgres :as tc.pg])
   (:import
-    (java.io ByteArrayInputStream)
+    (java.nio.file Files)
     (java.util UUID)))
+
+(defn- write-temp-wav!
+  "Write bytes to a temporary .wav file.
+
+  Returns:
+  - java.io.File" 
+  [^bytes audio-bytes]
+  (let [p (Files/createTempFile "samuraibff-speaker" ".wav"
+                               (make-array java.nio.file.attribute.FileAttribute 0))]
+    (Files/write p audio-bytes (make-array java.nio.file.OpenOption 0))
+    (.toFile p)))
 
 (def ^:private tenant-id
   "00000000-0000-0000-0000-000000000000")
@@ -48,45 +59,56 @@
               _ (tc.pg/apply-schema! ds)
               _ (insert-tenant! ds)
               s3 (tc.localstack/s3-client localstack)
-              _ (tc.localstack/create-bucket! s3 "drsynth-enrollment")
               config (build-config localstack)
               deps {:config config :db {:ds ds}}
               create-handler (http.speakers/create-speaker-handler deps)
               list-handler (http.speakers/list-speakers-handler deps)
               delete-handler (http.speakers/delete-speaker-handler deps)
               audio-bytes (.getBytes "RIFF....WAVE" "UTF-8")
-              req (-> (mock/request :post "/api/speakers")
-                      (mock/multipart-params
-                        {:label "Dr Novak"
-                         :sample {:filename "sample.wav"
-                                  :content-type "audio/wav"
-                                  :content (ByteArrayInputStream. audio-bytes)}})
-                      (auth-req))
-              resp (create-handler req)
-              body (cheshire/parse-string (:body resp) true)
-              speaker-id (:speaker_id body)
-              list-resp (list-handler (auth-req (mock/request :get "/api/speakers")))
-              list-body (cheshire/parse-string (:body list-resp) true)
-              pre-delete-row (jdbc/execute-one!
-                               ds
-                               ["SELECT id, label FROM speakers WHERE id = ?" (UUID/fromString speaker-id)]
-                               {:builder-fn rs/as-unqualified-lower-maps})
+              wav-file (write-temp-wav! audio-bytes)]
+          (try
+            (tc.localstack/create-bucket! s3 "drsynth-enrollment")
+            (let [req (-> (mock/request :post "/api/speakers")
+                          (assoc :multipart-params {"label" "Dr Novak"
+                                                    "sample" {:filename "sample.wav"
+                                                              :content-type "audio/wav"
+                                                              :tempfile wav-file}})
+                          (auth-req))
+                  resp (create-handler req)
+                  body (cheshire/parse-string (:body resp) true)
+                  speaker-id (:speaker_id body)
+                  list-resp (list-handler (auth-req (mock/request :get "/api/speakers")))
+                  list-body (cheshire/parse-string (:body list-resp) true)
+                  pre-delete-row (jdbc/execute-one!
+                                   ds
+                                   ["SELECT id, label FROM speakers WHERE id = ?" (UUID/fromString speaker-id)]
+                                   {:builder-fn rs/as-unqualified-lower-maps})
               delete-resp (delete-handler
-                            (auth-req (mock/request :delete (str "/api/speakers/" speaker-id))))
-              delete-body (cheshire/parse-string (:body delete-resp) true)
-              post-delete-row (jdbc/execute-one!
-                                ds
-                                ["SELECT id FROM speakers WHERE id = ?" (UUID/fromString speaker-id)]
-                                {:builder-fn rs/as-unqualified-lower-maps})
-              s3-keys (tc.localstack/list-objects s3 "drsynth-enrollment" "enrollment/")]
-          (is (= 200 (:status resp)))
-          (is (string? speaker-id))
-          (is (= "Dr Novak" (:label body)))
-          (is (= 200 (:status list-resp)))
-          (is (seq (:items list-body)))
-          (is (= "Dr Novak" (:label pre-delete-row)))
-          (is (= 200 (:status delete-resp)))
-          (is (= speaker-id (:speaker_id delete-body)))
-          (is (nil? post-delete-row))
-          (is (empty? s3-keys))))
-        (.close s3)))))
+                            (-> (mock/request :delete (str "/api/speakers/" speaker-id))
+                                ;; When calling the handler directly, Reitit's path-params
+                                ;; are not populated automatically.
+                                (assoc :path-params {:speaker_id speaker-id})
+                                (auth-req)))
+                  delete-body (cheshire/parse-string (:body delete-resp) true)
+                  post-delete-row (jdbc/execute-one!
+                                    ds
+                                    ["SELECT id FROM speakers WHERE id = ?" (UUID/fromString speaker-id)]
+                                    {:builder-fn rs/as-unqualified-lower-maps})
+                  s3-keys (tc.localstack/list-objects s3 "drsynth-enrollment" "enrollment/")]
+              (is (= 200 (:status resp)))
+              (is (string? speaker-id))
+              (is (= "Dr Novak" (:label body)))
+              (is (= 200 (:status list-resp)))
+              (is (seq (:items list-body)))
+              (is (= "Dr Novak" (:label pre-delete-row)))
+              (is (= 200 (:status delete-resp)))
+              (is (= speaker-id (:speaker_id delete-body)))
+              (is (nil? post-delete-row))
+              (is (empty? s3-keys)))
+            (finally
+              (.close s3)
+              (when wav-file
+                (try
+                  (.delete wav-file)
+                  (catch Exception _
+                    nil))))))))))

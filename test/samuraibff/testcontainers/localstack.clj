@@ -17,6 +17,7 @@
     (software.amazon.awssdk.regions Region)
     (software.amazon.awssdk.services.s3 S3Client)
     (software.amazon.awssdk.services.s3.model CreateBucketRequest ListObjectsV2Request)
+    (java.util.function Consumer)
     (java.net URI)))
 
 (defn start-localstack!
@@ -59,10 +60,15 @@
     (-> (S3Client/builder)
         (.endpointOverride (URI/create endpoint))
         (.region (Region/of region))
+        (.serviceConfiguration
+          (reify Consumer
+            (accept [_ builder]
+              ;; LocalStack requires path-style access in many setups.
+              ;; builder is software.amazon.awssdk.services.s3.S3Configuration$Builder
+              (.pathStyleAccessEnabled builder true))))
         (.credentialsProvider
           (StaticCredentialsProvider/create
             (AwsBasicCredentials/create access-key secret-key)))
-        (.forcePathStyle true)
         (.build))))
 
 (defn create-bucket!

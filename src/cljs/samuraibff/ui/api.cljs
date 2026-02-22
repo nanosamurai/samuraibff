@@ -63,7 +63,7 @@
     (-> (js/fetch "/api/speakers" #js {:method "POST"
                                        :body data})
         (.then ensure-ok!)
-        (.then (fn [res] (.json res)))))
+        (.then (fn [res] (.json res))))))
 
 (defn delete-speaker!
   "Delete a speaker.

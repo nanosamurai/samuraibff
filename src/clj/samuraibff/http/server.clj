@@ -17,6 +17,7 @@
     :handler #ig/ref :samuraibff/router}}"
   (:require
    [integrant.core :as ig]
+   [clojure.string :as str]
    [org.httpkit.server]
    [org.corfield.logging4j2 :as log]))
 
@@ -34,8 +35,11 @@
   [config handler]
   (let [port (or (:port config) (get-in config [:http :port]))
         ip (or (:ip config) (get-in config [:http :host]))
-        server (org.httpkit.server/run-server handler {:port port
-                                                       :ip ip})]
+        ;; http-kit cannot handle {:ip nil}; omit the key when no host is configured.
+        opts (cond-> {:port port}
+               (and (some? ip) (not (str/blank? (str ip))))
+               (assoc :ip (str ip)))
+        server (org.httpkit.server/run-server handler opts)]
     (log/info (format "HTTP server started on %s:%d" (or ip "<default>") port))
     server))
 

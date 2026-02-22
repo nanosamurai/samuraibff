@@ -23,6 +23,7 @@
     [org.corfield.logging4j2 :as log])
   (:import
     (java.time Instant)
+    (java.util.function Consumer)
     (software.amazon.awssdk.auth.credentials AwsBasicCredentials StaticCredentialsProvider)
     (software.amazon.awssdk.core.sync RequestBody)
     (software.amazon.awssdk.regions Region)
@@ -53,12 +54,17 @@
         builder (cond-> (S3Client/builder)
                   (seq (str region)) (.region (Region/of region))
                   (seq (str endpoint)) (.endpointOverride (java.net.URI/create endpoint))
+                  (some? force-path-style?)
+                  (.serviceConfiguration
+                    (reify Consumer
+                      (accept [_ cfg-builder]
+                        ;; cfg-builder is software.amazon.awssdk.services.s3.S3Configuration$Builder
+                        (.pathStyleAccessEnabled cfg-builder (boolean force-path-style?)))))
                   (and (seq (str access-key)) (seq (str secret-key)))
                   (.credentialsProvider
                     (StaticCredentialsProvider/create
                       (AwsBasicCredentials/create access-key secret-key)))
-                  (some? force-path-style?)
-                  (.forcePathStyle (boolean force-path-style?)))]
+                  )]
     (.build builder)))
 
 (defn- join-path
