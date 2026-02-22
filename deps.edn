@@ -60,8 +60,8 @@
   software.amazon.awssdk/auth       {:mvn/version "2.32.21"}
   software.amazon.awssdk/regions    {:mvn/version "2.32.21"}
 
-  ;; --- Multipart parsing ---
-  ring/ring-multipart-params        {:mvn/version "0.2.0"}}
+  ;; Multipart parsing is provided by ring-core.
+  }
 
  :aliases
  {:nrepl {:extra-paths ["src/clj" "resources" "test"]
