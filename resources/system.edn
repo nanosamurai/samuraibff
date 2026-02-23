@@ -49,7 +49,20 @@
         :callback-path "/internal/refined"}
 
   ;; --- gRPC ---
-  :grpc {:rtservice-addr "localhost:50052"}}
+  :grpc {:rtservice-addr "localhost:50052"}
+
+  ;; --- S3 (enrolled speakers) ---
+  ;; Storage layout:
+  ;; s3://<bucket>/<enrollment-prefix>/<tenant_id>/speakers/<speaker_id>/
+  ;;   speaker.json
+  ;;   samples/<sample_id>.wav
+  :s3 {:bucket "drsynth-enrollment"
+       :enrollment-prefix "enrollment"
+       :region ""
+       :endpoint ""            ;; set for localstack/minio (e.g. http://localhost:4566)
+       :access-key ""
+       :secret-key ""
+       :force-path-style? true}}
 
  ;; --- Integrant components ---
 

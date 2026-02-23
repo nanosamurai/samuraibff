@@ -23,6 +23,7 @@
    [samuraibff.ws.events :as ws.events]
    [samuraibff.http.auth :as http.auth]
    [samuraibff.http.internal :as http.internal]
+   [samuraibff.http.speakers :as http.speakers]
    [samuraibff.http.ui :as http.ui]
    [reitit.ring.coercion :as rrc]
    [reitit.coercion.malli]
@@ -33,6 +34,7 @@
    [reitit.ring.middleware.exception :as exception]
    [reitit.ring.middleware.muuntaja :as muuntaja]
    [reitit.ring.middleware.parameters :as parameters]
+   [ring.middleware.multipart-params :refer [wrap-multipart-params]]
    [ring.middleware.content-type :refer [wrap-content-type]]
    [ring.middleware.not-modified :refer [wrap-not-modified]]
    [ring.middleware.resource :refer [wrap-resource]]
@@ -262,7 +264,14 @@
             ["/me" {:get {:summary "Current authenticated user"
                           :handler (http.auth/me-handler config)}}]
             ["/sessions" {:post {:summary "Create a new session id"
-                                 :handler (http.ui/create-session-handler deps)}}]]
+                                 :handler (http.ui/create-session-handler deps)}}]
+            ["/speakers" {:get {:summary "List enrolled speakers"
+                                :handler (http.speakers/list-speakers-handler deps)}
+                          :post {:summary "Create enrolled speaker"
+                                 :middleware [wrap-multipart-params]
+                                 :handler (http.speakers/create-speaker-handler deps)}}]
+            ["/speakers/:speaker_id" {:delete {:summary "Delete enrolled speaker"
+                                                :handler (http.speakers/delete-speaker-handler deps)}}]]
 
            ;; Health check endpoint
            (healthcheck-route)

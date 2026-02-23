@@ -122,6 +122,61 @@ A good next step is to add a dockerized Keycloak to integration tests (e.g. via 
 
 (We haven't implemented that yet.)
 
+## Enrolled speakers (multi-tenant)
+
+The BFF now supports **enrolled speakers** for diarization, stored per tenant
+in S3 and persisted in Postgres.
+
+### API endpoints
+
+- `GET /api/speakers` – list speakers for the authenticated tenant
+- `POST /api/speakers` – multipart upload with fields:
+  - `label` (string)
+  - `sample` (WAV file)
+- `DELETE /api/speakers/:speaker_id` – delete speaker (S3 + DB)
+
+### S3 layout
+
+```
+s3://<bucket>/<enrollment-prefix>/<tenant_id>/speakers/<speaker_id>/
+  speaker.json
+  samples/<sample_id>.wav
+```
+
+The `speaker.json` is a per-speaker manifest containing the label and sample URL.
+
+### Configuration
+
+Add S3 config in `resources/system.edn` (or env overrides):
+
+```edn
+:s3 {:bucket "drsynth-enrollment"
+     :enrollment-prefix "enrollment"
+     :region ""
+     :endpoint ""          ;; localstack/minio
+     :access-key ""
+     :secret-key ""
+     :force-path-style? true}
+```
+
+Environment variables:
+
+- `SAMURAIBFF_S3_BUCKET`
+- `SAMURAIBFF_S3_ENROLLMENT_PREFIX`
+- `SAMURAIBFF_S3_REGION`
+- `SAMURAIBFF_S3_ENDPOINT`
+- `SAMURAIBFF_S3_ACCESS_KEY`
+- `SAMURAIBFF_S3_SECRET_KEY`
+- `SAMURAIBFF_S3_FORCE_PATH_STYLE`
+
+### Tests (LocalStack)
+
+Integration tests use LocalStack S3 via Testcontainers:
+
+```
+clojure -X:test :nses '[samuraibff.http.speakers-integration-test]'
+```
+
 ## Postgres persistence (sessions)
 
 Session persistence is now implemented:
@@ -327,6 +382,24 @@ In terminal 2 (UI watcher):
 clojure -M:cljs watch app
 ```
 
+If you only run the server (`clojure -M:run`) without a CLJS build, the browser may still load an older
+`resources/public/js/main.js`. For a fresh bundle run:
+
+```bash
+clojure -M:cljs release app
+```
+
+### Running with local k8s (rtservice in Kubernetes)
+
+Some integration tests (and the websocket + realtime ASR path) expect rtservice reachable at `localhost:50052`.
+If you run rtservice inside Kubernetes, port-forward it before running the full test suite:
+
+```bash
+kubectl port-forward svc/nanosamurai-stack-rtservice 50052:50052
+```
+
+Alternatively, the gRPC client integration test will be skipped when rtservice is not reachable.
+
 Then open one of:
 - http://127.0.0.1:8000/recordings (default landing page)
 - http://127.0.0.1:8000/live
@@ -381,6 +454,7 @@ Defaults:
   - `GET /recordings`
   - `GET /recordings/:session_id`
   - `GET /live`
+  - `GET /speakers`
 - UI helpers:
   - `POST /api/sessions`
 - rtservice: `localhost:50052` (see `resources/system.edn`)

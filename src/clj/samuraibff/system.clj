@@ -137,6 +137,22 @@
         (set-in-if [:samuraibff/config :grpc :rtservice-addr]
                    (some-> (getenv "SAMURAIBFF_GRPC_RTSERVICE_ADDR") str/trim not-empty))
 
+        ;; S3 enrollment storage
+        (set-in-if [:samuraibff/config :s3 :bucket]
+                   (some-> (getenv "SAMURAIBFF_S3_BUCKET") str/trim not-empty))
+        (set-in-if [:samuraibff/config :s3 :enrollment-prefix]
+                   (some-> (getenv "SAMURAIBFF_S3_ENROLLMENT_PREFIX") str/trim not-empty))
+        (set-in-if [:samuraibff/config :s3 :region]
+                   (some-> (getenv "SAMURAIBFF_S3_REGION") str/trim not-empty))
+        (set-in-if [:samuraibff/config :s3 :endpoint]
+                   (some-> (getenv "SAMURAIBFF_S3_ENDPOINT") str/trim not-empty))
+        (set-in-if [:samuraibff/config :s3 :access-key]
+                   (some-> (getenv "SAMURAIBFF_S3_ACCESS_KEY") str/trim not-empty))
+        (set-in-if [:samuraibff/config :s3 :secret-key]
+                   (some-> (getenv "SAMURAIBFF_S3_SECRET_KEY") str/trim not-empty))
+        (set-in-if [:samuraibff/config :s3 :force-path-style?]
+                   (parse-bool (getenv "SAMURAIBFF_S3_FORCE_PATH_STYLE")))
+
         ;; BFF identity
         (set-in-if [:samuraibff/config :bff :origin-uri]
                    (some-> (getenv "SAMURAIBFF_ORIGIN_URI") str/trim not-empty))
