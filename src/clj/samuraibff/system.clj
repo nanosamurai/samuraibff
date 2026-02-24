@@ -97,6 +97,8 @@
 
         ;; Auth / OIDC
         (set-in-if [:samuraibff/config :auth :required?] auth-required)
+        (set-in-if [:samuraibff/config :auth :guest-tenant-id]
+                   (some-> (getenv "SAMURAIBFF_AUTH_GUEST_TENANT_ID") str/trim not-empty))
         (set-in-if [:samuraibff/config :auth :issuer]
                    (some-> (getenv "SAMURAIBFF_AUTH_ISSUER") str/trim not-empty))
         (set-in-if [:samuraibff/config :auth :audience]

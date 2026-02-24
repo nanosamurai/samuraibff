@@ -38,7 +38,7 @@
   (let [{:keys [access-key secret-key region]} (tc.localstack/s3-credentials localstack)
         endpoint (tc.localstack/s3-endpoint localstack)]
     {:auth {:required? true}
-     :s3 {:bucket "drsynth-enrollment"
+     :s3 {:bucket "xamurai-enrollment"
           :enrollment-prefix "enrollment"
           :region region
           :endpoint endpoint
@@ -67,7 +67,7 @@
               audio-bytes (.getBytes "RIFF....WAVE" "UTF-8")
               wav-file (write-temp-wav! audio-bytes)]
           (try
-            (tc.localstack/create-bucket! s3 "drsynth-enrollment")
+            (tc.localstack/create-bucket! s3 "xamurai-enrollment")
             (let [req (-> (mock/request :post "/api/speakers")
                           (assoc :multipart-params {"label" "Dr Novak"
                                                     "sample" {:filename "sample.wav"
@@ -94,7 +94,7 @@
                                     ds
                                     ["SELECT id FROM speakers WHERE id = ?" (UUID/fromString speaker-id)]
                                     {:builder-fn rs/as-unqualified-lower-maps})
-                  s3-keys (tc.localstack/list-objects s3 "drsynth-enrollment" "enrollment/")]
+                  s3-keys (tc.localstack/list-objects s3 "xamurai-enrollment" "enrollment/")]
               (is (= 200 (:status resp)))
               (is (string? speaker-id))
               (is (= "Dr Novak" (:label body)))

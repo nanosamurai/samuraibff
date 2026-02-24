@@ -150,7 +150,7 @@ The `speaker.json` is a per-speaker manifest containing the label and sample URL
 Add S3 config in `resources/system.edn` (or env overrides):
 
 ```edn
-:s3 {:bucket "drsynth-enrollment"
+:s3 {:bucket "xamurai-enrollment"
      :enrollment-prefix "enrollment"
      :region ""
      :endpoint ""          ;; localstack/minio
