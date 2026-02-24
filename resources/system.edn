@@ -12,6 +12,13 @@
 
   ;; --- Auth / Keycloak ---
   :auth {:required? true
+         ;; Optional dev/test-only fallback used ONLY when :required? is false.
+         ;; When enabled, unauthenticated WS sessions will still be isolated and
+         ;; audio/raw Kafka messages will carry AudioChunk.tenant_id.
+         ;;
+         ;; Recommended value for local dev:
+         ;; "00000000-0000-0000-0000-000000000000"
+         :guest-tenant-id nil
          :issuer "https://auth.nanosamur.ai/realms/nanosamurai"
          ;; JWT audience (Keycloak client id used by the browser)
          :audience "bff-web"
@@ -56,10 +63,10 @@
   ;; s3://<bucket>/<enrollment-prefix>/<tenant_id>/speakers/<speaker_id>/
   ;;   speaker.json
   ;;   samples/<sample_id>.wav
-  :s3 {:bucket "drsynth-enrollment"
+  :s3 {:bucket "xamurai-enrollment"
        :enrollment-prefix "enrollment"
        :region ""
-       :endpoint ""            ;; set for localstack/minio (e.g. http://localhost:4566)
+       :endpoint "http://localhost:4566"            ;; set for localstack/minio (e.g. http://localhost:4566)
        :access-key ""
        :secret-key ""
        :force-path-style? true}}

@@ -11,12 +11,27 @@
   Public API:
   - `require-auth-or-continue`"
   (:require
+    [clojure.string :as str]
     [jsonista.core :as json]
     [org.corfield.logging4j2 :as log]
     [samuraibff.auth.oidc :as oidc]))
 
 (def ^:private json-mapper
   (json/object-mapper {:encode-key-fn name}))
+
+(defn- guest-tenant-id
+  "Return configured guest tenant id when auth is disabled.
+
+  Behavior:
+  - when auth is required: returns nil
+  - when auth is disabled: returns configured [:auth :guest-tenant-id] or nil
+
+  This is intentionally opt-in: we do not default to any tenant id unless the
+  operator explicitly configures it." 
+  [config]
+  (when-not (oidc/auth-required? config)
+    (let [tid (some-> (get-in config [:auth :guest-tenant-id]) str str/trim)]
+      (when-not (str/blank? tid) tid))))
 
 (defn require-auth-or-continue
   "Authenticate a websocket request before upgrade.
@@ -31,8 +46,8 @@
       - invalid token  => returns {:ok? false :response <403>}
       - valid token    => returns {:ok? true :user <user-map>}
   - if auth is not required:
-      - missing/invalid token => {:ok? true :user nil}
-      - valid token           => {:ok? true :user <user-map>}
+      - missing/invalid token => {:ok? true :user nil :tenant-id <guest?>}
+      - valid token           => {:ok? true :user <user-map> :tenant-id (<claims> or <guest?>)}
 
   Returns:
   - {:ok? boolean
@@ -41,17 +56,22 @@
      :tenant-id (optional string)}" 
   [config req]
   (let [token (oidc/extract-token config req)
-        required? (oidc/auth-required? config)]
+        required? (oidc/auth-required? config)
+        guest-tid (guest-tenant-id config)]
     (if-not token
       (if required?
         {:ok? false
          :response {:status 403
                     :headers {"content-type" "application/json"}
                     :body (json/write-value-as-string {:ok false :message "missing-token"} json-mapper)}}
-        {:ok? true :user nil :tenant-id nil})
+        (do
+          (when-not guest-tid
+            (log/warn "Auth disabled but :auth :guest-tenant-id not configured; tenant-id will be nil"))
+          {:ok? true :user nil :tenant-id guest-tid}))
       (try
         (let [user (oidc/verify-token config token)
-              tenant-id (oidc/extract-tenant-from-claims user)]
+              tenant-id0 (oidc/extract-tenant-from-claims user)
+              tenant-id (or tenant-id0 guest-tid)]
           {:ok? true :user user :tenant-id tenant-id})
         (catch Exception e
           (if required?
@@ -63,4 +83,6 @@
                           :body (json/write-value-as-string {:ok false :message "invalid-token"} json-mapper)}})
             (do
               (log/warn e "WS auth failed but ignored (auth not required)")
-              {:ok? true :user nil :tenant-id nil})))))))
+              (when-not guest-tid
+                (log/warn "Auth disabled but :auth :guest-tenant-id not configured; tenant-id will be nil"))
+              {:ok? true :user nil :tenant-id guest-tid})))))))

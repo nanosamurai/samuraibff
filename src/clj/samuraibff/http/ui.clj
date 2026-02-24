@@ -149,7 +149,10 @@
 
           ;; Create/bind session in registry immediately so WS endpoints can be
           ;; strict and disallow session creation via WS when auth is required.
-          (ws.registry/ensure-session! ws-registry tenant-id session-id {})
+          ;;
+          ;; IMPORTANT: even when auth is disabled, we bind the in-memory session
+          ;; under the same tenant UUID that we persisted into Postgres.
+          (ws.registry/ensure-session! ws-registry (str tenant-id-uuid) session-id {})
 
           {:status 200
            :headers {"content-type" "application/json"}
