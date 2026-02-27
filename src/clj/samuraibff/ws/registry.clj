@@ -71,6 +71,7 @@
     [clojure.string :as str]
     [integrant.core :as ig]
     [org.corfield.logging4j2 :as log]
+    [samuraibff.session-trace :as session-trace]
     [samuraibff.grpc.client :as grpc]
     [samuraibff.kafka.producer :as kafka.producer]
     [samuraibff.schemas :as schemas])
@@ -593,19 +594,23 @@
                                    chunk-id
                                    v
                                    bff-origin-uri)]
-                  ;; Publish to Kafka for near-realtime refinement workers.
-                  (when-let [kafka-producer (:kafka-producer registry)]
-                    (kafka.producer/send-audio-chunk! kafka-producer session-id audio-chunk
-                                                      {:tenant-id tenant-id}))
+                  ;; Ensure a stable trace context (trace_id == normalized session_id)
+                  ;; is current for both Kafka and gRPC. The OTEL Java agent will
+                  ;; inject W3C trace context automatically.
+                  (session-trace/with-session-trace session-id
+                    ;; Publish to Kafka for near-realtime refinement workers.
+                    (when-let [kafka-producer (:kafka-producer registry)]
+                      (kafka.producer/send-audio-chunk! kafka-producer session-id audio-chunk
+                                                        {:tenant-id tenant-id}))
 
-                  ;; Forward to realtime gRPC ASR service.
-                  (try
-                    ((:send! stream) audio-chunk)
-                    (catch Exception e
-                      (log/error e "gRPC send failed" {:session-id session-id :tenant-id tenant-id})
-                      (publish! registry session
-                                (error-event session-id (:seq* session) "grpc-send-failed" (.getMessage e)))
-                      (close-session! registry tenant-id session-id "grpc-send-failed")))
+                    ;; Forward to realtime gRPC ASR service.
+                    (try
+                      ((:send! stream) audio-chunk)
+                      (catch Exception e
+                        (log/error e "gRPC send failed" {:session-id session-id :tenant-id tenant-id})
+                        (publish! registry session
+                                  (error-event session-id (:seq* session) "grpc-send-failed" (.getMessage e)))
+                        (close-session! registry tenant-id session-id "grpc-send-failed"))))
                   (recur))))))
         session))
     session))

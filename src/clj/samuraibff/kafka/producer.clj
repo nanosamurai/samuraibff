@@ -23,7 +23,8 @@
   - `send-audio-chunk!`"
   (:require
     [integrant.core :as ig]
-    [org.corfield.logging4j2 :as log])
+    [org.corfield.logging4j2 :as log]
+    [samuraibff.session-trace :as session-trace])
   (:import
     (java.util Properties)
     (org.apache.kafka.clients.producer KafkaProducer ProducerRecord)
@@ -66,19 +67,22 @@
    (send-audio-chunk! producer session-id chunk {}))
   ([{:keys [^KafkaProducer producer topic-audio-raw]} session-id ^AudioChunk chunk {:keys [tenant-id]}]
    (when (and producer topic-audio-raw)
-     (let [record (doto (ProducerRecord. topic-audio-raw session-id (.toByteArray chunk))
-                    (cond-> tenant-id
-                      (-> (.headers) (.add "tenant_id" (.getBytes (str tenant-id) "UTF-8")))))]
-       (.send
-         producer
-         record
-         (reify org.apache.kafka.clients.producer.Callback
-           (onCompletion [_ metadata exception]
-             (when exception
-               (log/warn exception "Kafka send failed" {:topic topic-audio-raw
-                                                        :session-id session-id
-                                                        :partition (when metadata (.partition metadata))
-                                                        :offset (when metadata (.offset metadata))})))))))
+     ;; Make a deterministic trace context (trace_id == normalized session_id)
+     ;; current for this send so the OTEL Java agent injects `traceparent`.
+     (session-trace/with-session-trace session-id
+       (let [record (doto (ProducerRecord. topic-audio-raw session-id (.toByteArray chunk))
+                      (cond-> tenant-id
+                        (-> (.headers) (.add "tenant_id" (.getBytes (str tenant-id) "UTF-8")))))]
+         (.send
+           producer
+           record
+           (reify org.apache.kafka.clients.producer.Callback
+             (onCompletion [_ metadata exception]
+               (when exception
+                 (log/warn exception "Kafka send failed" {:topic topic-audio-raw
+                                                          :session-id session-id
+                                                          :partition (when metadata (.partition metadata))
+                                                          :offset (when metadata (.offset metadata))}))))))))
    nil))
 
 (defmethod ig/init-key :samuraibff/kafka-producer
