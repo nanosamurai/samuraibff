@@ -71,7 +71,9 @@
                (TraceFlags/getSampled)
                (TraceState/getDefault))
           span (Span/wrap sc)]
-      (.with Context/root span))))
+      ;; Clojure interop: `Context/root` is a static method, call it with `Context/root`
+      ;; and then call `.with` on the returned instance.
+      (.with (Context/root) span))))
 
 (defmacro with-session-trace
   "Make a session-derived OTEL Context current for the duration of body.
