@@ -58,6 +58,21 @@
         (.substring trace-id 0 16)
         tail))))
 
+(defn traceparent-for-session
+  "Return a W3C traceparent header value derived from session-id.
+
+  This is a *deterministic* parent context intended for local dev.
+  Format: version-traceid-spanid-flags
+
+  Example:
+    00-<32hex traceid>-<16hex spanid>-01
+
+  Returns nil when session-id cannot be parsed as UUID." 
+  [session-id]
+  (when-let [trace-id (session-id->trace-id session-id)]
+    (let [span-id (or (session-id->span-id session-id) "0000000000000001")]
+      (str "00-" trace-id "-" span-id "-01"))))
+
 (defn context-for-session
   "Build an OpenTelemetry Context that contains a remote parent span context for session-id.
 

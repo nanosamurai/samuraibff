@@ -58,6 +58,13 @@
   - opts: map with optional keys:
       - :tenant-id string (added as Kafka header `tenant_id`)
 
+  Observability (local dev):
+  - We derive a deterministic W3C `traceparent` from session-id and attach it
+    as a Kafka header.
+  - We also bind the same context as current (`with-session-trace`) so any
+    spans created by the OTEL Java agent (and downstream consumers) line up
+    under a single session trace.
+
   Behavior:
   - sends asynchronously (does not block for ack)
   - logs a warning on callback error
@@ -67,12 +74,14 @@
    (send-audio-chunk! producer session-id chunk {}))
   ([{:keys [^KafkaProducer producer topic-audio-raw]} session-id ^AudioChunk chunk {:keys [tenant-id]}]
    (when (and producer topic-audio-raw)
-     ;; Make a deterministic trace context (trace_id == normalized session_id)
-     ;; current for this send so the OTEL Java agent injects `traceparent`.
      (session-trace/with-session-trace session-id
-       (let [record (doto (ProducerRecord. topic-audio-raw session-id (.toByteArray chunk))
-                      (cond-> tenant-id
-                        (-> (.headers) (.add "tenant_id" (.getBytes (str tenant-id) "UTF-8")))))]
+       (let [record (ProducerRecord. topic-audio-raw session-id (.toByteArray chunk))
+             hdrs (.headers record)
+             tp (session-trace/traceparent-for-session session-id)]
+         (when tenant-id
+           (.add hdrs "tenant_id" (.getBytes (str tenant-id) "UTF-8")))
+         (when tp
+           (.add hdrs "traceparent" (.getBytes ^String tp "UTF-8")))
          (.send
            producer
            record
