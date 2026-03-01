@@ -23,7 +23,8 @@
   - `send-audio-chunk!`"
   (:require
     [integrant.core :as ig]
-    [org.corfield.logging4j2 :as log])
+    [org.corfield.logging4j2 :as log]
+    [samuraibff.session-trace :as session-trace])
   (:import
     (java.util Properties)
     (org.apache.kafka.clients.producer KafkaProducer ProducerRecord)
@@ -57,6 +58,13 @@
   - opts: map with optional keys:
       - :tenant-id string (added as Kafka header `tenant_id`)
 
+  Observability (local dev):
+  - We derive a deterministic W3C `traceparent` from session-id and attach it
+    as a Kafka header.
+  - We also bind the same context as current (`with-session-trace`) so any
+    spans created by the OTEL Java agent (and downstream consumers) line up
+    under a single session trace.
+
   Behavior:
   - sends asynchronously (does not block for ack)
   - logs a warning on callback error
@@ -66,19 +74,24 @@
    (send-audio-chunk! producer session-id chunk {}))
   ([{:keys [^KafkaProducer producer topic-audio-raw]} session-id ^AudioChunk chunk {:keys [tenant-id]}]
    (when (and producer topic-audio-raw)
-     (let [record (doto (ProducerRecord. topic-audio-raw session-id (.toByteArray chunk))
-                    (cond-> tenant-id
-                      (-> (.headers) (.add "tenant_id" (.getBytes (str tenant-id) "UTF-8")))))]
-       (.send
-         producer
-         record
-         (reify org.apache.kafka.clients.producer.Callback
-           (onCompletion [_ metadata exception]
-             (when exception
-               (log/warn exception "Kafka send failed" {:topic topic-audio-raw
-                                                        :session-id session-id
-                                                        :partition (when metadata (.partition metadata))
-                                                        :offset (when metadata (.offset metadata))})))))))
+     (session-trace/with-session-trace session-id
+       (let [record (ProducerRecord. topic-audio-raw session-id (.toByteArray chunk))
+             hdrs (.headers record)
+             tp (session-trace/traceparent-for-session session-id)]
+         (when tenant-id
+           (.add hdrs "tenant_id" (.getBytes (str tenant-id) "UTF-8")))
+         (when tp
+           (.add hdrs "traceparent" (.getBytes ^String tp "UTF-8")))
+         (.send
+           producer
+           record
+           (reify org.apache.kafka.clients.producer.Callback
+             (onCompletion [_ metadata exception]
+               (when exception
+                 (log/warn exception "Kafka send failed" {:topic topic-audio-raw
+                                                          :session-id session-id
+                                                          :partition (when metadata (.partition metadata))
+                                                          :offset (when metadata (.offset metadata))}))))))))
    nil))
 
 (defmethod ig/init-key :samuraibff/kafka-producer

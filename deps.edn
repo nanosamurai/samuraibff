@@ -41,6 +41,12 @@
   ;; --- Kafka producer (Java client) ---
   org.apache.kafka/kafka-clients    {:mvn/version "4.1.1"}
 
+  ;; --- OpenTelemetry API (needed at compile/runtime even when using Java agent) ---
+  ;; NOTE: API artifacts use the 1.x version line; the Java agent version (e.g. v2.11.0)
+  ;; is a different release stream.
+  io.opentelemetry/opentelemetry-api     {:mvn/version "1.59.0"}
+  io.opentelemetry/opentelemetry-context {:mvn/version "1.59.0"}
+
   ;; --- Auth / OIDC (Keycloak) ---
   ;; NOTE: keycloak-clojure is kept for now (may still be useful for admin APIs),
   ;; but our JWT verification uses Nimbus directly for transparency and control.
