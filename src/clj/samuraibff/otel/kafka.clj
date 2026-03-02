@@ -61,7 +61,7 @@
     (let [t (now-ms)]
       (when (>= (- t @last-audio-raw-produce-span-ms*) audio-raw-produce-span-every-ms)
         (reset! last-audio-raw-produce-span-ms* t)
-        (let [tracer (.getTracer GlobalOpenTelemetry "samuraibff.otel.kafka")
+        (let [tracer (GlobalOpenTelemetry/getTracer "samuraibff.otel.kafka")
               sb (.spanBuilder tracer "kafka.produce audio.raw")]
           (.setSpanKind sb SpanKind/PRODUCER)
           (.startSpan sb))))))
