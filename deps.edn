@@ -59,7 +59,7 @@
   io.grpc/grpc-protobuf             {:mvn/version "1.77.0"}
   io.grpc/grpc-stub                 {:mvn/version "1.77.0"}
   ;; Must be >= the version used by generated Java stubs (buf).
-  com.google.protobuf/protobuf-java {:mvn/version "4.33.5"}
+  com.google.protobuf/protobuf-java {:mvn/version "4.34.0"}
 
   ;; --- S3 enrollment storage ---
   software.amazon.awssdk/s3         {:mvn/version "2.32.21"}
