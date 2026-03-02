@@ -25,7 +25,7 @@
 
 (def ^:private default-audio-raw-produce-span-every-s 2.0)
 
-(defn- parse-double
+(defn- parse-double-env
   [s]
   (let [s0 (some-> s str str/trim)]
     (when (and s0 (not (str/blank? s0)))
@@ -37,7 +37,7 @@
   (long
     (* 1000.0
        (double
-         (or (parse-double (System/getenv "SAMURAIBFF_AUDIO_RAW_PRODUCE_SPAN_EVERY_S"))
+         (or (parse-double-env (System/getenv "SAMURAIBFF_AUDIO_RAW_PRODUCE_SPAN_EVERY_S"))
              default-audio-raw-produce-span-every-s)))))
 
 (defonce ^:private last-audio-raw-produce-span-ms* (atom 0))
