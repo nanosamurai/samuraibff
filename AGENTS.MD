@@ -1,10 +1,10 @@
 Aim of this clojure project (samuraibff) is to rewrite and further evolve
- drsynth's bff written in python (see C:\Users\miros\PycharmProjects\drsynth\bff\src\bff)
- for drsynth project ( C:\Users\miros\PycharmProjects\drsynth\ ) .
-Please read its readme.md (C:\Users\miros\PycharmProjects\drsynth\README.MD) to get idea what it does.
+ xamurai's (aka drsynth's) bff that was originally written in python 
+ for xamurai project ( C:\Users\miros\PycharmProjects\xamurai\ ) .
+Please read its readme.md (C:\Users\miros\PycharmProjects\xamurai\README.MD) to get idea what it does.
 
 I decided to isolate the bff and rewrite it in clojure.
-For the data model, please look at C:\Users\miros\PycharmProjects\drsynth\proto\stream.proto .
+For the data model, please look at C:\Users\miros\PycharmProjects\xamurai\proto\stream.proto .
 
 # AGENTS.MD — samuraibff (Clojure) Architecture + House Rules
 
@@ -81,11 +81,9 @@ For the data model, please look at C:\Users\miros\PycharmProjects\drsynth\proto\
 
 ### Pending / not yet implemented (planned PRs)
 
-* Postgres persistence (transcripts/recordings)
 * Refined transcript merge logic (windowing / overlap resolution) + UI rendering polish
   (Note: UI-side refined replacement is now implemented; backend merge/windowing may still evolve.)
 * OpenAPI/Swagger polishing for non-WS endpoints (WS not covered by OpenAPI)
-* Operational endpoints `/ready`, `/metrics`
 
 ### Recently implemented
 
@@ -238,3 +236,13 @@ src/
     audio.cljs
     ...
 ```
+
+
+--- Other Rules / Best Practices
+- You are usually being run from CLINE IDE plugin, which limits you to the given working repository. If you want to execute commands (i.e. run executables, make git commands) in other folders / repositories, the only way you can do so is via powershell `Set-Location`
+    - e.g. `powershell -NoProfile -Command "Set-Location 'C:\Users\miros\IdeaProjects\samuraipersistor'; clojure -M -e '(println :ok)'"`  
+- All changes should be documented accordingly in the relevant .MD docs; before claiming task is coplete, always check docs for gaps as well as for a stale or no longer correct information and fix that
+- For any task, create a dedicated branch (named imperatively) from master (unless told otherwise) and as you progress make small(er) atomic commits named imperatively
+- For a task to be completed, there should be no security risks or concerns, always assess task's completion also from the security standpoint and highlight any risks.
+- NEVER EXPOSE PORTS on local LAN for testing, always use localhost or 127.0.0.1
+- Xamurai used to be called "drsynth", so do not be confused if you do see this name somewhere. That name however is legacy and you should always use xamurai when naming things related to xamurai stack- alternatively, you can also use nanosamurai if the name refers to the whole solution and not just the subset of voice-to-text services
