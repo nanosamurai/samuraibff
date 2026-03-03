@@ -118,6 +118,19 @@
                  etaoin/etaoin                           {:mvn/version "1.1.43"}
                  cheshire/cheshire                       {:mvn/version "6.1.0"}}
    :exec-fn cognitect.test-runner.api/test}
+
+  ;; CI (PR gate): run only non-Testcontainers tests
+  ;;
+  ;; This exists so our PR CI does NOT require Docker.
+  ;; Heavy integration tests are covered by the manual/nightly workflow.
+  :ci
+  {:extra-paths ["test" "test-resources"]
+   :extra-deps  {org.clojure/test.check               {:mvn/version "1.1.2"}
+                 io.github.cognitect-labs/test-runner {:git/tag "v0.5.1" :git/sha "dfb30dd"}
+
+                 ;; Needed for lightweight WS integration tests (no Docker).
+                 com.neovisionaries/nv-websocket-client {:mvn/version "2.14"}}
+   :exec-fn samuraibff.ci.test-plan/run}
   :jvm-opts ["-Djava.util.logging.manager=org.apache.logging.log4j.jul.LogManager"]
 
   ;; Run main
