@@ -1,0 +1,48 @@
+name: Integration tests
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Nightly (UTC)
+    - cron: "0 2 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-integration:
+    name: Full backend test suite (Testcontainers)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup Clojure CLI
+        uses: DeLaGuardo/setup-clojure@13.4
+        with:
+          cli: 1.12.4.1582
+
+      - name: Cache Clojure/Maven deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.cpcache
+          key: clj-${{ runner.os }}-${{ hashFiles('deps.edn') }}
+
+      - name: Prep deps
+        run: clojure -P
+
+      - name: Run full test suite
+        run: clojure -X:test
