@@ -32,6 +32,11 @@ jobs:
         with:
           cli: 1.12.4.1582
 
+      - name: Setup buf (protobuf)
+        uses: bufbuild/buf-setup-action@v1
+        with:
+          version: "1.57.2"
+
       - name: Cache Clojure/Maven deps
         uses: actions/cache@v4
         with:
@@ -43,6 +48,9 @@ jobs:
 
       - name: Prep deps
         run: clojure -P
+
+      - name: Generate + compile protobuf stubs
+        run: clojure -T:build proto+compile
 
       - name: Run full test suite
         run: clojure -X:test
