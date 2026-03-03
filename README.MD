@@ -508,6 +508,24 @@ Run all unit + integration tests:
 clojure -X:test
 ```
 
+### CI (GitHub Actions)
+
+This repo uses GitHub Actions with a **lightweight PR gate** and a **heavier**
+manual/nightly workflow:
+
+- **PR / master push**: `.github/workflows/ci.yml`
+  - runs `clojure -X:ci` (a Docker-free subset)
+  - builds the UI bundle (`npm run ui:release`)
+  - runs a Dockerfile smoke build on pushes to `master`
+- **Manual / nightly**: `.github/workflows/integration-tests.yml`
+  - runs the full suite (`clojure -X:test`) including **Testcontainers**
+
+To run the same lightweight test plan locally:
+
+```bash
+clojure -X:ci
+```
+
 ### WS integration test (requires rtservice)
 
 The test namespace is:

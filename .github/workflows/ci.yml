@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-unit:
+    name: Clojure tests (PR gate)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup Clojure CLI
+        uses: DeLaGuardo/setup-clojure@13.4
+        with:
+          cli: 1.12.4.1582
+
+      - name: Setup buf (protobuf)
+        uses: bufbuild/buf-setup-action@v1
+        with:
+          version: "1.57.2"
+
+      - name: Cache Clojure/Maven deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.cpcache
+          key: clj-${{ runner.os }}-${{ hashFiles('deps.edn') }}
+
+      - name: Prep deps
+        run: clojure -P
+
+      - name: Generate + compile protobuf stubs
+        run: clojure -T:build proto+compile
+
+      - name: Run lightweight test plan
+        run: clojure -X:ci
+
+  ui-build:
+    name: UI build (shadow-cljs release)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install UI deps
+        run: npm ci
+
+      - name: Build UI bundle
+        run: npm run ui:release
+
+  docker-build:
+    name: Docker build (smoke)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Docker build
+        run: docker build -t samuraibff:ci .

@@ -15,9 +15,8 @@ src/java/samuraibff/proto/
 # Scratch directory accidentally created by inspecting tools.build jar (never commit)
 clojure/
 
-# Local scratch / npm lockfile (not tracked)
+# Local scratch
 old-plan.txt
-package-lock.json
 
 # IDE and editor files
 .idea/
