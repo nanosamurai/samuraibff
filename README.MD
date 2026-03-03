@@ -1,10 +1,21 @@
 # samuraibff
 
-Clojure rewrite of the **drsynth** BFF (backend-for-frontend).
+Clojure BFF for the nanosamur.ai solution. 
 
-This repo currently focuses on:
+# About Nanosamur.ai
+Nanosamurai solution currently consists of 
+- **SamuraiBFF** (this repo), 
+- **xamurai** (https://github.com/mikub/xamurai ; locally usually at `%USERPROFILE%\PycharmProjects\xamurai`) services connected via Kafka/gRPC
+  - xamurai is a monorepo that contains multiple Speach-to-text and speaker diarization services for Nanosamur.ai solution - they provide both real-time transcription as well as near-real-time refinement. 
+- **samuraipersistor** (https://github.com/mikub/samuraipersistor ; locally usually at `%USERPROFILE%\IdeaProjects\samuraipersistor` ) for persistence.
+  - Database persistence is handled by a separate service, the samuraipersistor; consumes from all relevant Kafka topics and stores the data in Postgres 
 
-### 1) MVP realtime path
+
+---
+
+# The scope of the BFF:
+
+### 1) Realtime path
 - accept browser audio via WebSocket (`/ws/audio`) as **binary PCM16LE**
 - forward audio frames to **rtservice** via **gRPC** (bidirectional stream)
 - stream realtime events back to the UI via WebSocket (`/ws/events`) as **JSON**
@@ -18,11 +29,13 @@ This repo currently focuses on:
 
 ### 3) Refined transcripts handling (UI semantics)
 The UI receives both realtime and refined transcript events over `/ws/events`:
-
 - realtime ASR: `{"type":"asr", "start_s": <double>, "end_s": <double>, "final": <bool>, ...}`
 - refined (WhisperX): `{"type":"refined", "start_s": <double>, "end_s": <double>, ...}`
 
 The **Live Recording** transcript is rendered as a Slack-like message thread (avatar/name/timestamp + bubble).
+
+### 4) Front-end
+And of course, this repos also hosts the UI (Clojurescript) - see `src/cljs` .
 
 #### Replacement heuristic
 When a refined segment arrives with time window `[r0, r1]`, the UI removes only **ASR** messages whose time window is fully contained:
@@ -179,7 +192,7 @@ clojure -X:test :nses '[samuraibff.http.speakers-integration-test]'
 
 ## Postgres persistence (sessions)
 
-Session persistence is now implemented:
+Not all persistence is handled by **samuraipersistor** service - the BFF still handles some initial session persistence:
 
 - Integrant component: `:samuraibff/db` (HikariCP pool)
 - `POST /api/sessions` generates a **UUIDv7** session id and inserts a row into `sessions`.
@@ -515,3 +528,7 @@ Notes:
   and asserts a `{"type":"status" ...}` event arrives.
 - The test uses `com.neovisionaries/nv-websocket-client` (test-only dependency)
   because the JDK WebSocket client was unreliable against http-kit for us.
+
+
+## Observability
+The BFF supports OTEL integration and tracing - for more information see https://github.com/mikub/xamurai/blob/master/docs/local-k8s-observability.md (locally usually `%USERPROFILE%\PycharmProjects\xamurai\docs\local-k8s-observability.md`)
