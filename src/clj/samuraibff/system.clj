@@ -78,7 +78,14 @@
         ;; --- typed values ---
         auth-required (parse-bool (getenv "SAMURAIBFF_AUTH_REQUIRED"))
         http-port (parse-int (getenv "SAMURAIBFF_HTTP_PORT"))
-        db-max-pool-size (parse-int (getenv "SAMURAIBFF_DB_MAX_POOL_SIZE"))]
+        db-max-pool-size (parse-int (getenv "SAMURAIBFF_DB_MAX_POOL_SIZE"))
+
+        ;; --- Kafka security (TLS/SASL) ---
+        ;; Primary: SAMURAIBFF_* env vars.
+        ;; Fallback: generic KAFKA_* vars emitted by some Helm charts.
+        kafka-security-protocol (some-> (or (getenv "SAMURAIBFF_KAFKA_SECURITY_PROTOCOL")
+                                            (getenv "KAFKA_SECURITY_PROTOCOL"))
+                                        str/trim not-empty)]
     (-> cfg0
         ;; :env
         (set-in-if [:samuraibff/config :env]
@@ -128,6 +135,8 @@
                    (some-> (getenv "SAMURAIBFF_KAFKA_ACKS") str/trim not-empty))
         (set-in-if [:samuraibff/config :kafka :compression-type]
                    (some-> (getenv "SAMURAIBFF_KAFKA_COMPRESSION_TYPE") str/trim not-empty))
+        (set-in-if [:samuraibff/config :kafka :security-protocol]
+                   kafka-security-protocol)
         (set-in-if [:samuraibff/config :kafka :consumer-group-id]
                    (some-> (getenv "SAMURAIBFF_KAFKA_CONSUMER_GROUP_ID") str/trim not-empty))
         (set-in-if [:samuraibff/config :kafka :topics :audio-raw]

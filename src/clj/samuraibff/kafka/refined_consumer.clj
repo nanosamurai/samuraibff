@@ -42,13 +42,17 @@
   "Build Kafka consumer properties.
 
   Inputs:
-  - {:keys [bootstrap-servers consumer-group-id auto-offset-reset]}
+  - {:keys [bootstrap-servers consumer-group-id auto-offset-reset security-protocol]}
 
   Returns: java.util.Properties" 
-  [{:keys [bootstrap-servers consumer-group-id auto-offset-reset]}]
+  [{:keys [bootstrap-servers consumer-group-id auto-offset-reset security-protocol]}]
   (doto (Properties.)
     (.put "bootstrap.servers" (or bootstrap-servers "localhost:9092"))
     (.put "group.id" (or consumer-group-id "samuraibff-refined"))
+
+    ;; TLS / security
+    ;; For MSK TLS-only (port 9094), set to "SSL".
+    (.put "security.protocol" (or security-protocol "PLAINTEXT"))
 
     ;; We consume key as string, value as bytes.
     (.put "key.deserializer" "org.apache.kafka.common.serialization.StringDeserializer")
@@ -177,6 +181,7 @@
   [kafka-cfg topic group-id]
   (let [consumer (KafkaConsumer. (consumer-props {:bootstrap-servers (:bootstrap-servers kafka-cfg)
                                                  :consumer-group-id group-id
+                                                 :security-protocol (:security-protocol kafka-cfg)
                                                  :auto-offset-reset (or (:auto-offset-reset kafka-cfg)
                                                                         "latest")}))]
     (.subscribe consumer (Collections/singletonList topic))

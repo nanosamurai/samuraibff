@@ -45,6 +45,11 @@
     (.put "acks" (or (:acks kafka-config) "all"))
     (.put "compression.type" (or (:compression-type kafka-config) "zstd"))
 
+    ;; TLS / security
+    ;; Expected values: PLAINTEXT|SSL|SASL_SSL (etc.)
+    ;; For MSK TLS-only (port 9094), set to "SSL".
+    (.put "security.protocol" (or (:security-protocol kafka-config) "PLAINTEXT"))
+
     ;; We publish (string key, bytes value)
     (.put "key.serializer" "org.apache.kafka.common.serialization.StringSerializer")
     (.put "value.serializer" "org.apache.kafka.common.serialization.ByteArraySerializer")))
