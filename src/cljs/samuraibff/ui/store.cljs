@@ -30,17 +30,59 @@
 (defonce segments*
   (atom []))
 
+(defonce segments-by-session*
+  (atom {}))
+
 (defonce transcript-zero-s*
   (atom nil))
 
 (defonce log*
   (atom []))
 
+(defonce log-by-session*
+  (atom {}))
+
 (defonce running?*
   (atom false))
 
 (defonce recordings*
   (atom []))
+
+(defonce recordings-db*
+  (atom []))
+
+(defn set-recordings-db!
+  "Replace the DB-backed recordings list.
+
+  Inputs:
+  - items: vector of recording/session maps (from /api/recordings)
+
+  Returns: nil." 
+  [items]
+  (reset! recordings-db* (vec (or items [])))
+  nil)
+
+(defn cached-segments
+  "Get cached transcript messages for a session.
+
+  Inputs:
+  - session-id string
+
+  Returns:
+  - vector of transcript message maps (possibly empty)." 
+  [session-id]
+  (vec (get @segments-by-session* (or session-id "") [])))
+
+(defn cached-log
+  "Get cached log lines for a session.
+
+  Inputs:
+  - session-id string
+
+  Returns:
+  - vector of strings (possibly empty)." 
+  [session-id]
+  (vec (get @log-by-session* (or session-id "") [])))
 
 (defonce speakers*
   (atom []))
@@ -69,11 +111,19 @@
   Note: we clear transcript state because session_id is an isolation boundary
   for the transcript." 
   [session-id]
-  (swap! session* assoc :id (or session-id ""))
-  ;; clear-segments! is defined later in this namespace.
-  (reset! segments* [])
-  (reset! transcript-zero-s* nil)
-  nil)
+  (let [old-id (get @session* :id)
+        new-id (or session-id "")]
+    ;; Persist current transcript/log into per-session caches before switching.
+    (when (and (string? old-id) (seq old-id))
+      (swap! segments-by-session* assoc old-id (vec @segments*))
+      (swap! log-by-session* assoc old-id (vec @log*)))
+
+    (swap! session* assoc :id new-id)
+    ;; clear-segments! is defined later in this namespace.
+    (reset! segments* [])
+    (reset! transcript-zero-s* nil)
+    (reset! log* [])
+    nil))
 
 (defn set-lang!
   "Set current language code (string; empty allowed for auto)."
@@ -138,19 +188,31 @@
 (defn append-log!
   "Append a line to the UI debug log (keeps only last `max-log-lines`)."
   [s]
-  (let [line (str "[" (.toISOString (js/Date. (util/now-ms))) "] " s)]
+  (let [line (str "[" (.toISOString (js/Date. (util/now-ms))) "] " s)
+        sid (or (get @session* :id) "")]
     (swap! log*
            (fn [lines]
              (let [lines (conj (vec lines) line)]
                (if (> (count lines) max-log-lines)
                  (subvec lines (- (count lines) max-log-lines))
                  lines))))
+    (when (seq sid)
+      (swap! log-by-session*
+             (fn [m]
+               (let [xs (conj (vec (get m sid [])) line)
+                     xs (if (> (count xs) max-log-lines)
+                          (subvec xs (- (count xs) max-log-lines))
+                          xs)]
+                 (assoc m sid xs)))))
     nil))
 
 (defn clear-log!
   "Clear debug log."
   []
   (reset! log* [])
+  (let [sid (or (get @session* :id) "")]
+    (when (seq sid)
+      (swap! log-by-session* assoc sid [])))
   nil)
 
 (defn clear-segments!
@@ -158,6 +220,9 @@
   []
   (reset! segments* [])
   (reset! transcript-zero-s* nil)
+  (let [sid (or (get @session* :id) "")]
+    (when (seq sid)
+      (swap! segments-by-session* assoc sid [])))
   nil)
 
 (defn set-auth-status!
@@ -241,15 +306,18 @@
 
   Returns: nil." 
   [ev]
-  (let [ev' (rebase-event-times ev)]
+  (let [ev' (rebase-event-times ev)
+        sid (or (:session_id ev) (get @session* :id) "")]
     (swap! segments*
            (fn [xs]
              (let [xs (transcript/upsert-asr xs ev')
                    xs (if (> (count xs) max-segments)
                         (subvec (vec xs) (- (count xs) max-segments))
                         (vec xs))]
-               xs))))
-  nil)
+               xs)))
+    (when (seq sid)
+      (swap! segments-by-session* assoc sid (vec @segments*)))
+    nil))
 
 (defn apply-refined!
   "Apply a refined transcript message.
@@ -283,5 +351,8 @@
                    xs (if (> (count xs) max-segments)
                         (subvec (vec xs) (- (count xs) max-segments))
                         (vec xs))]
-               xs))))
-  nil)
+               xs)))
+    (let [sid (or (:session_id ev) (get @session* :id) "")]
+      (when (seq sid)
+        (swap! segments-by-session* assoc sid (vec @segments*))))
+    nil))

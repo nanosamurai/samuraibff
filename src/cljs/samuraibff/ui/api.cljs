@@ -3,11 +3,15 @@
 
   Current endpoints:
   - POST /api/sessions -> {:session_id <uuid-string>}
+  - GET /api/recordings
+  - GET /api/recordings/:session_id
   - GET /api/speakers
   - POST /api/speakers (multipart)
   - DELETE /api/speakers/:speaker_id
 
-  All functions return JS Promises.")
+  All functions return JS Promises."
+  (:require
+    [clojure.string :as str]))
 
 (defn- ensure-ok!
   "Ensure a fetch Response is OK.
@@ -33,6 +37,51 @@
       (.then (fn [body]
                (or (aget body "session_id")
                    (throw (js/Error. "Missing session_id in response")))))))
+
+(defn list-recordings!
+  "List sessions/recordings for the authenticated tenant.
+
+  Returns:
+  - Promise resolving to response map with keys:
+      :items (vector)
+
+  Throws on non-2xx." 
+  ([]
+   (list-recordings! {}))
+  ([{:keys [limit offset]}]
+   (let [params (cond-> {}
+                  (some? limit) (assoc "limit" (str limit))
+                  (some? offset) (assoc "offset" (str offset)))
+         qs (when (seq params)
+              (->> params
+                   (map (fn [[k v]] (str (js/encodeURIComponent k)
+                                        "="
+                                        (js/encodeURIComponent v))))
+                   (str/join "&")))
+         url (str "/api/recordings" (when qs (str "?" qs)))]
+     (-> (js/fetch url)
+         (.then ensure-ok!)
+         (.then (fn [res] (.json res)))
+         (.then (fn [body]
+                  (js->clj body :keywordize-keys true)))))))
+
+(defn get-recording!
+  "Fetch a single recording/session detail.
+
+  Inputs:
+  - session-id: string
+
+  Returns:
+  - Promise resolving to map:
+      {:session {...}
+       :transcripts {:refined [...] :final [...]}}
+  " 
+  [session-id]
+  (-> (js/fetch (str "/api/recordings/" (js/encodeURIComponent (or session-id ""))))
+      (.then ensure-ok!)
+      (.then (fn [res] (.json res)))
+      (.then (fn [body]
+               (js->clj body :keywordize-keys true)))))
 
 (defn list-speakers!
   "Fetch speakers for the current tenant.

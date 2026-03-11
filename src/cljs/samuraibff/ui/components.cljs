@@ -21,6 +21,36 @@
     [samuraibff.ui.ws :as ws]
     ["react" :as react]))
 
+(defn- iso->local
+  "Best-effort formatting of an ISO timestamp into a local date/time string." 
+  [s]
+  (when (seq (str s))
+    (try
+      (.toLocaleString (js/Date. s))
+      (catch :default _
+        (str s)))))
+
+(defn- refined-events->messages
+  "Convert refined events (with start/end/text) into transcript messages." 
+  [events]
+  (->> (or events [])
+       (mapv transcript/normalize-refined)
+       transcript/sort-messages))
+
+(defn- final-segments->messages
+  "Convert final transcript segments (from DB json) into transcript messages." 
+  [segments]
+  (mapv (fn [seg]
+          {:kind "final"
+           :seq 0
+           :ts_ms 0
+           :start_s (:start_s seg)
+           :end_s (:end_s seg)
+           :text (:text seg)
+           :speaker (:speaker seg)
+           :lang (:lang seg)})
+        (vec (or segments []))))
+
 (defn- status-dot-class
   "Translate websocket status keyword to CSS class name." 
   [status]
@@ -141,7 +171,7 @@
     :else
     nil))
 
-(defn transcript
+(defn transcript-view
   "Transcript display (Slack-like feed).
 
   Renders transcript as a message thread:
@@ -152,8 +182,8 @@
 
   Refined messages are visually marked (★ refined) and replace overlapping
   realtime messages (handled in store)." 
-  []
-  (let [msgs (hooks/use-atom store/segments*)
+  [{:keys [messages empty-title empty-hint]}]
+  (let [msgs (vec (or messages []))
         container-ref (react/useRef nil)
         ;; Auto-scroll unless the user scrolled up.
         auto-scroll?* (react/useRef true)]
@@ -169,8 +199,8 @@
     [:div {:class "transcript"}
      (if (empty? msgs)
        [:div {:class "empty"}
-        [:div {:class "empty-title"} "Live transcript"]
-        [:div {:class "muted"} "No ASR events yet…"]]
+        [:div {:class "empty-title"} (or empty-title "Transcript")]
+        [:div {:class "muted"} (or empty-hint "No events yet…")]]
        [:div {:class "transcript-feed"
               :ref container-ref
               :on-scroll (fn [e]
@@ -196,6 +226,13 @@
                (badge msg)]
               [:div {:class bubble-class} (:text msg)]]]))])]))
 
+(defn live-transcript
+  "Transcript component bound to the live session store." 
+  []
+  [transcript-view {:messages (hooks/use-atom store/segments*)
+                    :empty-title "Live transcript"
+                    :empty-hint "No ASR events yet…"}])
+
 (defn log-view
   "Debug log view." 
   []
@@ -217,34 +254,40 @@
     (name status)))
 
 (defn recordings-table
-  "Table of in-memory recordings." 
+  "Table of DB-backed recordings." 
   []
-  (let [recs (->> (hooks/use-atom store/recordings*)
-                  (sort-by :created_at_ms)
+  (let [recs (->> (hooks/use-atom store/recordings-db*)
+                  (sort-by :created_at)
                   reverse)]
     [:div {:class "card"}
      [:div {:class "card-title"} "Recordings"]
      (if (empty? recs)
-       [:div {:class "muted"} "No recordings yet. Create a new live session to get started."]
+       [:div {:class "muted"} "No recordings yet."]
        [:table {:class "table"}
         [:thead
          [:tr
           [:th "Session"]
-          [:th "Created"]
+          [:th "Started"]
           [:th "Status"]
+          [:th "Final"]
           [:th {:style {:textAlign "right"}} "Actions"]]]
         [:tbody
-         (for [{:keys [session_id created_at_ms status]} recs]
+         (for [{:keys [session_id started_at status has_final_transcript]} recs]
            ^{:key (str "rec-" session_id)}
            [:tr
             [:td {:class "mono"} session_id]
-            [:td {:class "muted"} (.toLocaleString (js/Date. created_at_ms))]
+            [:td {:class "muted"} (or (iso->local started_at) "")]
             [:td
              [:span {:class (str "badge " (case status
-                                            :recording "bad"
-                                            :stopped "muted"
-                                            "ok"))}
-              (format-status status)]]
+                                            "active" "bad"
+                                            "finished" "ok"
+                                            "failed" "muted"
+                                            "muted"))}
+              (str status)]]
+            [:td
+             (if has_final_transcript
+               [:span {:class "badge ok"} "yes"]
+               [:span {:class "badge muted"} "no"])]
             [:td {:style {:textAlign "right"}}
              [:div {:class "row"}
               [router/link {:route {:page :recording :params {:session_id session_id}}
@@ -259,27 +302,47 @@
 (defn recordings-page
   "Recordings page." 
   []
-  [:div {:class "page"}
-   [:div {:class "page-header"}
-    [:div
-     [:div {:class "page-title"} "Recordings"]
-     [:div {:class "muted"} "Sessions available in this browser (MVP, in-memory)."]]
-    [:div {:class "row"}
-     [:button {:class "btn primary"
-               :on-click (fn [_]
-                           (store/append-log! "[ui] creating session...")
-                           (-> (api/create-session!)
-                               (.then (fn [sid]
-                                        (store/set-session-id! sid)
-                                        (store/add-recording! {:session_id sid
-                                                             :created_at_ms (util/now-ms)
-                                                             :status :ready})
-                                        (router/navigate! {:page :live :params {}})
-                                        (store/append-log! (str "[ui] new session " sid))))
-                               (.catch (fn [e]
-                                         (store/append-log! (str "[ui] failed creating session: " e))))))}
-      "New live session"]]]
-   [recordings-table]])
+  (let [loading?* (react/useState false)
+        loading? (aget loading?* 0)
+        set-loading! (aget loading?* 1)
+        refresh! (fn []
+                   (set-loading! true)
+                   (-> (api/list-recordings!)
+                       (.then (fn [resp]
+                                (store/set-recordings-db! (:items resp))))
+                       (.catch (fn [e]
+                                 (store/append-log! (str "[ui] failed loading recordings: " e))))
+                       (.finally (fn [] (set-loading! false)))))]
+    (react/useEffect
+      (fn []
+        (refresh!)
+        js/undefined)
+      #js [])
+    [:div {:class "page"}
+     [:div {:class "page-header"}
+      [:div
+       [:div {:class "page-title"} "Recordings"]
+       [:div {:class "muted"} "Sessions from database (tenant-scoped)."]]
+      [:div {:class "row"}
+       [:button {:class "btn"
+                 :disabled loading?
+                 :on-click (fn [_] (refresh!))}
+        (if loading? "Refreshing…" "Refresh")]
+       [:button {:class "btn primary"
+                 :on-click (fn [_]
+                             (store/append-log! "[ui] creating session...")
+                             (-> (api/create-session!)
+                                 (.then (fn [sid]
+                                          (store/set-session-id! sid)
+                                          (store/add-recording! {:session_id sid
+                                                               :created_at_ms (util/now-ms)
+                                                               :status :ready})
+                                          (router/navigate! {:page :live :params {}})
+                                          (store/append-log! (str "[ui] new session " sid))))
+                                 (.catch (fn [e]
+                                           (store/append-log! (str "[ui] failed creating session: " e))))))}
+        "New live session"]]]
+     [recordings-table]]))
 
 (defn- speaker-row
   [{:keys [id label created_at created_at_ms]} on-delete]
@@ -382,37 +445,155 @@
             [speaker-row item delete!])]])]]))
 
 (defn recording-detail-page
-  "Recording detail page (MVP placeholder).
+  "Recording detail page.
 
-  Today this is mostly a navigation scaffold; later we can show metadata,
-  refined transcript, notes, etc." 
+  Features:
+  - Preview transcript tab: refined segments from DB, plus cached realtime ASR
+    (when available locally)
+  - Final transcript tab: final transcript records from DB
+  - Hideable log panel (cached locally only)" 
   [session-id]
-  [:div {:class "page"}
-   [:div {:class "page-header"}
-    [:div
-     [:div {:class "page-title"} "Recording"]
-     [:div {:class "mono muted"} session-id]]
-    [:div {:class "row"}
-     [router/link {:route {:page :recordings :params {}}
-                   :class "btn"}
-      "Back to recordings"]
-     [router/link {:route {:page :live :params {}}
-                   :class "btn primary"
-                   :on-click (fn [_] (store/set-session-id! session-id))}
-      "Open in Live Recording"]]]
+  (let [tab* (react/useState :preview)
+        tab (aget tab* 0)
+        set-tab! (aget tab* 1)
+        show-log?* (react/useState true)
+        show-log? (aget show-log?* 0)
+        set-show-log! (aget show-log?* 1)
 
-   [:div {:class "card"}
-    [:div {:class "muted"}
-     "Detail view is a placeholder for now. Use \"Open in Live Recording\" to continue streaming." ]]
+        loading* (react/useState true)
+        loading? (aget loading* 0)
+        set-loading! (aget loading* 1)
 
-   [:div {:class "grid-2"}
-    [:div {:class "card"}
-     [:div {:class "card-title"} "Transcript (preview)"]
-     [transcript]]
+        detail* (react/useState nil)
+        detail (aget detail* 0)
+        set-detail! (aget detail* 1)
 
-    [:div {:class "card"}
-     [:div {:class "card-title"} "Log (preview)"]
-     [log-view]]]])
+        cached-asr (store/cached-segments session-id)
+        cached-log-lines (store/cached-log session-id)
+
+
+        refresh! (fn []
+                   (set-loading! true)
+                   (-> (api/get-recording! session-id)
+                       (.then (fn [resp]
+                                (set-detail! resp)))
+                       (.catch (fn [e]
+                                 (store/append-log! (str "[ui] failed loading recording detail: " e))
+                                 (set-detail! {:ok false :message "failed"})))
+                       (.finally (fn [] (set-loading! false)))))
+
+        db-refined (get-in detail [:transcripts :refined])
+        db-final (get-in detail [:transcripts :final])
+
+        ;; Convert DB refined transcript records to "refined" events.
+        refined-events
+        (let [records (vec (or db-refined []))]
+          (reduce
+            (fn [events r]
+              (let [segments-json (get r :segments "[]")
+                    segments (try
+                               (js->clj (.parse js/JSON segments-json) :keywordize-keys true)
+                               (catch :default _ []))]
+                (reduce
+                  (fn [events seg]
+                    (conj events {:seq (or (:event_created_at_ns r) 0)
+                                  :ts_ms 0
+                                  :start_s (:start_s seg)
+                                  :end_s (:end_s seg)
+                                  :text (:text seg)
+                                  :speaker (:speaker seg)
+                                  :lang (:lang seg)}))
+                  events
+                  segments)))
+            []
+            records))]
+
+    (react/useEffect
+      (fn []
+        (refresh!)
+        js/undefined)
+      #js [session-id])
+
+    ;; Build preview transcript by applying refined events (from DB) onto cached ASR.
+    ;; If no cached ASR exists, show refined events only.
+    (let [preview-msgs (if (seq cached-asr)
+                         (reduce (fn [msgs ref]
+                                   (transcript/apply-refined msgs ref))
+                                 (vec cached-asr)
+                                 refined-events)
+                         (refined-events->messages refined-events))
+
+          ;; Final transcript: take the last record and render its segments (or full_text).
+          final-record (last (vec (or db-final [])))
+          final-msgs (let [segments-json (get final-record :segments "[]")
+                           segments (try
+                                      (js->clj (.parse js/JSON segments-json) :keywordize-keys true)
+                                      (catch :default _ []))]
+                       (final-segments->messages segments))]
+
+      [:div {:class "page"}
+       [:div {:class "page-header"}
+        [:div
+         [:div {:class "page-title"} "Recording"]
+         [:div {:class "mono muted"} session-id]
+         (when loading?
+           [:div {:class "muted"} "Loading…"])]
+        [:div {:class "row"}
+         [router/link {:route {:page :recordings :params {}}
+                       :class "btn"}
+          "Back to recordings"]
+         [router/link {:route {:page :live :params {}}
+                       :class "btn ghost"
+                       :on-click (fn [_] (store/set-session-id! session-id))}
+          "Open in Live Recording"]
+         [:button {:class "btn"
+                   :on-click (fn [_] (refresh!))}
+          "Refresh"]]]
+
+       [:div {:class "tabs"}
+        [:button {:class (str "tab " (when (= tab :preview) "active"))
+                  :on-click (fn [_] (set-tab! :preview))}
+         "Preview transcript"]
+        [:button {:class (str "tab " (when (= tab :final) "active"))
+                  :on-click (fn [_] (set-tab! :final))}
+         "Final transcript"]
+        [:div {:class "spacer"}]
+        [:button {:class "btn ghost"
+                  :on-click (fn [_] (set-show-log! (not show-log?)))}
+         (if show-log? "Hide log" "Show log")]]
+
+       (if show-log?
+         [:div {:class "grid-2"}
+          [:div {:class "card"}
+           [:div {:class "card-title"} (if (= tab :preview) "Preview" "Final")]
+           (case tab
+             :final [transcript-view {:messages final-msgs
+                                      :empty-title "Final transcript"
+                                      :empty-hint (if final-record "(no segments)" "No final transcript stored") }]
+             [transcript-view {:messages preview-msgs
+                               :empty-title "Preview transcript"
+                               :empty-hint "No transcript available"}])]
+
+          [:div {:class "card"}
+           [:div {:class "card-title"} "Log"]
+           (if (seq cached-log-lines)
+             [:div {:class "log"}
+              (for [[idx line] (map-indexed vector cached-log-lines)]
+                ^{:key (str "logc-" idx)}
+                [:div {:class "log-line"} line])]
+             [:div {:class "muted"} "No log available for this session (not persisted)."])]
+          ]
+         [:div {:class "card"}
+          [:div {:class "card-title"} (if (= tab :preview) "Preview" "Final")]
+          (case tab
+            :final [transcript-view {:messages final-msgs
+                                     :empty-title "Final transcript"
+                                     :empty-hint (if final-record "(no segments)" "No final transcript stored") }]
+            [transcript-view {:messages preview-msgs
+                              :empty-title "Preview transcript"
+                              :empty-hint "No transcript available"}])])]))
+
+  )
 
 (defn right-panel
   "Right-side panel for Live Recording.
@@ -445,7 +626,7 @@
 
    [:div {:class "split"}
     [:div {:class "split-main"}
-     [transcript]]
+     [live-transcript]]
     [:div {:class "split-side"}
      [right-panel]]]])
 
