@@ -20,8 +20,6 @@
   - Every query is scoped by tenant-id.
   - Callers must supply the authenticated tenant-id.")
   (:require
-    [honey.sql :as sql]
-    [honey.sql.helpers :as h]
     [next.jdbc :as jdbc]
     [next.jdbc.result-set :as rs]
     [org.corfield.logging4j2 :as log])
@@ -124,29 +122,29 @@
   (when-not (and ds (instance? UUID tenant-id) (instance? UUID session-id))
     (throw (ex-info "list-transcript-records missing required params"
                     {:tenant-id tenant-id :session-id session-id})))
-  (let [q (cond-> (-> (h/select :id
-                               :session_id
-                               :recording_id
-                               :tenant_id
-                               :user_id
-                               :full_text
-                               :lang
-                               :duration_s
-                               :segments
-                               :created_at
-                               :source
-                               :type
-                               :model
-                               :window_length
-                               :segment_start_s
-                               :segment_end_s
-                               :supersedes_seq
-                               :event_created_at_ns)
-                    (h/from :session_transcripts)
-                    (h/where [:= :tenant_id tenant-id]
-                             [:= :session_id session-id])
-                    (h/order-by [:created_at :asc])
-                    (h/limit (long limit)))
-            (some? type) (h/where [:= :type (str type)]))
-        sqlvec (sql/format q)]
+  ;; NOTE:
+  ;; We intentionally use a plain SQL string here (instead of HoneySQL) to keep
+  ;; the test runner / classloading path extremely predictable.
+  (let [sql-base
+        (str "SELECT id, session_id, recording_id, tenant_id, user_id, full_text, lang, duration_s, segments, created_at,\n"
+             "       source, type, model, window_length, segment_start_s, segment_end_s, supersedes_seq, event_created_at_ns\n"
+             "  FROM session_transcripts\n"
+             " WHERE tenant_id = ?\n"
+             "   AND session_id = ?\n")
+        {:keys [sqlvec]}
+        (if (some? type)
+          {:sqlvec [(str sql-base
+                         "   AND type = ?\n"
+                         " ORDER BY created_at ASC\n"
+                         " LIMIT ?")
+                    tenant-id
+                    session-id
+                    (str type)
+                    (long limit)]}
+          {:sqlvec [(str sql-base
+                         " ORDER BY created_at ASC\n"
+                         " LIMIT ?")
+                    tenant-id
+                    session-id
+                    (long limit)]})]
     (vec (jdbc/execute! ds sqlvec {:builder-fn rs/as-unqualified-lower-maps}))))
