@@ -323,14 +323,15 @@
 
   Returns: hiccup <tr>" 
   [{:keys [session_id started_at] :as rec}]
-  (let [{:keys [label badge-class icon title]} (rec->display-status rec)]
+  (let [{:keys [label badge-class title]
+         icon-glyph :icon} (rec->display-status rec)]
     [:tr
      [:td {:class "mono"} session_id]
      [:td {:class "muted"} (or (iso->local started_at) "")]
      [:td
       [:span {:class (str "badge " badge-class)
               :title title}
-       (icon icon {:title title})
+       (icon icon-glyph {:title title})
        [:span {:style {:marginLeft "8px"}} label]]]
      [:td {:style {:textAlign "right"}}
       [:div {:class "row"}
