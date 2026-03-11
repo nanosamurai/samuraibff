@@ -30,7 +30,7 @@
   - v: value returned from JDBC
 
   Returns:
-  - JSON string (or "[]" when nil).
+  - JSON string (or \"[]\" when nil).
 
   Notes:
   - We intentionally return a string because it is the most portable shape
