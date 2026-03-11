@@ -322,11 +322,12 @@
   - rec: a map from /api/recordings
 
   Returns: hiccup <tr>" 
-  [{:keys [session_id started_at] :as rec}]
+  [{:keys [session_id started_at created_at] :as rec}]
   (let [{:keys [label badge-class title]
          icon-glyph :icon} (rec->display-status rec)]
     [:tr
      [:td {:class "mono"} session_id]
+     [:td {:class "muted"} (or (iso->local created_at) "")]
      [:td {:class "muted"} (or (iso->local started_at) "")]
      [:td
       [:span {:class (str "badge " badge-class)
@@ -392,6 +393,7 @@
         [:thead
          [:tr
           [:th "Session"]
+          [:th "Created"]
           [:th "Started"]
           [:th "Status"]
           [:th {:style {:textAlign "right"}} "Actions"]]]

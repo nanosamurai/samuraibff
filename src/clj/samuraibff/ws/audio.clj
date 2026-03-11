@@ -77,6 +77,10 @@
                 ;; This is best-effort; WS must continue even if DB is unavailable.
                 (when-let [ds (get db :ds)]
                   (try
+                    (db.sessions/mark-session-started!
+                      ds
+                      (java.util.UUID/fromString (str tenant-id))
+                      (java.util.UUID/fromString (str session-id)))
                     (db.sessions/update-session-status!
                       ds
                       (java.util.UUID/fromString (str tenant-id))

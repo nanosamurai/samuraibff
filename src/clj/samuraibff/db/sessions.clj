@@ -109,3 +109,31 @@
         sqlvec (sql/format q)
         res (jdbc/execute-one! ds sqlvec)]
     {:updated? (pos? (long (or (:next.jdbc/update-count res) 0)))}))
+
+(defn mark-session-started!
+  "Set `sessions.started_at` to now() for a tenant-scoped session.
+
+  Semantics:
+  - This is invoked when audio recording actually begins (first successful
+    /ws/audio connection).
+  - It is idempotent-ish: it will NOT overwrite an existing started_at.
+
+  Inputs:
+  - ds: DataSource
+  - tenant-id: UUID
+  - session-id: UUID
+
+  Returns:
+  - {:updated? boolean}
+
+  Notes:
+  - Uses SQL `COALESCE(started_at, now())` so re-connects don't shift the start.
+  - This function does not modify status."
+  [^DataSource ds ^UUID tenant-id ^UUID session-id]
+  (when-not (and ds (instance? UUID tenant-id) (instance? UUID session-id))
+    (throw (ex-info "mark-session-started! missing required params"
+                    {:tenant-id tenant-id :session-id session-id})))
+  (let [sqlvec ["UPDATE sessions\n              SET started_at = COALESCE(started_at, now())\n              WHERE tenant_id = ? AND id = ?"
+               tenant-id session-id]
+        res (jdbc/execute-one! ds sqlvec)]
+    {:updated? (pos? (long (or (:next.jdbc/update-count res) 0)))}))

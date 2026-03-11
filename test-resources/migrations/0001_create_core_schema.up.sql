@@ -31,7 +31,9 @@ CREATE TABLE sessions (
 
     title          text,                  -- optional: "Cardio followup with John"
     status         text NOT NULL DEFAULT 'active',   -- active | finished | failed
-    started_at     timestamptz NOT NULL DEFAULT now(),
+    -- When the session is first created, this is NULL.
+    -- Set to the timestamp when audio recording begins (first successful /ws/audio connect).
+    started_at     timestamptz,
     ended_at       timestamptz,           -- set when finalized
     created_at     timestamptz NOT NULL DEFAULT now()
 );
