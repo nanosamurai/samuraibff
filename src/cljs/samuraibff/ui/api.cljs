@@ -5,6 +5,7 @@
   - POST /api/sessions -> {:session_id <uuid-string>}
   - GET /api/recordings
   - GET /api/recordings/:session_id
+  - DELETE /api/recordings/:session_id
   - GET /api/speakers
   - POST /api/speakers (multipart)
   - DELETE /api/speakers/:speaker_id
@@ -78,6 +79,22 @@
   " 
   [session-id]
   (-> (js/fetch (str "/api/recordings/" (js/encodeURIComponent (or session-id ""))))
+      (.then ensure-ok!)
+      (.then (fn [res] (.json res)))
+      (.then (fn [body]
+               (js->clj body :keywordize-keys true)))))
+
+(defn delete-recording!
+  "Delete a session/recording (tenant-scoped).
+
+  Inputs:
+  - session-id: string
+
+  Returns:
+  - Promise resolving to response map." 
+  [session-id]
+  (-> (js/fetch (str "/api/recordings/" (js/encodeURIComponent (or session-id "")))
+                #js {:method "DELETE"})
       (.then ensure-ok!)
       (.then (fn [res] (.json res)))
       (.then (fn [body]

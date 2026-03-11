@@ -253,14 +253,92 @@
     :stopped "Stopped"
     (name status)))
 
+(defn- rec->display-status
+  "Derive a UI status descriptor for a DB recording row.
+
+  Inputs:
+  - rec: map from /api/recordings with keys:
+      :status (string)
+      :has_recording (boolean)
+      :has_final_transcript (boolean)
+
+  Returns:
+  - {:label string :badge-class string :icon string :title string}
+
+  Notes:
+  - We deliberately fold "finalized" into status so the table can stay compact.
+  - Sessions without recordings are treated as "Created" (draft)."
+  [{:keys [status has_recording has_final_transcript]}]
+  (let [status (some-> status str)
+        has-recording? (true? has_recording)
+        has-final? (true? has_final_transcript)]
+    (cond
+      (not has-recording?)
+      {:label "Created"
+       :badge-class "muted"
+       :icon "○"
+       :title "Session created but recording never started"}
+
+      (= status "failed")
+      {:label "Failed"
+       :badge-class "bad"
+       :icon "✗"
+       :title "Session failed"}
+
+      has-final?
+      {:label "Finalized"
+       :badge-class "ok"
+       :icon "✓"
+       :title "Final transcript is available"}
+
+      (= status "active")
+      {:label "Recording"
+       :badge-class "warn"
+       :icon "●"
+       :title "Recording in progress"}
+
+      :else
+      {:label "Processing"
+       :badge-class "muted"
+       :icon "…"
+       :title "Recording stopped; final transcript not available yet"})))
+
+(defn- icon
+  "Render a lightweight icon glyph (no external dependencies).
+
+  Inputs:
+  - s: string
+  - opts: optional map {:title string}
+
+  Returns: hiccup" 
+  ([s] (icon s nil))
+  ([s {:keys [title]}]
+   [:span {:class "icon" :title title} (or s "")]))
+
 (defn recordings-table
   "Table of DB-backed recordings." 
   []
-  (let [recs (->> (hooks/use-atom store/recordings-db*)
-                  (sort-by :created_at)
-                  reverse)]
+  (let [recs0 (->> (hooks/use-atom store/recordings-db*)
+                   (sort-by :created_at)
+                   reverse)
+        show-drafts?* (react/useState false)
+        show-drafts? (aget show-drafts?* 0)
+        set-show-drafts! (aget show-drafts?* 1)
+        recs (if show-drafts?
+               recs0
+               (vec (remove (fn [r] (false? (:has_recording r))) recs0)))
+        drafts-count (count (filter (fn [r] (false? (:has_recording r))) recs0))]
     [:div {:class "card"}
-     [:div {:class "card-title"} "Recordings"]
+     [:div {:class "row" :style {:alignItems "center"}}
+      [:div {:class "card-title"} "Recordings"]
+      [:div {:class "spacer"}]
+      (when (pos? drafts-count)
+        [:label {:class "muted" :style {:display "inline-flex" :gap "8px" :alignItems "center"}}
+         [:input {:type "checkbox"
+                  :checked (boolean show-drafts?)
+                  :on-change (fn [e]
+                               (set-show-drafts! (.. e -target -checked)))}]
+         (str "Show drafts (" drafts-count ")")])]
      (if (empty? recs)
        [:div {:class "muted"} "No recordings yet."]
        [:table {:class "table"}
@@ -269,35 +347,41 @@
           [:th "Session"]
           [:th "Started"]
           [:th "Status"]
-          [:th "Final"]
           [:th {:style {:textAlign "right"}} "Actions"]]]
         [:tbody
-         (for [{:keys [session_id started_at status has_final_transcript]} recs]
+         (for [{:keys [session_id started_at] :as rec} recs]
            ^{:key (str "rec-" session_id)}
            [:tr
             [:td {:class "mono"} session_id]
             [:td {:class "muted"} (or (iso->local started_at) "")]
             [:td
-             [:span {:class (str "badge " (case status
-                                            "active" "bad"
-                                            "finished" "ok"
-                                            "failed" "muted"
-                                            "muted"))}
-              (str status)]]
-            [:td
-             (if has_final_transcript
-               [:span {:class "badge ok"} "yes"]
-               [:span {:class "badge muted"} "no"])]
+             (let [{:keys [label badge-class icon title]} (rec->display-status rec)]
+               [:span {:class (str "badge " badge-class)
+                       :title title}
+                (icon icon {:title title})
+                [:span {:style {:marginLeft "8px"}} label]])]
             [:td {:style {:textAlign "right"}}
              [:div {:class "row"}
               [router/link {:route {:page :recording :params {:session_id session_id}}
-                            :class "btn"}
-               "Open"]
+                            :class "btn"
+                            :title "Open detail"}
+               (icon "↗" {:title "Open"})]
               [router/link {:route {:page :live :params {}}
                             :class "btn ghost"
+                            :title "Open in Live Recording"
                             :on-click (fn [_]
                                         (store/set-session-id! session_id))}
-               "Go live"]]]])]])]))
+               (icon "●" {:title "Go live"})]
+              [:button {:class "btn ghost"
+                        :title "Delete session"
+                        :on-click (fn [_]
+                                    (when (js/confirm (str "Delete session " session_id "?\n\nThis will remove recordings and transcripts."))
+                                      (-> (api/delete-recording! session_id)
+                                          (.then (fn [_]
+                                                   (store/remove-recording-db! session_id)))
+                                          (.catch (fn [e]
+                                                    (store/append-log! (str "[ui] failed deleting session: " e)))))))}
+               (icon "×" {:title "Delete"})]]])]])]))
 
 (defn recordings-page
   "Recordings page." 

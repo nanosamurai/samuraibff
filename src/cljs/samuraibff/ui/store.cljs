@@ -62,6 +62,19 @@
   (reset! recordings-db* (vec (or items [])))
   nil)
 
+(defn remove-recording-db!
+  "Remove a recording/session from the DB-backed list.
+
+  Inputs:
+  - session-id: string
+
+  Returns: nil." 
+  [session-id]
+  (swap! recordings-db*
+         (fn [xs]
+           (vec (remove #(= (or session-id "") (:session_id %)) xs))))
+  nil)
+
 (defn cached-segments
   "Get cached transcript messages for a session.
 
