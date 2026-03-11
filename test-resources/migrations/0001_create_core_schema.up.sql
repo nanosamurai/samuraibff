@@ -54,7 +54,7 @@ CREATE INDEX idx_recordings_session ON recordings(session_id);
 
 CREATE TABLE session_transcripts (
     id             uuid PRIMARY KEY,
-    session_id     uuid NOT NULL UNIQUE REFERENCES sessions(id) ON DELETE CASCADE,
+    session_id     uuid NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     recording_id   uuid REFERENCES recordings(id) ON DELETE SET NULL,
 
     tenant_id      uuid NOT NULL,        -- duplicated for simpler querying
@@ -64,11 +64,25 @@ CREATE TABLE session_transcripts (
     lang           text,
     duration_s     double precision,
     segments       jsonb NOT NULL,       -- [{start_s, end_s, text, speaker}, ...]
-    created_at     timestamptz NOT NULL DEFAULT now()
+    created_at     timestamptz NOT NULL DEFAULT now(),
+
+    -- Metadata for refined/final pipelines (samuraipersistor)
+    source              text NOT NULL,   -- rtservice | whisperx | ...
+    type                text NOT NULL,   -- refined | final
+    model               text,
+    window_length       integer,
+    segment_start_s     double precision,
+    segment_end_s       double precision,
+    supersedes_seq      bigint[],
+    event_created_at_ns bigint
 );
 
 CREATE INDEX idx_session_transcripts_tenant ON session_transcripts(tenant_id);
 CREATE INDEX idx_session_transcripts_user ON session_transcripts(user_id);
+CREATE INDEX idx_session_transcripts_session_created_at ON session_transcripts(session_id, created_at DESC);
+CREATE INDEX idx_session_transcripts_event_created_at_ns ON session_transcripts(event_created_at_ns);
+CREATE INDEX idx_session_transcripts_session_type_source_window
+  ON session_transcripts(session_id, type, source, window_length, segment_start_s);
 
 CREATE TABLE speakers (
     id             uuid PRIMARY KEY,
