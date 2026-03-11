@@ -266,8 +266,8 @@
   - {:label string :badge-class string :icon string :title string}
 
   Notes:
-  - We deliberately fold "finalized" into status so the table can stay compact.
-  - Sessions without recordings are treated as "Created" (draft)."
+  - We deliberately fold \"finalized\" into status so the table can stay compact.
+  - Sessions without recordings are treated as \"Created\" (draft)."
   [{:keys [status has_recording has_final_transcript]}]
   (let [status (some-> status str)
         has-recording? (true? has_recording)
