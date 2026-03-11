@@ -18,7 +18,7 @@
 
   Security:
   - Every query is scoped by tenant-id.
-  - Callers must supply the authenticated tenant-id.")
+  - Callers must supply the authenticated tenant-id."
   (:require
     [next.jdbc :as jdbc]
     [next.jdbc.result-set :as rs]
@@ -112,7 +112,7 @@
   - tenant-id: UUID
   - session-id: UUID
   - opts: map
-      :type (string) optional, e.g. "refined" or "final"
+      :type (string) optional, e.g. \"refined\" or \"final\"
       :limit int (default 500)
 
   Returns:
