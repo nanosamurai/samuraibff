@@ -24,6 +24,8 @@
       (.then (fn [res]
                (if (.-ok res)
                  (.json res)
+                 ;; Preserve status for callers (auth guard) instead of collapsing
+                 ;; everything into a generic error.
                  (js/Promise.reject (js/Error. (str "HTTP " (.-status res)))))))
       (.then (fn [body]
                (let [authed? (boolean (aget body "authenticated"))]
@@ -33,9 +35,12 @@
                    (store/set-auth-status! :anonymous nil))
                  body)))
       (.catch (fn [e]
-                ;; If /api/me is protected and returns 401/403, treat as anonymous.
-                (store/set-auth-status! :anonymous nil)
-                e))))
+                ;; If /api/me is protected and returns 401/403, treat as anonymous,
+                ;; but flag that auth is required so UI can auto-redirect.
+                (let [msg (or (some-> e .-message str) "")
+                      auth-required? (boolean (re-find #"HTTP\s+(401|403)" msg))]
+                  (store/set-auth-status! :anonymous {:auth-required? auth-required?})
+                  e)))))
 
 (defn login!
   "Start login flow by navigating to /auth/login.

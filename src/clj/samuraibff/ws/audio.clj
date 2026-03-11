@@ -17,6 +17,7 @@
     [clojure.string :as str]
     [org.corfield.logging4j2 :as log]
     [org.httpkit.server :as http]
+    [samuraibff.db.sessions :as db.sessions]
     [samuraibff.ws.auth :as ws.auth]
     [samuraibff.ws.registry :as ws.registry]
     [samuraibff.ws.tenant :as ws.tenant])
@@ -54,7 +55,7 @@
   - `:config`      (required)
   - `:ws-registry` (required)
   - `:grpc`        (required) – passed through to start the gRPC stream"
-  [{:keys [config ws-registry grpc]}]
+  [{:keys [config ws-registry grpc db]}]
   (fn [{:keys [params] :as request}]
     (let [session-id (let [val (or (get params :session_id) (get params "session_id"))]
                        (when (and val (not (str/blank? (str val)))) (str val)))
@@ -72,6 +73,18 @@
               (let [session (ws.tenant/assert-session-access!
                               config ws-registry tenant-id session-id
                               {:lang lang :sample-rate sample-rate})]
+                ;; Update persisted session lifecycle once we know audio actually started.
+                ;; This is best-effort; WS must continue even if DB is unavailable.
+                (when-let [ds (get db :ds)]
+                  (try
+                    (db.sessions/update-session-status!
+                      ds
+                      (java.util.UUID/fromString (str tenant-id))
+                      (java.util.UUID/fromString (str session-id))
+                      "active")
+                    (catch Exception e
+                      (log/warn e "Failed to mark session active" {:session-id session-id
+                                                                   :tenant-id tenant-id}))))
                 ;; Ensure gRPC stream is running once audio is connected.
                 (ws.registry/start-rt! ws-registry grpc session)
 

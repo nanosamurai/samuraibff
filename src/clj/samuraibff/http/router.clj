@@ -267,7 +267,9 @@
             ["/recordings" {:get {:summary "List recordings/sessions (DB)"
                                   :handler (http.recordings/list-recordings-handler deps)}}]
             ["/recordings/:session_id" {:get {:summary "Recording detail (DB)"
-                                              :handler (http.recordings/get-recording-handler deps)}}]
+                                              :handler (http.recordings/get-recording-handler deps)}
+                                      :delete {:summary "Delete recording/session (DB)"
+                                               :handler (http.recordings/delete-recording-handler deps)}}]
             ["/sessions" {:post {:summary "Create a new session id"
                                  :handler (http.ui/create-session-handler deps)}}]
             ["/speakers" {:get {:summary "List enrolled speakers"

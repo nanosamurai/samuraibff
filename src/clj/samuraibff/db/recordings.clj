@@ -12,6 +12,7 @@
   - `list-sessions-for-tenant`
   - `find-session-by-id`
   - `list-transcript-records`
+  - `delete-session!`
 
   All functions accept a next.jdbc datasource, typically provided by the
   Integrant `:samuraibff/db` component as `(:ds db)`.
@@ -151,3 +152,26 @@
             (some? type) (h/where [:= :type (str type)]))
         sqlvec (sql/format q)]
     (vec (jdbc/execute! ds sqlvec {:builder-fn rs/as-unqualified-lower-maps}))))
+
+(defn delete-session!
+  "Delete a session (and cascaded recordings/transcripts), scoped to tenant.
+
+  Inputs:
+  - ds: DataSource
+  - tenant-id: UUID
+  - session-id: UUID
+
+  Returns:
+  - {:deleted? boolean}
+
+  Notes:
+  - Relies on FK ON DELETE CASCADE from recordings/session_transcripts to sessions.
+  - If the session does not exist for tenant, returns {:deleted? false}." 
+  [^DataSource ds ^UUID tenant-id ^UUID session-id]
+  (when-not (and ds (instance? UUID tenant-id) (instance? UUID session-id))
+    (throw (ex-info "delete-session! missing required params"
+                    {:tenant-id tenant-id :session-id session-id})))
+  (let [res (jdbc/execute-one!
+              ds
+              ["DELETE FROM sessions WHERE tenant_id=? AND id=?" tenant-id session-id])]
+    {:deleted? (pos? (long (or (:next.jdbc/update-count res) 0)))}))
