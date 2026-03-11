@@ -213,7 +213,7 @@ Optionally, if you want `sessions.user_id` to resolve in unauthenticated mode, a
 See `resources/system.edn`:
 
 ```edn
-:db {:jdbc-url "jdbc:postgresql://localhost:5432/drsynth"
+:db {:jdbc-url "jdbc:postgresql://localhost:5432/nanosamurai"
      :username "drsynth"
      :password "drsynth"
      :maximum-pool-size 10}
@@ -253,7 +253,7 @@ the process will still start but readiness (`/ready`) will be degraded.
 docker run --rm -p 8000:8000 \
   -e SAMURAIBFF_HTTP_HOST=0.0.0.0 \
   -e SAMURAIBFF_HTTP_PORT=8000 \
-  -e SAMURAIBFF_DB_JDBC_URL=jdbc:postgresql://postgres:5432/drsynth \
+  -e SAMURAIBFF_DB_JDBC_URL=jdbc:postgresql://postgres:5432/nanosamurai \
   -e SAMURAIBFF_DB_USERNAME=drsynth \
   -e SAMURAIBFF_DB_PASSWORD=drsynth \
   -e SAMURAIBFF_KAFKA_BOOTSTRAP_SERVERS=kafka:9092 \
@@ -420,7 +420,7 @@ Then open one of:
 
 The UI will:
 - show an **app shell** (top bar + sidebar) branded as **nanosamur.ai**
-- manage an **in-memory** list of recordings (MVP only; no persistence yet)
+- show recordings from Postgres via `GET /api/recordings` (tenant-scoped)
 - create a new session via `POST /api/sessions`
 - open `/ws/events?session_id=<uuid>` and display realtime transcript events
 - capture microphone audio (PCM16LE) and stream it to `/ws/audio?session_id=<uuid>&lang=en&sample_rate=16000`
