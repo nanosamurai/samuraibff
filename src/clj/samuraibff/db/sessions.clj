@@ -12,6 +12,7 @@
   - `find-user-id-by-external-id`
   - `insert-session!`
   - `update-session-status!`
+  - `activate-session-on-audio-start!`
 
   All functions accept a next.jdbc datasource, typically provided by the
   Integrant `:samuraibff/db` component as `(:ds db)`.
@@ -110,13 +111,14 @@
         res (jdbc/execute-one! ds sqlvec)]
     {:updated? (pos? (long (or (:next.jdbc/update-count res) 0)))}))
 
-(defn mark-session-started!
-  "Set `sessions.started_at` to now() for a tenant-scoped session.
+(defn activate-session-on-audio-start!
+  "Mark a session as active and set started_at when audio recording begins.
+
+  This is used by the `/ws/audio` handler.
 
   Semantics:
-  - This is invoked when audio recording actually begins (first successful
-    /ws/audio connection).
-  - It is idempotent-ish: it will NOT overwrite an existing started_at.
+  - status is set to \"active\"
+  - started_at is set to `now()` if not already set
 
   Inputs:
   - ds: DataSource
@@ -127,13 +129,17 @@
   - {:updated? boolean}
 
   Notes:
-  - Uses SQL `COALESCE(started_at, now())` so re-connects don't shift the start.
-  - This function does not modify status."
+  - Uses `COALESCE(started_at, now())` to avoid shifting start time on reconnects.
+  - Implemented via HoneySQL (no raw SQL strings)."
   [^DataSource ds ^UUID tenant-id ^UUID session-id]
   (when-not (and ds (instance? UUID tenant-id) (instance? UUID session-id))
-    (throw (ex-info "mark-session-started! missing required params"
+    (throw (ex-info "activate-session-on-audio-start! missing required params"
                     {:tenant-id tenant-id :session-id session-id})))
-  (let [sqlvec ["UPDATE sessions\n              SET started_at = COALESCE(started_at, now())\n              WHERE tenant_id = ? AND id = ?"
-               tenant-id session-id]
+  (let [q (-> (h/update :sessions)
+              (h/set {:status "active"
+                      :started_at [:coalesce :started_at [:raw "now()"]]})
+              (h/where [:= :tenant_id tenant-id]
+                       [:= :id session-id]))
+        sqlvec (sql/format q)
         res (jdbc/execute-one! ds sqlvec)]
     {:updated? (pos? (long (or (:next.jdbc/update-count res) 0)))}))
