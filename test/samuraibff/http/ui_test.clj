@@ -61,4 +61,4 @@
         (is (= sid (str (:id row))))
         (is (= tenant-id (str (:tenant_id row))))
         (is (= sid (str (:session_key row))))
-        (is (= "active" (:status row)))))))
+        (is (= "created" (:status row)))))))
