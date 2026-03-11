@@ -4,6 +4,7 @@
   Endpoints (all secured by auth middleware in router):
   - GET /api/recordings
   - GET /api/recordings/:session_id
+  - DELETE /api/recordings/:session_id
 
   Auth:
   - Requires `wrap-authenticate` + `wrap-require-auth` in router.
@@ -229,4 +230,49 @@
                 (json-response 500 {:ok false :message "internal-error"})))))
         (catch Exception e
           (log/error e "DB error loading recording")
+          (json-response 500 {:ok false :message "db-error"}))))))
+
+(defn delete-recording-handler
+  "Handler for `DELETE /api/recordings/:session_id`.
+
+  Deletes the session and cascaded recordings/transcripts (FK ON DELETE CASCADE).
+
+  Response:
+  - 200 {:ok true :deleted true}
+  - 404 {:ok false :message "not-found"} (within tenant)
+  - 400 invalid session id
+  - 403 missing tenant id
+  - 503 db unavailable" 
+  [{:keys [db]}]
+  (fn [req]
+    (let [^DataSource ds (:ds db)]
+      (try
+        (when-not ds
+          (log/error "DB datasource missing; cannot delete recording" {:uri (:uri req)})
+          (throw (ex-info "missing-datasource" {:type :samuraibff.http/missing-datasource})))
+        (let [tenant-uuid (tenant-id-uuid req)
+              sid-str (or (get-in req [:path-params :session_id])
+                          (get-in req [:path-params "session_id"]))
+              session-uuid (try
+                             (UUID/fromString (str sid-str))
+                             (catch Exception _
+                               (throw (ex-info "invalid-session-id"
+                                               {:type :samuraibff.http/invalid-session-id
+                                                :session-id sid-str}))))
+              {:keys [deleted?]} (db.recordings/delete-session! ds tenant-uuid session-uuid)]
+          (if deleted?
+            (json-response 200 {:ok true :deleted true})
+            (json-response 404 {:ok false :message "not-found"})))
+        (catch clojure.lang.ExceptionInfo e
+          (let [{:keys [type]} (ex-data e)]
+            (case type
+              :samuraibff.http/missing-tenant-id (json-response 403 {:ok false :message "missing-tenant-id"})
+              :samuraibff.http/invalid-tenant-id (json-response 400 {:ok false :message "invalid-tenant-id"})
+              :samuraibff.http/invalid-session-id (json-response 400 {:ok false :message "invalid-session-id"})
+              :samuraibff.http/missing-datasource (json-response 503 {:ok false :message "db-unavailable"})
+              (do
+                (log/error e "Failed to delete recording")
+                (json-response 500 {:ok false :message "internal-error"})))))
+        (catch Exception e
+          (log/error e "DB error deleting recording")
           (json-response 500 {:ok false :message "db-error"}))))))
