@@ -77,11 +77,10 @@
                 ;; This is best-effort; WS must continue even if DB is unavailable.
                 (when-let [ds (get db :ds)]
                   (try
-                    (db.sessions/update-session-status!
+                    (db.sessions/activate-session-on-audio-start!
                       ds
                       (java.util.UUID/fromString (str tenant-id))
-                      (java.util.UUID/fromString (str session-id))
-                      "active")
+                      (java.util.UUID/fromString (str session-id)))
                     (catch Exception e
                       (log/warn e "Failed to mark session active" {:session-id session-id
                                                                    :tenant-id tenant-id}))))

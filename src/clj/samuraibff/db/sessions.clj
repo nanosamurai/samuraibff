@@ -12,6 +12,7 @@
   - `find-user-id-by-external-id`
   - `insert-session!`
   - `update-session-status!`
+  - `activate-session-on-audio-start!`
 
   All functions accept a next.jdbc datasource, typically provided by the
   Integrant `:samuraibff/db` component as `(:ds db)`.
@@ -104,6 +105,39 @@
                     {:tenant-id tenant-id :session-id session-id :status status})))
   (let [q (-> (h/update :sessions)
               (h/set {:status (str status)})
+              (h/where [:= :tenant_id tenant-id]
+                       [:= :id session-id]))
+        sqlvec (sql/format q)
+        res (jdbc/execute-one! ds sqlvec)]
+    {:updated? (pos? (long (or (:next.jdbc/update-count res) 0)))}))
+
+(defn activate-session-on-audio-start!
+  "Mark a session as active and set started_at when audio recording begins.
+
+  This is used by the `/ws/audio` handler.
+
+  Semantics:
+  - status is set to \"active\"
+  - started_at is set to `now()` if not already set
+
+  Inputs:
+  - ds: DataSource
+  - tenant-id: UUID
+  - session-id: UUID
+
+  Returns:
+  - {:updated? boolean}
+
+  Notes:
+  - Uses `COALESCE(started_at, now())` to avoid shifting start time on reconnects.
+  - Implemented via HoneySQL (no raw SQL strings)."
+  [^DataSource ds ^UUID tenant-id ^UUID session-id]
+  (when-not (and ds (instance? UUID tenant-id) (instance? UUID session-id))
+    (throw (ex-info "activate-session-on-audio-start! missing required params"
+                    {:tenant-id tenant-id :session-id session-id})))
+  (let [q (-> (h/update :sessions)
+              (h/set {:status "active"
+                      :started_at [:coalesce :started_at [:raw "now()"]]})
               (h/where [:= :tenant_id tenant-id]
                        [:= :id session-id]))
         sqlvec (sql/format q)
