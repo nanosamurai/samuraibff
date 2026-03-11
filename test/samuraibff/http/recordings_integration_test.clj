@@ -9,13 +9,11 @@
   asserting:
   - tenant scoping (no cross-tenant data leaks)
   - transcript type filtering (refined/final)
-  - 404 on not-found within tenant.")
-
+  - 404 on not-found within tenant."
   (:require
     [cheshire.core :as cheshire]
     [clojure.test :refer :all]
     [next.jdbc :as jdbc]
-    [next.jdbc.result-set :as rs]
     [samuraibff.http.recordings :as http.recordings]
     [samuraibff.testcontainers.postgres :as tc.pg])
   (:import
