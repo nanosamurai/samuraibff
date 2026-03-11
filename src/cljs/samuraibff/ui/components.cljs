@@ -798,7 +798,16 @@
 (defn app
   "Root app component." 
   []
-  (let [route (hooks/use-atom store/route*)]
+  (let [route (hooks/use-atom store/route*)
+        {:keys [status detail]} (hooks/use-atom store/auth*)
+        auth-required? (true? (get detail :auth-required?))]
+    (react/useEffect
+      (fn []
+        (when (and (= status :anonymous) auth-required?)
+          ;; Keep it harder to poke around: force a full redirect to login.
+          (auth/login! (router/route->href route)))
+        js/undefined)
+      #js [status auth-required? (:page route) (get-in route [:params :session_id])])
     [:div {:class "app"}
      [topbar route]
      [:div {:class "body"}
