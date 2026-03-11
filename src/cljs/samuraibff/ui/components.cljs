@@ -315,6 +315,50 @@
   ([s {:keys [title]}]
    [:span {:class "icon" :title title} (or s "")]))
 
+(defn- recordings-row
+  "Render a single recordings table row.
+
+  Inputs:
+  - rec: a map from /api/recordings
+
+  Returns: hiccup <tr>" 
+  [{:keys [session_id started_at] :as rec}]
+  (let [{:keys [label badge-class icon title]} (rec->display-status rec)]
+    [:tr
+     [:td {:class "mono"} session_id]
+     [:td {:class "muted"} (or (iso->local started_at) "")]
+     [:td
+      [:span {:class (str "badge " badge-class)
+              :title title}
+       (icon icon {:title title})
+       [:span {:style {:marginLeft "8px"}} label]]]
+     [:td {:style {:textAlign "right"}}
+      [:div {:class "row"}
+       [router/link {:route {:page :recording :params {:session_id session_id}}
+                     :class "btn"
+                     :title "Open detail"}
+        (icon "↗" {:title "Open"})]
+
+       [router/link {:route {:page :live :params {}}
+                     :class "btn ghost"
+                     :title "Open in Live Recording"
+                     :on-click (fn [_]
+                                 (store/set-session-id! session_id))}
+        (icon "●" {:title "Go live"})]
+
+       [:button {:class "btn ghost"
+                 :title "Delete session"
+                 :on-click (fn [_]
+                             (when (js/confirm (str "Delete session " session_id
+                                                    "?\n\nThis will remove recordings and transcripts."))
+                               (-> (api/delete-recording! session_id)
+                                   (.then (fn [_]
+                                            (store/remove-recording-db! session_id)))
+                                   (.catch (fn [e]
+                                             (store/append-log!
+                                               (str "[ui] failed deleting session: " e)))))))}
+        (icon "×" {:title "Delete"})]]]]))
+
 (defn recordings-table
   "Table of DB-backed recordings." 
   []
@@ -325,7 +369,7 @@
         show-drafts? (aget show-drafts?* 0)
         set-show-drafts! (aget show-drafts?* 1)
         recs (if show-drafts?
-               recs0
+               (vec recs0)
                (vec (remove (fn [r] (false? (:has_recording r))) recs0)))
         drafts-count (count (filter (fn [r] (false? (:has_recording r))) recs0))]
     [:div {:class "card"}
@@ -333,12 +377,14 @@
       [:div {:class "card-title"} "Recordings"]
       [:div {:class "spacer"}]
       (when (pos? drafts-count)
-        [:label {:class "muted" :style {:display "inline-flex" :gap "8px" :alignItems "center"}}
+        [:label {:class "muted"
+                 :style {:display "inline-flex" :gap "8px" :alignItems "center"}}
          [:input {:type "checkbox"
                   :checked (boolean show-drafts?)
                   :on-change (fn [e]
                                (set-show-drafts! (.. e -target -checked)))}]
          (str "Show drafts (" drafts-count ")")])]
+
      (if (empty? recs)
        [:div {:class "muted"} "No recordings yet."]
        [:table {:class "table"}
@@ -349,39 +395,9 @@
           [:th "Status"]
           [:th {:style {:textAlign "right"}} "Actions"]]]
         [:tbody
-         (for [{:keys [session_id started_at] :as rec} recs]
+         (for [{:keys [session_id] :as rec} recs]
            ^{:key (str "rec-" session_id)}
-           [:tr
-            [:td {:class "mono"} session_id]
-            [:td {:class "muted"} (or (iso->local started_at) "")]
-            [:td
-             (let [{:keys [label badge-class icon title]} (rec->display-status rec)]
-               [:span {:class (str "badge " badge-class)
-                       :title title}
-                (icon icon {:title title})
-                [:span {:style {:marginLeft "8px"}} label]])]
-            [:td {:style {:textAlign "right"}}
-             [:div {:class "row"}
-              [router/link {:route {:page :recording :params {:session_id session_id}}
-                            :class "btn"
-                            :title "Open detail"}
-               (icon "↗" {:title "Open"})]
-              [router/link {:route {:page :live :params {}}
-                            :class "btn ghost"
-                            :title "Open in Live Recording"
-                            :on-click (fn [_]
-                                        (store/set-session-id! session_id))}
-               (icon "●" {:title "Go live"})]
-              [:button {:class "btn ghost"
-                        :title "Delete session"
-                        :on-click (fn [_]
-                                    (when (js/confirm (str "Delete session " session_id "?\n\nThis will remove recordings and transcripts."))
-                                      (-> (api/delete-recording! session_id)
-                                          (.then (fn [_]
-                                                   (store/remove-recording-db! session_id)))
-                                          (.catch (fn [e]
-                                                    (store/append-log! (str "[ui] failed deleting session: " e)))))))}
-               (icon "×" {:title "Delete"})]]])]])]))
+           [recordings-row rec])]])]))
 
 (defn recordings-page
   "Recordings page." 
