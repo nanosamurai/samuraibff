@@ -145,7 +145,7 @@
                  :tenant-id tenant-id-uuid
                  :user-id user-id
                  :session-key session-key
-                 :status "active"})))
+                 :status "created"})))
 
           ;; Create/bind session in registry immediately so WS endpoints can be
           ;; strict and disallow session creation via WS when auth is required.

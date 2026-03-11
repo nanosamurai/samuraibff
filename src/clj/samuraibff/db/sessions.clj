@@ -11,6 +11,7 @@
   Public API:
   - `find-user-id-by-external-id`
   - `insert-session!`
+  - `update-session-status!`
 
   All functions accept a next.jdbc datasource, typically provided by the
   Integrant `:samuraibff/db` component as `(:ds db)`.
@@ -81,3 +82,30 @@
         sqlvec (sql/format q)]
     (jdbc/execute-one! ds sqlvec)
     {:id id :session-key (str session-key)}))
+
+(defn update-session-status!
+  "Update a session status for a tenant-scoped session.
+
+  Inputs:
+  - ds: DataSource
+  - tenant-id: UUID
+  - session-id: UUID
+  - status: string (e.g. \"created\" | \"active\" | \"finished\" | \"failed\")
+
+  Returns:
+  - {:updated? boolean}
+
+  Notes:
+  - This does not change timestamps (started_at/ended_at) yet.
+  - If the row does not exist for the given tenant, returns {:updated? false}." 
+  [^DataSource ds ^UUID tenant-id ^UUID session-id ^String status]
+  (when-not (and ds (instance? UUID tenant-id) (instance? UUID session-id) (seq (str status)))
+    (throw (ex-info "update-session-status! missing required params"
+                    {:tenant-id tenant-id :session-id session-id :status status})))
+  (let [q (-> (h/update :sessions)
+              (h/set {:status (str status)})
+              (h/where [:= :tenant_id tenant-id]
+                       [:= :id session-id]))
+        sqlvec (sql/format q)
+        res (jdbc/execute-one! ds sqlvec)]
+    {:updated? (pos? (long (or (:next.jdbc/update-count res) 0)))}))
