@@ -95,3 +95,47 @@
         (is (= 404 (:status detail-resp-cross)))
         (is (= false (:ok detail-body-cross)))
         (is (= "not-found" (:message detail-body-cross)))))))
+
+(deftest recordings-delete-tenant-scoped-integration-test
+  (testing "DELETE /api/recordings/:session_id deletes within tenant only"
+    (tc.pg/with-postgres [pg]
+      (let [jdbc-url (tc.pg/jdbc-url pg)
+            ds (tc.pg/datasource jdbc-url "drsynth" "drsynth")
+            _ (tc.pg/apply-schema! ds)
+
+            tenant-a (UUID/fromString "00000000-0000-0000-0000-000000000000")
+            tenant-b (UUID/fromString "00000000-0000-0000-0000-000000000001")
+
+            _ (jdbc/execute! ds ["INSERT INTO tenants (id, name) VALUES (?, ?)" tenant-a "Tenant A"])
+            _ (jdbc/execute! ds ["INSERT INTO tenants (id, name) VALUES (?, ?)" tenant-b "Tenant B"])
+
+            session-a (UUID/fromString "00000000-0000-0000-0000-000000000010")
+
+            _ (jdbc/execute! ds ["INSERT INTO sessions (id, tenant_id, session_key, status, created_at) VALUES (?, ?, ?, ?, now())"
+                                session-a tenant-a session-a "created"])
+            ;; Attach a transcript row to ensure cascade delete.
+            _ (jdbc/execute! ds ["INSERT INTO session_transcripts (
+                                 id, tenant_id, session_id, type, source, model, full_text, segments, created_at
+                               ) VALUES (?, ?, ?, 'final', 'worker', 'whisperx', 'hello', '[]'::jsonb, now())"
+                                (UUID/fromString "00000000-0000-0000-0000-000000000100") tenant-a session-a])
+
+            deps {:db {:ds ds}
+                  :config {:env :test}}
+            delete-handler (http.recordings/delete-recording-handler deps)
+
+            delete-cross (delete-handler {:auth/tenant-id (str tenant-b)
+                                          :path-params {:session_id (str session-a)}})
+            delete-cross-body (parse-json-body delete-cross)
+
+            delete-ok (delete-handler {:auth/tenant-id (str tenant-a)
+                                       :path-params {:session_id (str session-a)}})
+
+            row-session (jdbc/execute-one! ds ["SELECT id FROM sessions WHERE id=?" session-a])
+            row-tr (jdbc/execute-one! ds ["SELECT id FROM session_transcripts WHERE session_id=?" session-a])]
+
+        (is (= 404 (:status delete-cross)))
+        (is (= "not-found" (:message delete-cross-body)))
+
+        (is (= 200 (:status delete-ok)))
+        (is (nil? row-session))
+        (is (nil? row-tr))))))
