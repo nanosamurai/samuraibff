@@ -239,7 +239,7 @@
 
   Response:
   - 200 {:ok true :deleted true}
-  - 404 {:ok false :message "not-found"} (within tenant)
+  - 404 {:ok false :message \"not-found\"} (within tenant)
   - 400 invalid session id
   - 403 missing tenant id
   - 503 db unavailable" 
