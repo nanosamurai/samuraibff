@@ -29,6 +29,13 @@
          ;; where to find tenant in claims; we’ll standardize on this later
          :tenant-claim "tenant_id"}
 
+  ;; --- Keycloak Admin API (optional; required only for managing M2M credentials) ---
+  ;; If not set, /api/api-credentials will return 503 (keycloak-admin-unavailable).
+  :keycloak {:admin {:issuer nil
+                     :realm nil
+                     :client-id nil
+                     :client-secret nil}}
+
   ;; --- DB ---
   :db {:jdbc-url "jdbc:postgresql://localhost:5432/nanosamurai"
        :username "drsynth"
@@ -94,7 +101,11 @@
  {:config      #ig/ref :samuraibff/config
   :db          #ig/ref :samuraibff/db
   :ws-registry #ig/ref :samuraibff/ws-registry
-  :grpc        #ig/ref :samuraibff/grpc-client}
+  :grpc        #ig/ref :samuraibff/grpc-client
+  :keycloak-admin #ig/ref :samuraibff/keycloak-admin}
+
+ :samuraibff/keycloak-admin
+ {:config #ig/ref :samuraibff/config}
 
  :samuraibff/http-server
  {:config  #ig/ref :samuraibff/config

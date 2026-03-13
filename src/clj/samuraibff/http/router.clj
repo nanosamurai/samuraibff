@@ -23,6 +23,7 @@
    [samuraibff.ws.events :as ws.events]
    [samuraibff.http.auth :as http.auth]
    [samuraibff.http.recordings :as http.recordings]
+   [samuraibff.http.api-credentials :as http.api-creds]
    [samuraibff.http.internal :as http.internal]
    [samuraibff.http.speakers :as http.speakers]
    [samuraibff.http.ui :as http.ui]
@@ -259,11 +260,12 @@
             ["/logout" {:post {:summary "Logout (clear auth cookie)"
                                :handler (http.auth/logout-handler config)}}]]
 
-           ;; Small UI helpers
+           ;; API endpoints (all tenant-scoped; auth enforced by wrap-require-auth)
            ["/api" {:tags ["api"]
                     :middleware [wrap-require-auth]}
             ["/me" {:get {:summary "Current authenticated user"
                           :handler (http.auth/me-handler config)}}]
+
             ["/recordings" {:get {:summary "List recordings/sessions (DB)"
                                   :handler (http.recordings/list-recordings-handler deps)}}]
             ["/recordings/:session_id" {:get {:summary "Recording detail (DB)"
@@ -272,13 +274,24 @@
                                                :handler (http.recordings/delete-recording-handler deps)}}]
             ["/sessions" {:post {:summary "Create a new session id"
                                  :handler (http.ui/create-session-handler deps)}}]
+
             ["/speakers" {:get {:summary "List enrolled speakers"
                                 :handler (http.speakers/list-speakers-handler deps)}
                           :post {:summary "Create enrolled speaker"
                                  :middleware [wrap-multipart-params]
                                  :handler (http.speakers/create-speaker-handler deps)}}]
             ["/speakers/:speaker_id" {:delete {:summary "Delete enrolled speaker"
-                                                :handler (http.speakers/delete-speaker-handler deps)}}]]
+                                                :handler (http.speakers/delete-speaker-handler deps)}}]
+
+            ;; M2M credential management (human UX; secrets returned once)
+            ["/api-credentials" {:get {:summary "List M2M API credentials"
+                                       :handler (http.api-creds/list-api-credentials-handler deps)}
+                                 :post {:summary "Create M2M API credential (show secret once)"
+                                        :handler (http.api-creds/create-api-credential-handler deps)}}]
+            ["/api-credentials/:id/rotate" {:post {:summary "Rotate M2M API credential secret (show once)"
+                                                   :handler (http.api-creds/rotate-api-credential-handler deps)}}]
+            ["/api-credentials/:id" {:delete {:summary "Revoke/disable M2M API credential"
+                                              :handler (http.api-creds/revoke-api-credential-handler deps)}}]]
 
            ;; Health check endpoint
            (healthcheck-route)

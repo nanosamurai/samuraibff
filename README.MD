@@ -91,6 +91,62 @@ The backend accepts access tokens from:
 
 WebSockets `/ws/events` and `/ws/audio` enforce auth **before upgrade** when `:auth {:required? true}`.
 
+## Machine-to-machine (M2M) credentials (Keycloak service accounts)
+
+The BFF supports generating **user-managed M2M credentials** intended for SDKs and backend services.
+
+### Model
+
+Each credential is backed by a **confidential Keycloak client** with **service account enabled**.
+The BFF uses the **Keycloak Admin API** to create the client and generate/rotate its secret.
+
+Important security properties:
+
+- The client secret is **never stored** in Postgres.
+- The secret is returned to the UI only **once** (on create/rotate).
+- Tokens issued to the service account contain a `tenant_id` claim (via protocol mapper).
+
+Metadata is stored in Postgres table `api_credentials` (tenant-scoped) so the UI can list/revoke credentials.
+
+### Endpoints (human management)
+
+All endpoints require a normal user access token (OIDC cookie/Bearer token) and are tenant-scoped:
+
+- `GET /api/api-credentials` – list credentials
+- `POST /api/api-credentials` – create credential; body: `{ "name": "my-sdk" }` (returns `client_secret`)
+- `POST /api/api-credentials/:id/rotate` – rotate secret (returns new `client_secret`)
+- `DELETE /api/api-credentials/:id` – revoke credential (disables Keycloak client + marks revoked in DB)
+
+### How an SDK uses it (client_credentials)
+
+1) Create a credential in UI or via `POST /api/api-credentials`.
+2) From the SDK/service, obtain a token from Keycloak:
+
+```bash
+curl -s \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=client_credentials" \
+  -d "client_id=<client_id>" \
+  -d "client_secret=<client_secret>" \
+  "https://auth.nanosamur.ai/realms/<realm>/protocol/openid-connect/token"
+```
+
+3) Call BFF APIs with `Authorization: Bearer <access_token>`.
+
+### Configuration
+
+Add Keycloak Admin API credentials to `resources/system.edn` (or env overlays):
+
+```edn
+:keycloak {:admin {:issuer "https://auth.nanosamur.ai/realms/nanosamurai"
+                   :realm "nanosamurai"
+                   :client-id "bff-admin"
+                   :client-secret "..."}}
+```
+
+If the admin config is not present, the server will start, but M2M management endpoints return
+`503 keycloak-admin-unavailable`.
+
 ### Configuration
 
 See `resources/system.edn`:

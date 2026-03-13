@@ -286,6 +286,10 @@
   (when user
     (let [claims (or (:raw user) {})]
       (or
+        ;; Primary: configured claim key. Defaults to tenant_id.
+        ;; NOTE: This is not used by call sites yet; they currently call
+        ;; extract-tenant-from-claims with only the user map.
+        ;; See `extract-tenant-from-claims*` below.
         (some (fn [k]
                 (let [v (get claims k)]
                   (when (and (string? v) (not (str/blank? v)))
@@ -302,3 +306,26 @@
                   roles))
           (catch Exception _
             nil))))))
+
+(defn extract-tenant-from-claims*
+  "Tenant extraction with config.
+
+  This is intended for code paths where tenant claim name is configurable
+  (e.g. if you want to standardize on :tenant_id but still support legacy
+  claim keys).
+
+  Inputs:
+  - config: full config map
+  - user: verified OIDC user map
+
+  Returns: tenant-id string or nil" 
+  [config user]
+  (when user
+    (let [claims (or (:raw user) {})
+          claim-key (some-> (get-in config [:auth :tenant-claim]) str str/trim not-empty)
+          claim-key-kw (when claim-key (keyword claim-key))
+          preferred (when claim-key-kw
+                      (let [v (get claims claim-key-kw)]
+                        (when (and (string? v) (not (str/blank? v)))
+                          (str/trim v))))]
+      (or preferred (extract-tenant-from-claims user)))))

@@ -197,7 +197,7 @@
         (handler (assoc req :auth/token nil :auth/user nil :auth/tenant-id nil))
         (try
           (let [user (oidc/verify-token config token)
-                tenant-id (oidc/extract-tenant-from-claims user)]
+                tenant-id (oidc/extract-tenant-from-claims* config user)]
             (handler (assoc req
                             :auth/token token
                             :auth/user user
