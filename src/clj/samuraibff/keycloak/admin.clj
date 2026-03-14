@@ -134,18 +134,27 @@
   Returns token string." 
   [{:keys [issuer client-id client-secret]}]
   (when-not (and (seq (str issuer)) (seq (str client-id)) (seq (str client-secret)))
-    (throw (ex-info "Keycloak admin config missing" {:issuer issuer :client-id client-id})))
+    (throw (ex-info "Keycloak admin config missing"
+                    {:type :samuraibff.keycloak-admin/config-missing
+                     :issuer issuer
+                     :client-id client-id})))
   (let [{:keys [status body]} (http-post-form!
                                (token-endpoint issuer)
                                {:grant_type "client_credentials"
                                 :client_id client-id
                                 :client_secret client-secret})]
     (when-not (<= 200 status 299)
-      (throw (ex-info "Keycloak admin token fetch failed" {:status status :body (subs (str body) 0 (min 2000 (count (str body))))})))
+      (throw (ex-info "Keycloak admin token fetch failed"
+                      {:type :samuraibff.keycloak-admin/token-fetch-failed
+                       :status status
+                       :url (token-endpoint issuer)
+                       :body (subs (str body) 0 (min 2000 (count (str body))))})))
     (let [m (json/read-value body json-mapper)
           tok (:access_token m)]
       (when (str/blank? (str tok))
-        (throw (ex-info "Keycloak token response missing access_token" {:resp m})))
+        (throw (ex-info "Keycloak token response missing access_token"
+                        {:type :samuraibff.keycloak-admin/token-missing-access-token
+                         :resp m})))
       tok)))
 
 (defn- make-client-id
@@ -210,16 +219,6 @@
           token (fetch-admin-token! deps)
           admin-base (admin-base-url issuer realm)
           client-id (make-client-id tenant-id name)
-          mapper {:name "tenant_id"
-                  :protocol "openid-connect"
-                  :protocolMapper "oidc-hardcoded-claim-mapper"
-                  :consentRequired false
-                  :config {"claim.name" "tenant_id"
-                           "claim.value" (str tenant-id)
-                           "jsonType.label" "String"
-                           "id.token.claim" "false"
-                           "access.token.claim" "true"
-                           "userinfo.token.claim" "true"}}
           client-repr {:clientId client-id
                        :name (str name)
                        :enabled true
@@ -227,7 +226,6 @@
                        :serviceAccountsEnabled true
                        :directAccessGrantsEnabled false
                        :standardFlowEnabled false
-                       :protocolMappers [mapper]
                        :protocol "openid-connect"}
           {:keys [status raw]} (http-request-json!
                                 {:method :post
@@ -236,7 +234,12 @@
                                            "Content-Type" "application/json"}
                                  :body (json/write-value-as-string client-repr json-mapper)})]
       (when-not (or (= status 201) (= status 204))
-        (throw (ex-info "Keycloak create client failed" {:status status :body raw :client-id client-id})))
+        (throw (ex-info "Keycloak create client failed"
+                        {:type :samuraibff.keycloak-admin/create-client-failed
+                         :status status
+                         :url (str admin-base "/clients")
+                         :body raw
+                         :client-id client-id})))
 
       ;; Find the created client's UUID by querying by clientId.
       (let [{:keys [status body raw]} (http-request-json!
@@ -244,10 +247,18 @@
                                         :url (str admin-base "/clients?clientId=" (java.net.URLEncoder/encode client-id "UTF-8"))
                                         :headers {"Authorization" (str "Bearer " token)}})
             _ (when-not (<= 200 status 299)
-                (throw (ex-info "Keycloak lookup client failed" {:status status :body raw :client-id client-id})))
+                (throw (ex-info "Keycloak lookup client failed"
+                                {:type :samuraibff.keycloak-admin/lookup-client-failed
+                                 :status status
+                                 :url (str admin-base "/clients")
+                                 :body raw
+                                 :client-id client-id})))
             client-uuid (some-> body first :id)
             _ (when (str/blank? (str client-uuid))
-                (throw (ex-info "Keycloak lookup did not return client UUID" {:client-id client-id :resp body})))
+                (throw (ex-info "Keycloak lookup did not return client UUID"
+                                {:type :samuraibff.keycloak-admin/lookup-client-missing-uuid
+                                 :client-id client-id
+                                 :resp body})))
 
             ;; Create / regenerate secret (Keycloak returns it).
             {:keys [status body raw]} (http-request-json!
@@ -255,10 +266,18 @@
                                         :url (str admin-base "/clients/" client-uuid "/client-secret")
                                         :headers {"Authorization" (str "Bearer " token)}})
             _ (when-not (<= 200 status 299)
-                (throw (ex-info "Keycloak generate secret failed" {:status status :body raw :client-id client-id})))
+                (throw (ex-info "Keycloak generate secret failed"
+                                {:type :samuraibff.keycloak-admin/generate-secret-failed
+                                 :status status
+                                 :url (str admin-base "/clients/" client-uuid "/client-secret")
+                                 :body raw
+                                 :client-id client-id})))
             secret (or (:value body) (:clientSecret body))]
         (when (str/blank? (str secret))
-          (throw (ex-info "Keycloak secret response missing value" {:client-id client-id :resp body})))
+          (throw (ex-info "Keycloak secret response missing value"
+                          {:type :samuraibff.keycloak-admin/secret-missing-value
+                           :client-id client-id
+                           :resp (dissoc body :value :clientSecret)})))
 
         (try
           (ensure-tenant-claim-mapper! deps token admin-base client-uuid tenant-id)

@@ -151,13 +151,37 @@
                               :client_id client-id
                               :client_secret client-secret})))
       (catch clojure.lang.ExceptionInfo e
-        (let [{:keys [type]} (ex-data e)]
-          (case type
-            :samuraibff.http/missing-tenant-id (json-response 403 {:ok false :message "missing-tenant-id"})
-            :samuraibff.http/invalid-tenant-id (json-response 400 {:ok false :message "invalid-tenant-id"})
-            :samuraibff.http/missing-datasource (json-response 503 {:ok false :message "db-unavailable"})
-            :samuraibff.http/missing-keycloak-admin (json-response 503 {:ok false :message "keycloak-admin-unavailable"})
-            :samuraibff.http/missing-name (json-response 400 {:ok false :message "missing-name"})
+        (let [{:keys [type] :as data} (ex-data e)
+              kc-error? (and (keyword? type) (= "samuraibff.keycloak-admin" (namespace type)))
+              safe-kc-data (-> (select-keys data [:type :status :url :body :client-id])
+                               (update :body (fn [b]
+                                               (when-not (nil? b)
+                                                 (let [s (str b)]
+                                                   (subs s 0 (min 2000 (count s))))))))]
+          (cond
+            (= type :samuraibff.http/missing-tenant-id)
+            (json-response 403 {:ok false :message "missing-tenant-id"})
+
+            (= type :samuraibff.http/invalid-tenant-id)
+            (json-response 400 {:ok false :message "invalid-tenant-id"})
+
+            (= type :samuraibff.http/missing-datasource)
+            (json-response 503 {:ok false :message "db-unavailable"})
+
+            (= type :samuraibff.http/missing-keycloak-admin)
+            (json-response 503 {:ok false :message "keycloak-admin-unavailable"})
+
+            (= type :samuraibff.http/missing-name)
+            (json-response 400 {:ok false :message "missing-name"})
+
+            kc-error?
+            (do
+              (log/error e "Keycloak admin error creating api credential" {:keycloak safe-kc-data})
+              (json-response 502 {:ok false
+                                 :message "keycloak-admin-error"
+                                 :keycloak safe-kc-data}))
+
+            :else
             (do
               (log/error e "Failed creating api credential")
               (json-response 500 {:ok false :message "internal-error"})))))
