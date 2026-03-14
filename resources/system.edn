@@ -4,10 +4,12 @@
   ;; --- HTTP / WS ---
   ;; We can run both HTTP and WS on http-kit (recommended for simplicity).
   ;; Leaving both sections here keeps it flexible.
-  :http {:host "0.0.0.0"
+  ;; Safe-by-default: bind to localhost. Override in k8s via SAMURAIBFF_HTTP_HOST=0.0.0.0
+  :http {:host "127.0.0.1"
          :port 8000}
 
-  :ws   {:host "0.0.0.0"
+  ;; Safe-by-default: bind to localhost. Override in k8s via SAMURAIBFF_WS_HOST=0.0.0.0
+  :ws   {:host "127.0.0.1"
          :port 8000}
 
   ;; --- Auth / Keycloak ---
@@ -37,9 +39,11 @@
                      :client-secret nil}}
 
   ;; --- DB ---
+  ;; NOTE: do not ship real credentials in a jar-packaged resources/system.edn.
+  ;; Provide these via SAMURAIBFF_DB_* env vars or SAMURAIBFF_CONFIG_PATH.
   :db {:jdbc-url "jdbc:postgresql://localhost:5432/nanosamurai"
-       :username "drsynth"
-       :password "drsynth"
+       :username ""
+       :password ""
        :maximum-pool-size 10}
 
   ;; --- Kafka ---
