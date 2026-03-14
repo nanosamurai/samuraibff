@@ -33,17 +33,17 @@
 
   ;; --- Keycloak Admin API (optional; required only for managing M2M credentials) ---
   ;; If not set, /api/api-credentials will return 503 (keycloak-admin-unavailable).
-  :keycloak {:admin {:issuer nil
-                     :realm nil
-                     :client-id nil
+  :keycloak {:admin {:issuer "https://auth.nanosamur.ai/realms/nanosamurai"
+                     :realm "nanosamurai"
+                     :client-id "bff-admin"
                      :client-secret nil}}
 
   ;; --- DB ---
   ;; NOTE: do not ship real credentials in a jar-packaged resources/system.edn.
   ;; Provide these via SAMURAIBFF_DB_* env vars or SAMURAIBFF_CONFIG_PATH.
   :db {:jdbc-url "jdbc:postgresql://localhost:5432/nanosamurai"
-       :username ""
-       :password ""
+       :username "drsynth"
+       :password "drsynth"
        :maximum-pool-size 10}
 
   ;; --- Kafka ---
