@@ -117,6 +117,16 @@
         (set-in-if [:samuraibff/config :auth :tenant-claim]
                    (some-> (getenv "SAMURAIBFF_AUTH_TENANT_CLAIM") str/trim not-empty))
 
+        ;; Keycloak admin API (optional; used only for M2M credential management)
+        (set-in-if [:samuraibff/config :keycloak :admin :issuer]
+                   (some-> (getenv "SAMURAIBFF_KEYCLOAK_ADMIN_ISSUER") str/trim not-empty))
+        (set-in-if [:samuraibff/config :keycloak :admin :realm]
+                   (some-> (getenv "SAMURAIBFF_KEYCLOAK_ADMIN_REALM") str/trim not-empty))
+        (set-in-if [:samuraibff/config :keycloak :admin :client-id]
+                   (some-> (getenv "SAMURAIBFF_KEYCLOAK_ADMIN_CLIENT_ID") str/trim not-empty))
+        (set-in-if [:samuraibff/config :keycloak :admin :client-secret]
+                   (some-> (getenv "SAMURAIBFF_KEYCLOAK_ADMIN_CLIENT_SECRET") str/trim not-empty))
+
         ;; DB
         (set-in-if [:samuraibff/config :db :jdbc-url]
                    (some-> (getenv "SAMURAIBFF_DB_JDBC_URL") str/trim not-empty))
