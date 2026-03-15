@@ -10,6 +10,11 @@
   - POST /api/speakers (multipart)
   - DELETE /api/speakers/:speaker_id
 
+  - GET /api/api-credentials
+  - POST /api/api-credentials (create)
+  - POST /api/api-credentials/:id/rotate
+  - DELETE /api/api-credentials/:id
+
   All functions return JS Promises."
   (:require
     [clojure.string :as str]))
@@ -143,3 +148,79 @@
   (-> (js/fetch (str "/api/speakers/" speaker-id) #js {:method "DELETE"})
       (.then ensure-ok!)
       (.then (fn [res] (.json res)))))
+
+(defn list-api-credentials!
+  "List API credentials for the authenticated tenant.
+
+  Returns:
+  - Promise resolving to response map with keys:
+      :items (vector)
+
+  Throws on non-2xx." 
+  []
+  (-> (js/fetch "/api/api-credentials")
+      (.then ensure-ok!)
+      (.then (fn [res] (.json res)))
+      (.then (fn [body]
+               (js->clj body :keywordize-keys true)))))
+
+(defn create-api-credential!
+  "Create a new API credential.
+
+  Inputs:
+  - name: string (human label)
+
+  Returns:
+  - Promise resolving to map:
+      {:ok true
+       :credential_id "..."
+       :client_id "..."
+       :client_secret "..."}
+
+  Notes:
+  - The secret is returned only once; callers must treat it as transient." 
+  [name]
+  (-> (js/fetch "/api/api-credentials"
+                #js {:method "POST"
+                     :headers #js {"content-type" "application/json"}
+                     :body (.stringify js/JSON #js {:name (or name "")})})
+      (.then ensure-ok!)
+      (.then (fn [res] (.json res)))
+      (.then (fn [body]
+               (js->clj body :keywordize-keys true)))))
+
+(defn rotate-api-credential!
+  "Rotate secret for an API credential.
+
+  Inputs:
+  - credential-id: string (UUID)
+
+  Returns:
+  - Promise resolving to map:
+      {:ok true :credential_id "..." :client_id "..." :client_secret "..."}
+
+  Notes:
+  - The new secret is returned only once; callers must treat it as transient." 
+  [credential-id]
+  (-> (js/fetch (str "/api/api-credentials/" (js/encodeURIComponent (or credential-id "")) "/rotate")
+                #js {:method "POST"})
+      (.then ensure-ok!)
+      (.then (fn [res] (.json res)))
+      (.then (fn [body]
+               (js->clj body :keywordize-keys true)))))
+
+(defn revoke-api-credential!
+  "Revoke (disable) an API credential.
+
+  Inputs:
+  - credential-id: string (UUID)
+
+  Returns:
+  - Promise resolving to map (e.g. {:ok true ...})." 
+  [credential-id]
+  (-> (js/fetch (str "/api/api-credentials/" (js/encodeURIComponent (or credential-id "")))
+                #js {:method "DELETE"})
+      (.then ensure-ok!)
+      (.then (fn [res] (.json res)))
+      (.then (fn [body]
+               (js->clj body :keywordize-keys true)))))
