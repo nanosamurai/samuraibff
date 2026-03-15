@@ -250,6 +250,7 @@
            ["/recordings" {:get {:handler http.ui/index-handler}}]
            ["/recordings/:session_id" {:get {:handler http.ui/index-handler}}]
            ["/live" {:get {:handler http.ui/index-handler}}]
+           ["/api-credentials" {:get {:handler http.ui/index-handler}}]
 
            ;; Auth endpoints (browser login flow)
            ["/auth" {:tags ["auth"]}
