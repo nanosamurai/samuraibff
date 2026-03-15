@@ -201,6 +201,29 @@
 
     .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 
+    /* --- Modal --- */
+
+    .modal-overlay{
+      position:fixed; inset:0;
+      background:rgba(0,0,0,.58);
+      display:flex; align-items:center; justify-content:center;
+      padding:18px;
+      z-index:1000;
+    }
+
+    .modal{
+      width:min(720px, 96vw);
+      max-height:min(80vh, 720px);
+      overflow:auto;
+      background:rgba(15,22,32,.98);
+      border:1px solid rgba(34,48,70,.8);
+      border-radius:14px;
+      padding:14px;
+      box-shadow:0 20px 60px rgba(0,0,0,.55);
+    }
+
+    .modal-title{font-weight:800;font-size:16px;margin-bottom:10px}
+
     @media (max-width: 960px) {
       .sidebar{display:none}
       .split{flex-direction:column}

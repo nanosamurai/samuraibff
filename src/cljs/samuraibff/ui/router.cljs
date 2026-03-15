@@ -8,6 +8,7 @@
   - /recordings/:session_id
   - /live
   - /speakers
+  - /api-credentials
 
   The router stores the current route in `samuraibff.ui.store/route*`.
 
