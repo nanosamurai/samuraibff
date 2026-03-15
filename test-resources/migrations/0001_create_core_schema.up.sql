@@ -99,3 +99,18 @@ CREATE TABLE speakers (
 );
 
 CREATE INDEX idx_speakers_tenant_user ON speakers(tenant_id, user_id);
+
+-- M2M API credentials inventory (test schema mirror).
+CREATE TABLE api_credentials (
+    id                 uuid PRIMARY KEY,
+    tenant_id          uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    name               text NOT NULL,
+    keycloak_client_id text NOT NULL UNIQUE,
+    created_by_sub     text,
+    revoked_at         timestamptz,
+    last_used_at       timestamptz,
+    created_at         timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_api_credentials_tenant ON api_credentials(tenant_id);
+CREATE INDEX idx_api_credentials_tenant_revoked ON api_credentials(tenant_id, revoked_at);

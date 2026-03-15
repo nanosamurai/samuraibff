@@ -91,6 +91,73 @@ The backend accepts access tokens from:
 
 WebSockets `/ws/events` and `/ws/audio` enforce auth **before upgrade** when `:auth {:required? true}`.
 
+## Machine-to-machine (M2M) credentials (Keycloak service accounts)
+
+The BFF supports generating **user-managed M2M credentials** intended for SDKs and backend services.
+
+### Model
+
+Each credential is backed by a **confidential Keycloak client** with **service account enabled**.
+The BFF uses the **Keycloak Admin API** to create the client and generate/rotate its secret.
+
+Important security properties:
+
+- The client secret is **never stored** in Postgres.
+- The secret is returned to the UI only **once** (on create/rotate).
+- Tokens issued to the service account contain a `tenant_id` claim (via protocol mapper).
+
+Metadata is stored in Postgres table `api_credentials` (tenant-scoped) so the UI can list/revoke credentials.
+
+### Endpoints (human management)
+
+All endpoints require a normal user access token (OIDC cookie/Bearer token) and are tenant-scoped:
+
+- `GET /api/api-credentials` – list credentials
+- `POST /api/api-credentials` – create credential; body: `{ "name": "my-sdk" }` (returns `client_secret`)
+- `POST /api/api-credentials/:id/rotate` – rotate secret (returns new `client_secret`)
+- `DELETE /api/api-credentials/:id` – revoke credential (disables Keycloak client + marks revoked in DB)
+
+### How an SDK uses it (client_credentials)
+
+1) Create a credential in UI or via `POST /api/api-credentials`.
+2) From the SDK/service, obtain a token from Keycloak:
+
+```bash
+curl -s \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=client_credentials" \
+  -d "client_id=<client_id>" \
+  -d "client_secret=<client_secret>" \
+  "https://auth.nanosamur.ai/realms/<realm>/protocol/openid-connect/token"
+```
+
+3) Call BFF APIs with `Authorization: Bearer <access_token>`.
+
+### Configuration
+
+#### Keycloak Admin API credentials (required only for managing M2M credentials)
+
+**Do not** put the Keycloak admin secret into `resources/system.edn` (it is jar-packaged).
+Inject it via env vars / k8s Secrets.
+
+Environment variables:
+
+- `SAMURAIBFF_KEYCLOAK_ADMIN_ISSUER` (e.g. `https://auth.nanosamur.ai/realms/nanosamurai`)
+- `SAMURAIBFF_KEYCLOAK_ADMIN_REALM` (e.g. `nanosamurai`)
+- `SAMURAIBFF_KEYCLOAK_ADMIN_CLIENT_ID` (e.g. `bff-admin`)
+- `SAMURAIBFF_KEYCLOAK_ADMIN_CLIENT_SECRET` (secret)
+
+Keycloak client setup for `bff-admin`:
+- client type: **Confidential**
+- **Service accounts enabled**: ON
+- (no redirect URLs needed)
+
+Important: assign roles under **Client → Service account roles** (not just “Roles”):
+- Realm Management → `manage-clients` (often also `view-clients`)
+
+If the admin config is not present, the server will start, but M2M management endpoints return
+`503 keycloak-admin-unavailable`.
+
 ### Configuration
 
 See `resources/system.edn`:
@@ -456,7 +523,7 @@ Adding a new feature typically means:
 3. add a small rendering function in `components.cljs` and mount it from `components/app`
 
 Defaults:
-- HTTP server: `0.0.0.0:8000`
+- HTTP server: `127.0.0.1:8000` (safe-by-default; override to `0.0.0.0` in k8s)
 - Health endpoint: `GET /health`
 - WebSockets:
   - `GET /ws/events?session_id=<uuid>`

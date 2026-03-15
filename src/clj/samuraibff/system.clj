@@ -59,6 +59,121 @@
         (catch Exception _
           nil)))))
 
+(defn- deep-merge
+  "Deep merge nested maps.
+
+  Later values win.
+
+  Inputs:
+  - ms: maps
+
+  Returns: merged map" 
+  [& ms]
+  (apply
+    merge-with
+    (fn [a b]
+      (if (and (map? a) (map? b))
+        (apply deep-merge [a b])
+        b))
+    ms))
+
+(defn- prune-nils
+  "Recursively remove nil values from nested maps.
+
+  This is used to ensure env-derived overrides only override when an env var is
+  actually present.
+
+  Inputs:
+  - x: any
+
+  Returns:
+  - x with nil leaves removed; empty maps become nil." 
+  [x]
+  (cond
+    (map? x)
+    (let [m (->> x
+                 (keep (fn [[k v]]
+                         (let [v' (prune-nils v)]
+                           (when-not (nil? v')
+                             [k v']))))
+                 (into {}))]
+      (when (seq m) m))
+
+    (sequential? x)
+    (let [xs (->> x (map prune-nils) (remove nil?) vec)]
+      (when (seq xs) xs))
+
+    :else
+    x))
+
+(defn- env-overrides-map
+  "Build a config-shaped map from environment variables.
+
+  The returned map mirrors the shape of the Integrant config we care about
+  (primarily `:samuraibff/config`). Any missing/blank env vars become nil so
+  `prune-nils` can strip them before merging.
+
+  Inputs:
+  - getenv-fn: (fn [string] => string|nil)
+
+  Returns:
+  - partial Integrant config map" 
+  [getenv-fn]
+  (let [s (fn [k] (some-> (getenv-fn k) str/trim not-empty))
+        b (fn [k] (parse-bool (getenv-fn k)))
+        i (fn [k] (parse-int (getenv-fn k)))
+        kafka-security-protocol (or (s "SAMURAIBFF_KAFKA_SECURITY_PROTOCOL")
+                                    (s "KAFKA_SECURITY_PROTOCOL"))]
+    {:samuraibff/config
+     {:env (some-> (s "SAMURAIBFF_ENV") keyword)
+
+      :http {:host (s "SAMURAIBFF_HTTP_HOST")
+             :port (i "SAMURAIBFF_HTTP_PORT")}
+
+      :ws {:host (s "SAMURAIBFF_WS_HOST")
+           :port (i "SAMURAIBFF_WS_PORT")}
+
+      :auth {:required? (b "SAMURAIBFF_AUTH_REQUIRED")
+             :guest-tenant-id (s "SAMURAIBFF_AUTH_GUEST_TENANT_ID")
+             :issuer (s "SAMURAIBFF_AUTH_ISSUER")
+             :audience (s "SAMURAIBFF_AUTH_AUDIENCE")
+             :client-id (s "SAMURAIBFF_AUTH_CLIENT_ID")
+             :cookie-name (s "SAMURAIBFF_AUTH_COOKIE_NAME")
+             :tenant-claim (s "SAMURAIBFF_AUTH_TENANT_CLAIM")}
+
+      ;; Keycloak admin API (optional; used only for M2M credential management)
+      :keycloak {:admin {:issuer (s "SAMURAIBFF_KEYCLOAK_ADMIN_ISSUER")
+                         :realm (s "SAMURAIBFF_KEYCLOAK_ADMIN_REALM")
+                         :client-id (s "SAMURAIBFF_KEYCLOAK_ADMIN_CLIENT_ID")
+                         :client-secret (s "SAMURAIBFF_KEYCLOAK_ADMIN_CLIENT_SECRET")}}
+
+      :db {:jdbc-url (s "SAMURAIBFF_DB_JDBC_URL")
+           :username (s "SAMURAIBFF_DB_USERNAME")
+           :password (s "SAMURAIBFF_DB_PASSWORD")
+           :maximum-pool-size (i "SAMURAIBFF_DB_MAX_POOL_SIZE")}
+
+      :kafka {:bootstrap-servers (s "SAMURAIBFF_KAFKA_BOOTSTRAP_SERVERS")
+              :client-id (s "SAMURAIBFF_KAFKA_CLIENT_ID")
+              :acks (s "SAMURAIBFF_KAFKA_ACKS")
+              :compression-type (s "SAMURAIBFF_KAFKA_COMPRESSION_TYPE")
+              :security-protocol kafka-security-protocol
+              :consumer-group-id (s "SAMURAIBFF_KAFKA_CONSUMER_GROUP_ID")
+              :topics {:audio-raw (s "SAMURAIBFF_KAFKA_TOPIC_AUDIO_RAW")
+                       :refined (s "SAMURAIBFF_KAFKA_TOPIC_REFINED")}}
+
+      :grpc {:rtservice-addr (s "SAMURAIBFF_GRPC_RTSERVICE_ADDR")}
+
+      :s3 {:bucket (s "SAMURAIBFF_S3_BUCKET")
+           :enrollment-prefix (s "SAMURAIBFF_S3_ENROLLMENT_PREFIX")
+           :region (s "SAMURAIBFF_S3_REGION")
+           :endpoint (s "SAMURAIBFF_S3_ENDPOINT")
+           :access-key (s "SAMURAIBFF_S3_ACCESS_KEY")
+           :secret-key (s "SAMURAIBFF_S3_SECRET_KEY")
+           :force-path-style? (b "SAMURAIBFF_S3_FORCE_PATH_STYLE")}
+
+      :bff {:origin-uri (s "SAMURAIBFF_ORIGIN_URI")
+            :callback-path (s "SAMURAIBFF_CALLBACK_PATH")}}}))
+
 (defn- apply-env-overrides
   "Overlay environment-variable overrides onto the base config map.
 
@@ -70,105 +185,14 @@
 
   Returns:
   - cfg' with overrides applied." 
-  [cfg]
-  (let [cfg0 cfg
-        ;; helper so we can keep the override table compact
-        set-in-if (fn [m path v]
-                    (if (nil? v) m (assoc-in m path v)))
-        ;; --- typed values ---
-        auth-required (parse-bool (getenv "SAMURAIBFF_AUTH_REQUIRED"))
-        http-port (parse-int (getenv "SAMURAIBFF_HTTP_PORT"))
-        db-max-pool-size (parse-int (getenv "SAMURAIBFF_DB_MAX_POOL_SIZE"))
-
-        ;; --- Kafka security (TLS/SASL) ---
-        ;; Primary: SAMURAIBFF_* env vars.
-        ;; Fallback: generic KAFKA_* vars emitted by some Helm charts.
-        kafka-security-protocol (some-> (or (getenv "SAMURAIBFF_KAFKA_SECURITY_PROTOCOL")
-                                            (getenv "KAFKA_SECURITY_PROTOCOL"))
-                                        str/trim not-empty)]
-    (-> cfg0
-        ;; :env
-        (set-in-if [:samuraibff/config :env]
-                   (some-> (getenv "SAMURAIBFF_ENV") str/trim not-empty keyword))
-
-        ;; HTTP
-        (set-in-if [:samuraibff/config :http :host]
-                   (some-> (getenv "SAMURAIBFF_HTTP_HOST") str/trim not-empty))
-        (set-in-if [:samuraibff/config :http :port] http-port)
-
-        ;; WS (kept for parity; currently same port)
-        (set-in-if [:samuraibff/config :ws :host]
-                   (some-> (getenv "SAMURAIBFF_WS_HOST") str/trim not-empty))
-        (set-in-if [:samuraibff/config :ws :port]
-                   (parse-int (getenv "SAMURAIBFF_WS_PORT")))
-
-        ;; Auth / OIDC
-        (set-in-if [:samuraibff/config :auth :required?] auth-required)
-        (set-in-if [:samuraibff/config :auth :guest-tenant-id]
-                   (some-> (getenv "SAMURAIBFF_AUTH_GUEST_TENANT_ID") str/trim not-empty))
-        (set-in-if [:samuraibff/config :auth :issuer]
-                   (some-> (getenv "SAMURAIBFF_AUTH_ISSUER") str/trim not-empty))
-        (set-in-if [:samuraibff/config :auth :audience]
-                   (some-> (getenv "SAMURAIBFF_AUTH_AUDIENCE") str/trim not-empty))
-        (set-in-if [:samuraibff/config :auth :client-id]
-                   (some-> (getenv "SAMURAIBFF_AUTH_CLIENT_ID") str/trim not-empty))
-        (set-in-if [:samuraibff/config :auth :cookie-name]
-                   (some-> (getenv "SAMURAIBFF_AUTH_COOKIE_NAME") str/trim not-empty))
-        (set-in-if [:samuraibff/config :auth :tenant-claim]
-                   (some-> (getenv "SAMURAIBFF_AUTH_TENANT_CLAIM") str/trim not-empty))
-
-        ;; DB
-        (set-in-if [:samuraibff/config :db :jdbc-url]
-                   (some-> (getenv "SAMURAIBFF_DB_JDBC_URL") str/trim not-empty))
-        (set-in-if [:samuraibff/config :db :username]
-                   (some-> (getenv "SAMURAIBFF_DB_USERNAME") str/trim not-empty))
-        (set-in-if [:samuraibff/config :db :password]
-                   (some-> (getenv "SAMURAIBFF_DB_PASSWORD") str/trim not-empty))
-        (set-in-if [:samuraibff/config :db :maximum-pool-size] db-max-pool-size)
-
-        ;; Kafka
-        (set-in-if [:samuraibff/config :kafka :bootstrap-servers]
-                   (some-> (getenv "SAMURAIBFF_KAFKA_BOOTSTRAP_SERVERS") str/trim not-empty))
-        (set-in-if [:samuraibff/config :kafka :client-id]
-                   (some-> (getenv "SAMURAIBFF_KAFKA_CLIENT_ID") str/trim not-empty))
-        (set-in-if [:samuraibff/config :kafka :acks]
-                   (some-> (getenv "SAMURAIBFF_KAFKA_ACKS") str/trim not-empty))
-        (set-in-if [:samuraibff/config :kafka :compression-type]
-                   (some-> (getenv "SAMURAIBFF_KAFKA_COMPRESSION_TYPE") str/trim not-empty))
-        (set-in-if [:samuraibff/config :kafka :security-protocol]
-                   kafka-security-protocol)
-        (set-in-if [:samuraibff/config :kafka :consumer-group-id]
-                   (some-> (getenv "SAMURAIBFF_KAFKA_CONSUMER_GROUP_ID") str/trim not-empty))
-        (set-in-if [:samuraibff/config :kafka :topics :audio-raw]
-                   (some-> (getenv "SAMURAIBFF_KAFKA_TOPIC_AUDIO_RAW") str/trim not-empty))
-        (set-in-if [:samuraibff/config :kafka :topics :refined]
-                   (some-> (getenv "SAMURAIBFF_KAFKA_TOPIC_REFINED") str/trim not-empty))
-
-        ;; gRPC
-        (set-in-if [:samuraibff/config :grpc :rtservice-addr]
-                   (some-> (getenv "SAMURAIBFF_GRPC_RTSERVICE_ADDR") str/trim not-empty))
-
-        ;; S3 enrollment storage
-        (set-in-if [:samuraibff/config :s3 :bucket]
-                   (some-> (getenv "SAMURAIBFF_S3_BUCKET") str/trim not-empty))
-        (set-in-if [:samuraibff/config :s3 :enrollment-prefix]
-                   (some-> (getenv "SAMURAIBFF_S3_ENROLLMENT_PREFIX") str/trim not-empty))
-        (set-in-if [:samuraibff/config :s3 :region]
-                   (some-> (getenv "SAMURAIBFF_S3_REGION") str/trim not-empty))
-        (set-in-if [:samuraibff/config :s3 :endpoint]
-                   (some-> (getenv "SAMURAIBFF_S3_ENDPOINT") str/trim not-empty))
-        (set-in-if [:samuraibff/config :s3 :access-key]
-                   (some-> (getenv "SAMURAIBFF_S3_ACCESS_KEY") str/trim not-empty))
-        (set-in-if [:samuraibff/config :s3 :secret-key]
-                   (some-> (getenv "SAMURAIBFF_S3_SECRET_KEY") str/trim not-empty))
-        (set-in-if [:samuraibff/config :s3 :force-path-style?]
-                   (parse-bool (getenv "SAMURAIBFF_S3_FORCE_PATH_STYLE")))
-
-        ;; BFF identity
-        (set-in-if [:samuraibff/config :bff :origin-uri]
-                   (some-> (getenv "SAMURAIBFF_ORIGIN_URI") str/trim not-empty))
-        (set-in-if [:samuraibff/config :bff :callback-path]
-                   (some-> (getenv "SAMURAIBFF_CALLBACK_PATH") str/trim not-empty)))))
+  ([cfg]
+   (apply-env-overrides cfg getenv))
+  ([cfg getenv-fn]
+   (let [overrides (-> (env-overrides-map getenv-fn)
+                       prune-nils)]
+     (if overrides
+       (deep-merge cfg overrides)
+       cfg))))
 
 (defn- read-config-from-path
   "Read Integrant EDN config from an explicit filesystem path.
