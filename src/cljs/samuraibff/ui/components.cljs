@@ -894,7 +894,7 @@
          [:button {:class "btn"
                    :on-click (fn [_]
                                (store/api-credentials-close-secret!))}
-          "Close"]]]]))
+          "Close"]]]])))
 
 (defn- credential-revoked?
   [cred]
@@ -933,7 +933,7 @@
                                    (.catch (fn [e]
                                              (store/api-credentials-set-error! (safe-http-error e))))
                                    (.finally (fn []
-                                               (store/api-credentials-set-loading! false)))))))}
+                                               (store/api-credentials-set-loading! false))))))}
         "Rotate"]
 
        [:button {:class "btn ghost"
@@ -951,8 +951,8 @@
                                    (.catch (fn [e]
                                              (store/api-credentials-set-error! (safe-http-error e))))
                                    (.finally (fn []
-                                               (store/api-credentials-set-loading! false)))))))}
-        "Revoke"]]]]]))
+                                               (store/api-credentials-set-loading! false))))))}
+        "Revoke"]]]]))
 
 (defn api-credentials-page
   "API credentials management page (tenant-scoped)." 
