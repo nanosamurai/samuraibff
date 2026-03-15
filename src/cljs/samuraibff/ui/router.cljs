@@ -8,6 +8,7 @@
   - /recordings/:session_id
   - /live
   - /speakers
+  - /api-credentials
 
   The router stores the current route in `samuraibff.ui.store/route*`.
 
@@ -23,7 +24,7 @@
     [samuraibff.ui.store :as store]))
 
 (def ^:private known-pages
-  #{:recordings :recording :live :speakers})
+  #{:recordings :recording :live :speakers :api-credentials})
 
 (defn href->route
   "Parse a URL path into a route map.
@@ -33,7 +34,7 @@
 
   Returns:
   - {:page <keyword> :params <map>} where :page is one of:
-    :recordings | :recording | :live | :speakers
+    :recordings | :recording | :live | :speakers | :api-credentials
 
   Notes:
   - Unknown paths fall back to {:page :recordings}."
@@ -55,6 +56,9 @@
       (= ["speakers"] segs)
       {:page :speakers :params {}}
 
+      (= ["api-credentials"] segs)
+      {:page :api-credentials :params {}}
+
       (and (= "recordings" (first segs))
            (= 2 (count segs)))
       {:page :recording :params {:session_id (second segs)}}
@@ -75,6 +79,7 @@
     :live "/live"
     :recording (str "/recordings/" (get params :session_id ""))
     :speakers "/speakers"
+    :api-credentials "/api-credentials"
     "/recordings"))
 
 (defn- current-path

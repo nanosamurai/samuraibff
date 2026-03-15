@@ -12,6 +12,7 @@
 
   All public functions are side-effecting and named with verbs."
   (:require
+    [samuraibff.ui.api-credentials-store :as api-creds.store]
     [samuraibff.ui.transcript :as transcript]
     [samuraibff.ui.util :as util]))
 
@@ -99,6 +100,9 @@
 
 (defonce speakers*
   (atom []))
+
+(defonce api-credentials*
+  (atom (api-creds.store/init-state)))
 
 (defonce auth*
   (atom {:status :unknown
@@ -259,6 +263,74 @@
   Returns: nil." 
   [items]
   (reset! speakers* (vec (or items [])))
+  nil)
+
+;; --- API Credentials state ---
+
+(defn api-credentials-set-loading!
+  "Set API credentials loading flag." 
+  [loading?]
+  (swap! api-credentials* api-creds.store/set-loading loading?)
+  nil)
+
+(defn api-credentials-set-error!
+  "Set a safe user-facing error message for API credentials.
+
+  Inputs:
+  - message: string? (nil clears)
+
+  Returns nil." 
+  [message]
+  (swap! api-credentials* api-creds.store/set-error message)
+  nil)
+
+(defn api-credentials-set-items!
+  "Replace API credentials list.
+
+  Inputs:
+  - items: vector of credential maps
+
+  Returns nil." 
+  [items]
+  (swap! api-credentials* api-creds.store/set-items items)
+  nil)
+
+(defn api-credentials-toggle-show-revoked!
+  "Toggle whether revoked credentials are shown." 
+  []
+  (swap! api-credentials* api-creds.store/toggle-show-revoked)
+  nil)
+
+(defn api-credentials-open-secret!
+  "Open the show-once secret modal.
+
+  Inputs:
+  - {:keys [credential-id client-id client-secret]} strings
+
+  Returns nil." 
+  [{:keys [credential-id client-id client-secret]}]
+  (swap! api-credentials* api-creds.store/open-secret-modal
+         {:credential-id credential-id
+          :client-id client-id
+          :client-secret client-secret})
+  nil)
+
+(defn api-credentials-close-secret!
+  "Close the show-once secret modal and clear any in-memory secret." 
+  []
+  (swap! api-credentials* api-creds.store/close-secret-modal)
+  nil)
+
+(defn api-credentials-mark-secret-copied!
+  "Set secret modal copied indicator." 
+  [copied?]
+  (swap! api-credentials* api-creds.store/mark-secret-copied copied?)
+  nil)
+
+(defn api-credentials-mark-revoked!
+  "Mark a credential revoked in local state." 
+  [credential-id]
+  (swap! api-credentials* api-creds.store/mark-revoked credential-id)
   nil)
 
 (defn remove-speaker!

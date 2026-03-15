@@ -117,6 +117,22 @@ All endpoints require a normal user access token (OIDC cookie/Bearer token) and 
 - `POST /api/api-credentials/:id/rotate` – rotate secret (returns new `client_secret`)
 - `DELETE /api/api-credentials/:id` – revoke credential (disables Keycloak client + marks revoked in DB)
 
+### UI page
+
+The UI for managing credentials lives in this repo under `src/cljs/samuraibff/ui/`.
+
+- Route: `GET /api-credentials` (SPA page)
+
+#### Show-once secret behavior (important)
+
+When you **create** or **rotate** a credential, the backend returns `client_secret` exactly once.
+
+Security properties in the UI:
+- the secret is stored **only in memory** while the “Client secret” modal is open
+- closing the modal clears the secret from UI state
+- the UI does **not** persist secrets (no localStorage/sessionStorage)
+- the UI avoids logging response bodies (to reduce risk of accidental secret exposure)
+
 ### How an SDK uses it (client_credentials)
 
 1) Create a credential in UI or via `POST /api/api-credentials`.

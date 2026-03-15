@@ -16,6 +16,7 @@
     [samuraibff.ui.hooks :as hooks]
     [samuraibff.ui.router :as router]
     [samuraibff.ui.store :as store]
+    [samuraibff.ui.api-credentials-store :as api-creds.store]
     [samuraibff.ui.transcript :as transcript]
     [samuraibff.ui.util :as util]
     [samuraibff.ui.ws :as ws]
@@ -754,7 +755,10 @@
                      :active? (= page :live)}]
       [sidebar-item {:label "Speakers"
                      :route {:page :speakers :params {}}
-                     :active? (= page :speakers)}]]]))
+                     :active? (= page :speakers)}]
+      [sidebar-item {:label "API Credentials"
+                     :route {:page :api-credentials :params {}}
+                     :active? (= page :api-credentials)}]]]))
 
 (defn breadcrumbs
   "Breadcrumbs derived from current route." 
@@ -765,6 +769,7 @@
                  :live [{:label "Recordings" :route {:page :recordings :params {}}}
                         {:label "Live Recording" :route {:page :live :params {}}}]
                  :speakers [{:label "Speakers" :route {:page :speakers :params {}}}]
+                 :api-credentials [{:label "API Credentials" :route {:page :api-credentials :params {}}}]
                  :recording [{:label "Recordings" :route {:page :recordings :params {}}}
                              {:label (or (:session_id params) "Recording")
                               :route {:page :recording :params params}}]
@@ -814,6 +819,245 @@
                                (auth/login! (router/route->href route)))}
           "Login"]])]]))
 
+(defn- safe-http-error
+  "Return a safe string to show/log for fetch errors.
+
+  Important:
+  - never include response bodies (may contain secrets)
+  - never include stack traces
+
+  Inputs:
+  - e: JS error
+
+  Returns: string." 
+  [e]
+  (let [msg (some-> e .-message str)]
+    (if (seq msg) msg "Request failed")))
+
+(defn- copy-to-clipboard!
+  "Copy text to clipboard (best effort).
+
+  Inputs:
+  - s: string
+
+  Returns:
+  - Promise resolving to true/false." 
+  [s]
+  (let [s (str (or s ""))]
+    (cond
+      (and (exists? js/navigator)
+           (exists? (.-clipboard js/navigator))
+           (exists? (.-writeText (.-clipboard js/navigator))))
+      (-> (.writeText (.-clipboard js/navigator) s)
+          (.then (fn [_] true))
+          (.catch (fn [_] false)))
+
+      :else
+      (js/Promise.resolve false))))
+
+(defn api-credentials-secret-modal
+  "Modal that shows `client_secret` exactly once.
+
+  Security:
+  - The secret is kept only in memory (store atom) and cleared on close." 
+  []
+  (let [st (hooks/use-atom store/api-credentials*)
+        {:keys [open? credential-id client-id client-secret copied?]} (:secret-modal st)]
+    (when (true? open?)
+      [:div {:class "modal-overlay"
+             :on-click (fn [_]
+                         (store/api-credentials-close-secret!))}
+       [:div {:class "modal"
+              :on-click (fn [e] (.stopPropagation e))}
+        [:div {:class "modal-title"} "Client secret"]
+        [:div {:class "muted" :style {:marginBottom "10px"}}
+         "This secret is shown only once. Copy it now and store it securely."
+         (when credential-id
+           [:div {:class "muted" :style {:marginTop "6px"}}
+            [:span {:class "mono"} credential-id]])]
+
+        [:div {:class "card" :style {:marginBottom "10px"}}
+         [:div {:class "muted" :style {:fontSize "12px" :marginBottom "6px"}} "client_id"]
+         [:div {:class "mono" :style {:wordBreak "break-all"}} (or client-id "")]]
+
+        [:div {:class "card" :style {:marginBottom "12px"}}
+         [:div {:class "muted" :style {:fontSize "12px" :marginBottom "6px"}} "client_secret"]
+         [:div {:class "mono" :style {:wordBreak "break-all"}} (or client-secret "")]]
+
+        [:div {:class "row" :style {:justifyContent "flex-end"}}
+         [:button {:class (str "btn " (when copied? "primary"))
+                   :on-click (fn [_]
+                               (-> (copy-to-clipboard! (or client-secret ""))
+                                   (.then (fn [ok?]
+                                            (store/api-credentials-mark-secret-copied! (true? ok?))))))}
+          (if copied? "Copied" "Copy secret")]
+         [:button {:class "btn"
+                   :on-click (fn [_]
+                               (store/api-credentials-close-secret!))}
+          "Close"]]]])))
+
+(defn- credential-revoked?
+  [cred]
+  (some? (or (:revoked_at cred) (:revoked-at cred))))
+
+(defn- api-credentials-row
+  [{:keys [id name keycloak_client_id created_at last_used_at revoked_at]} refresh!]
+  (let [revoked? (some? revoked_at)
+        id (or id "")
+        client-id (or keycloak_client_id "")]
+    [:tr
+     [:td name]
+     [:td {:class "mono"} client-id]
+     [:td {:class "muted"} (or (iso->local created_at) "")]
+     [:td {:class "muted"} (or (iso->local last_used_at) "")]
+     [:td
+      (if revoked?
+        [:span {:class "badge muted"} "Revoked"]
+        [:span {:class "badge ok"} "Active"])]
+     [:td {:style {:textAlign "right"}}
+      [:div {:class "row" :style {:justifyContent "flex-end"}}
+       [:button {:class "btn"
+                 :disabled revoked?
+                 :title "Rotate secret"
+                 :on-click (fn [_]
+                             (when (js/confirm (str "Rotate secret for " name "?\n\nThe old secret will stop working."))
+                               (store/api-credentials-set-loading! true)
+                               (store/api-credentials-set-error! nil)
+                               (-> (api/rotate-api-credential! id)
+                                   (.then (fn [resp]
+                                            (store/api-credentials-open-secret!
+                                              {:credential-id (:credential_id resp)
+                                               :client-id (:client_id resp)
+                                               :client-secret (:client_secret resp)})
+                                            (refresh!)))
+                                   (.catch (fn [e]
+                                             (store/api-credentials-set-error! (safe-http-error e))))
+                                   (.finally (fn []
+                                               (store/api-credentials-set-loading! false))))))}
+        "Rotate"]
+
+       [:button {:class "btn ghost"
+                 :disabled revoked?
+                 :title "Revoke credential"
+                 :on-click (fn [_]
+                             (when (js/confirm (str "Revoke credential " name "?\n\nThis will disable the Keycloak client."))
+                               (store/api-credentials-set-loading! true)
+                               (store/api-credentials-set-error! nil)
+                               (-> (api/revoke-api-credential! id)
+                                   (.then (fn [_]
+                                            ;; Optimistic: mark revoked, then refresh.
+                                            (store/api-credentials-mark-revoked! id)
+                                            (refresh!)))
+                                   (.catch (fn [e]
+                                             (store/api-credentials-set-error! (safe-http-error e))))
+                                   (.finally (fn []
+                                               (store/api-credentials-set-loading! false))))))}
+        "Revoke"]]]]))
+
+(defn api-credentials-page
+  "API credentials management page (tenant-scoped)." 
+  []
+  (let [st (hooks/use-atom store/api-credentials*)
+        items (api-creds.store/visible-items st)
+        loading? (:loading? st)
+        error (:error st)
+        show-revoked? (:show-revoked? st)
+
+        name* (react/useState "")
+        name (aget name* 0)
+        set-name! (aget name* 1)
+
+        refresh! (fn []
+                   (store/api-credentials-set-loading! true)
+                   (store/api-credentials-set-error! nil)
+                   (-> (api/list-api-credentials!)
+                       (.then (fn [resp]
+                                (store/api-credentials-set-items! (:items resp))))
+                       (.catch (fn [e]
+                                 (store/api-credentials-set-error! (safe-http-error e))))
+                       (.finally (fn []
+                                   (store/api-credentials-set-loading! false)))))
+
+        create! (fn []
+                  (store/api-credentials-set-loading! true)
+                  (store/api-credentials-set-error! nil)
+                  (-> (api/create-api-credential! name)
+                      (.then (fn [resp]
+                               (set-name! "")
+                               (store/api-credentials-open-secret!
+                                 {:credential-id (:credential_id resp)
+                                  :client-id (:client_id resp)
+                                  :client-secret (:client_secret resp)})
+                               (refresh!)))
+                      (.catch (fn [e]
+                                (store/api-credentials-set-error! (safe-http-error e))))
+                      (.finally (fn []
+                                  (store/api-credentials-set-loading! false)))))]
+
+    (react/useEffect
+      (fn []
+        (refresh!)
+        js/undefined)
+      #js [])
+
+    [:div {:class "page"}
+     [api-credentials-secret-modal]
+
+     [:div {:class "page-header"}
+      [:div
+       [:div {:class "page-title"} "API Credentials"]
+       [:div {:class "muted"}
+        "Tenant-scoped machine-to-machine credentials (Keycloak service accounts)."]
+       (when (seq error)
+         [:div {:class "badge bad" :style {:marginTop "10px"}} error])]
+      [:div {:class "row"}
+       [:button {:class "btn"
+                 :disabled loading?
+                 :on-click (fn [_] (refresh!))}
+        (if loading? "Refreshing…" "Refresh")]]]
+
+     [:div {:class "card"}
+      [:div {:class "card-title"} "Create credential"]
+      [:div {:class "row"}
+       [:input {:placeholder "Name (e.g. my-sdk)"
+                :value name
+                :on-change (fn [e] (set-name! (.. e -target -value)))}]
+       [:button {:class "btn primary"
+                 :disabled (or loading? (str/blank? name))
+                 :on-click (fn [_] (create!))}
+        "Create"]]
+      [:div {:class "hint"}
+       "The client secret will be shown exactly once. It is never stored by the BFF."]]
+
+     [:div {:class "card"}
+      [:div {:class "row" :style {:alignItems "center"}}
+       [:div {:class "card-title"} "Credentials"]
+       [:div {:class "spacer"}]
+       [:label {:class "muted"
+                :style {:display "inline-flex" :gap "8px" :alignItems "center"}}
+        [:input {:type "checkbox"
+                 :checked (boolean show-revoked?)
+                 :on-change (fn [_]
+                              (store/api-credentials-toggle-show-revoked!))}]
+        "Show revoked"]]
+      (if (empty? items)
+        [:div {:class "muted"} "No API credentials yet."]
+        [:table {:class "table"}
+         [:thead
+          [:tr
+           [:th "Name"]
+           [:th "Client id"]
+           [:th "Created"]
+           [:th "Last used"]
+           [:th "Status"]
+           [:th {:style {:textAlign "right"}} "Actions"]]]
+         [:tbody
+          (for [c (->> items
+                       (sort-by :created_at)
+                       reverse)]
+            ^{:key (str "cred-" (:id c))}
+            [api-credentials-row c refresh!])]])]]))
+
 (defn app
   "Root app component." 
   []
@@ -837,6 +1081,7 @@
          :live [live-recording-page]
          :recording [recording-detail-page (get-in route [:params :session_id])]
          :speakers [speakers-page]
+         :api-credentials [api-credentials-page]
          [recordings-page])]]]))
 
 (defn memo-clear!
