@@ -35,7 +35,7 @@
       (is (= ["a"] (mapv :id (s/visible-items st))))
 
       (let [st2 (s/toggle-show-revoked st)]
-        (is (= ["a" "b"] (mapv :id (s/visible-items st2)))))))
+        (is (= ["a" "b"] (mapv :id (s/visible-items st2))))))))
 
 (deftest mark-revoked-updates-item
   (testing "mark-revoked sets revoked_at on matching item"
