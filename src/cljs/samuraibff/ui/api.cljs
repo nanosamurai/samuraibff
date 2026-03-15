@@ -173,9 +173,9 @@
   Returns:
   - Promise resolving to map:
       {:ok true
-       :credential_id "..."
-       :client_id "..."
-       :client_secret "..."}
+       :credential_id <uuid-string>
+       :client_id <string>
+       :client_secret <string>}
 
   Notes:
   - The secret is returned only once; callers must treat it as transient." 
@@ -197,7 +197,7 @@
 
   Returns:
   - Promise resolving to map:
-      {:ok true :credential_id "..." :client_id "..." :client_secret "..."}
+      {:ok true :credential_id <uuid-string> :client_id <string> :client_secret <string>}
 
   Notes:
   - The new secret is returned only once; callers must treat it as transient." 

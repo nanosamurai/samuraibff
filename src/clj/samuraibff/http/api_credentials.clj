@@ -92,8 +92,10 @@
                                       (update :id str)
                                       (update :tenant_id (fn [v] (some-> v str)))
                                       (update :created_at str)
-                                      (update :last_used_at str)
-                                      (update :revoked_at str)))
+                                      ;; Optional timestamps must stay nil (JSON null) when absent.
+                                      ;; Never stringify nil into the literal "nil" string.
+                                      (update :last_used_at (fn [v] (some-> v str)))
+                                      (update :revoked_at (fn [v] (some-> v str)))))
                                 items)}]
           (json-response 200 body)))
       (catch clojure.lang.ExceptionInfo e
