@@ -135,14 +135,25 @@ curl -s \
 
 ### Configuration
 
-Add Keycloak Admin API credentials to `resources/system.edn` (or env overlays):
+#### Keycloak Admin API credentials (required only for managing M2M credentials)
 
-```edn
-:keycloak {:admin {:issuer "https://auth.nanosamur.ai/realms/nanosamurai"
-                   :realm "nanosamurai"
-                   :client-id "bff-admin"
-                   :client-secret "..."}}
-```
+**Do not** put the Keycloak admin secret into `resources/system.edn` (it is jar-packaged).
+Inject it via env vars / k8s Secrets.
+
+Environment variables:
+
+- `SAMURAIBFF_KEYCLOAK_ADMIN_ISSUER` (e.g. `https://auth.nanosamur.ai/realms/nanosamurai`)
+- `SAMURAIBFF_KEYCLOAK_ADMIN_REALM` (e.g. `nanosamurai`)
+- `SAMURAIBFF_KEYCLOAK_ADMIN_CLIENT_ID` (e.g. `bff-admin`)
+- `SAMURAIBFF_KEYCLOAK_ADMIN_CLIENT_SECRET` (secret)
+
+Keycloak client setup for `bff-admin`:
+- client type: **Confidential**
+- **Service accounts enabled**: ON
+- (no redirect URLs needed)
+
+Important: assign roles under **Client → Service account roles** (not just “Roles”):
+- Realm Management → `manage-clients` (often also `view-clients`)
 
 If the admin config is not present, the server will start, but M2M management endpoints return
 `503 keycloak-admin-unavailable`.
@@ -512,7 +523,7 @@ Adding a new feature typically means:
 3. add a small rendering function in `components.cljs` and mount it from `components/app`
 
 Defaults:
-- HTTP server: `0.0.0.0:8000`
+- HTTP server: `127.0.0.1:8000` (safe-by-default; override to `0.0.0.0` in k8s)
 - Health endpoint: `GET /health`
 - WebSockets:
   - `GET /ws/events?session_id=<uuid>`
