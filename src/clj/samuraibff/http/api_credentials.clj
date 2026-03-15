@@ -120,14 +120,15 @@
   - 200 {ok true, credential_id, client_id, client_secret}
   - 400 missing-name
   - 503 db-unavailable / keycloak-unavailable" 
-  [{:keys [db keycloak-admin]}]
+  [{:keys [config db keycloak-admin]}]
   (fn [req]
     (try
       (let [tenant-uuid (require-tenant-uuid! req)
             ds (get-in db [:ds])
             name (or (get-in req [:body-params :name]) (get-in req [:params :name]))
             name (some-> name str str/trim)
-            created-by-sub (get-in req [:auth/user :sub])]
+            created-by-sub (get-in req [:auth/user :sub])
+            audience-client-id (get-in config [:auth :audience])]
         (when-not ds
           (throw (ex-info "Missing datasource" {:type :samuraibff.http/missing-datasource})))
         (when (str/blank? name)
@@ -139,7 +140,10 @@
         (let [{:keys [client-id client-secret]} (kc.admin/create-m2m-client!
                                                  keycloak-admin
                                                  {:tenant-id (str tenant-uuid)
-                                                  :name name})
+                                                  :name name
+                                                  ;; Ensure M2M tokens include the correct `aud` for the BFF.
+                                                  ;; In our setup, the expected audience equals the BFF client-id.
+                                                  :audience-client-id audience-client-id})
               id (util.uuid/uuid7)
               _ (db.api-creds/insert-credential!
                   ds
