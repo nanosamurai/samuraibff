@@ -333,11 +333,15 @@ The BFF publishes **two** OpenAPI specs:
 
 - **Public** (no auth required): browser auth flow endpoints under `/auth/*`
   - Spec JSON: `GET /openapi/public.json`
-  - Swagger UI: `GET /docs/public`
+  - Swagger UI: `GET /docs/public/`
 
 - **Private** (**auth required**): tenant-scoped REST endpoints under `/api/*`
   - Spec JSON: `GET /openapi/private.json`
-  - Swagger UI: `GET /docs/private`
+  - Swagger UI: `GET /docs/private/`
+
+NOTE: Swagger UI is currently mounted outside the Reitit router in the Ring
+fallback chain (per `reitit.swagger-ui` docs). This is a pragmatic workaround;
+we should clean it up later.
 
 Notes:
 - WebSocket endpoints (`/ws/audio`, `/ws/events`) are currently documented in this README,
