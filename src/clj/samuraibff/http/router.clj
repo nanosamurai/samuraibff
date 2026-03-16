@@ -30,7 +30,6 @@
    [reitit.ring.coercion :as rrc]
    [reitit.coercion.malli]
    [reitit.openapi :as openapi]
-   [reitit.swagger :as swagger]
    [reitit.swagger-ui :as swagger-ui]
    [muuntaja.core :as mc]
    [malli.util :as mu]
@@ -246,7 +245,11 @@
         wrap-require-auth (fn [handler]
                             (http.auth/wrap-require-auth handler config))
         public-openapi-id ::public
-        private-openapi-id ::private
+        docs-handler
+        (swagger-ui/create-swagger-ui-handler
+          {:path "/docs"
+           :url "/openapi.json"
+           :config {:validatorUrl nil}})
         router
         (ring/router
           [["/" {:get {:handler http.ui/index-handler}}]
@@ -257,52 +260,35 @@
 
            ;; --- OpenAPI + Swagger UI ---
            ;;
-           ;; We publish two specs:
-           ;; - public: only /auth/* (no auth required to fetch)
-           ;; - private: /api/* (requires auth)
+           ;; Minimal / non-invasive for now:
+           ;; - publish a single public OpenAPI spec that lists all HTTP endpoints
+           ;; - serve a public Swagger UI pointing to that spec
+           ;;
+           ;; TODO(security): split public/private specs and protect non-public.
            ["/openapi" {:tags ["openapi"]}
-            ["/public.json"
-             {:get {:summary "Public OpenAPI spec (auth endpoints)"
+            [".json"
+             {:get {:summary "OpenAPI spec"
                     :no-doc true
                     :openapi {:id public-openapi-id
-                              :info {:title "samuraibff public API"
+                              :info {:title "samuraibff API"
                                      :version "0.1.0"
-                                     :description "Public endpoints (currently only browser auth flow)."}}
-                    :handler (openapi/create-openapi-handler)}}]
-            ["/private.json"
-             {:middleware [wrap-require-auth]
-              :get {:summary "Private OpenAPI spec (secured API endpoints)"
-                    :no-doc true
-                    :openapi {:id private-openapi-id
-                              :info {:title "samuraibff private API"
-                                     :version "0.1.0"
-                                     :description "Tenant-scoped API. Requires an access token."}
-                              :components {:securitySchemes
-                                           {:bearerAuth {:type "http"
-                                                         :scheme "bearer"
-                                                         :bearerFormat "JWT"}
-                                            :cookieAuth {:type "apiKey"
-                                                         :in "cookie"
-                                                         :name (or (get-in config [:auth :cookie-name]) "access_token")}}}
-                              ;; Allow either header Bearer token or auth cookie.
-                              :security [{:bearerAuth []}
-                                         {:cookieAuth []}]}
+                                     :description "OpenAPI spec (currently public; will be secured later)."}}
                     :handler (openapi/create-openapi-handler)}}]]
 
-           ["/docs" {:tags ["docs"]}
-            ["/public"
-             {:get {:summary "Swagger UI (public OpenAPI)"
-                    :no-doc true
-                    :handler (swagger-ui/create-swagger-ui-handler
-                              {:url "/openapi/public.json"
-                               :config {:validatorUrl nil}})}}]
-            ["/private"
-             {:middleware [wrap-require-auth]
-              :get {:summary "Swagger UI (private OpenAPI)"
-                    :no-doc true
-                    :handler (swagger-ui/create-swagger-ui-handler
-                              {:url "/openapi/private.json"
-                               :config {:validatorUrl nil}})}}]]
+           ;; Swagger UI serves the index HTML at /docs(/) and static assets under
+           ;; /docs/* (swagger-ui.css, swagger-ui-bundle.js, ...).
+           ["/docs"
+            {:get {:summary "Swagger UI"
+                   :no-doc true
+                   :handler docs-handler}}]
+           ["/docs/"
+            {:get {:summary "Swagger UI (trailing slash)"
+                   :no-doc true
+                   :handler docs-handler}}]
+           ["/docs/*path"
+            {:get {:summary "Swagger UI assets"
+                   :no-doc true
+                   :handler docs-handler}}]
 
            ;; Auth endpoints (browser login flow)
            ["/auth" {:tags ["auth"]
@@ -317,7 +303,7 @@
            ;; API endpoints (all tenant-scoped; auth enforced by wrap-require-auth)
            ["/api" {:tags ["api"]
                     :middleware [wrap-require-auth]
-                    :openapi {:id private-openapi-id}}
+                    :openapi {:id public-openapi-id}}
             ["/me" {:get {:summary "Current authenticated user"
                           :handler (http.auth/me-handler config)}}]
 
@@ -370,6 +356,8 @@
                   :coercion reitit.coercion.malli/coercion
                   :malli/options {:error-keys #(mu/keys HealthCheckResponse)}
                   :swagger {:id ::api}
+                  ;; Default all routes to be included in the single public spec.
+                  :openapi {:id public-openapi-id}
                   :middleware [parameters/parameters-middleware ; decoding query & form params
                                wrap-cookies
                                wrap-authenticate

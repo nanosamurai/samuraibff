@@ -3,8 +3,8 @@
   "Integration-ish tests for OpenAPI visibility rules.
 
   Goal:
-  - `/openapi/public.json` is always reachable and contains only /auth/*
-  - `/openapi/private.json` is protected by auth middleware and rejects missing token
+  - `/openapi.json` is always reachable (currently public) and contains all HTTP endpoints
+  - `/docs/` serves Swagger UI assets without interfering with app static assets
 
   These tests avoid Keycloak/Testcontainers by validating only the *missing token*
   path. Full auth + tenant behavior is covered by the heavy Keycloak tests.
@@ -44,10 +44,10 @@
      :keycloak-admin nil}))
 
 (deftest public-openapi-contains-auth-only
-  (testing "public OpenAPI is reachable without auth and includes /auth/*"
+  (testing "OpenAPI is reachable without auth and includes auth + api endpoints"
     (let [h (handler)
           resp (h {:request-method :get
-                   :uri "/openapi/public.json"
+                   :uri "/openapi.json"
                    :headers {}})]
       (is (= 200 (:status resp)))
       (let [spec (parse-json (:body resp))
@@ -57,13 +57,14 @@
         (is (contains? paths "/auth/login"))
         (is (contains? paths "/auth/callback"))
         (is (contains? paths "/auth/logout"))
-        (is (not (contains? paths "/api/recordings")))))))
+        (is (contains? paths "/api/recordings"))))))
 
-(deftest private-openapi-rejects-missing-token
-  (testing "private OpenAPI is protected by auth middleware"
+(deftest docs-do-not-break-static-assets
+  (testing "Swagger UI assets are reachable and do not block /js/main.js"
     (let [h (handler)
-          resp (h {:request-method :get
-                   :uri "/openapi/private.json"
-                   :headers {}})]
-      (is (= 403 (:status resp)))
-      (is (= "missing-token" (:message (parse-json (:body resp))))))))
+          css-resp (h {:request-method :get :uri "/docs/swagger-ui.css" :headers {}})
+          js-resp (h {:request-method :get :uri "/js/main.js" :headers {}})]
+      (is (= 200 (:status css-resp)))
+      ;; NOTE: we don't validate JS content, only that it is not intercepted.
+      ;; The handler should return nil for /js/main.js so that the resource handler can serve it.
+      (is (= 200 (:status js-resp))))))
