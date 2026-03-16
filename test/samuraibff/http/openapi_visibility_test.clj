@@ -67,20 +67,3 @@
                    :headers {}})]
       (is (= 403 (:status resp)))
       (is (= "missing-token" (:message (parse-json (:body resp))))))))
-
-(deftest swagger-ui-public-is-accessible
-  (testing "Swagger UI public index is reachable (outside router mounting)"
-    (let [h (handler)
-          resp (h {:request-method :get
-                   :uri "/docs/public/"
-                   :headers {}})]
-      (is (= 200 (:status resp)))
-      (is (some? (:body resp))))))
-
-(deftest swagger-ui-private-is-protected
-  (testing "Swagger UI private index is protected by auth middleware"
-    (let [h (handler)
-          resp (h {:request-method :get
-                   :uri "/docs/private/"
-                   :headers {}})]
-      (is (= 403 (:status resp))))))

@@ -245,26 +245,6 @@
                             (http.auth/wrap-authenticate handler config))
         wrap-require-auth (fn [handler]
                             (http.auth/wrap-require-auth handler config))
-
-        ;; TODO(cleanup): Swagger UI is easiest to mount outside the Reitit
-        ;; router (per reitit.swagger-ui docs). We do this via the ring fallback
-        ;; chain below. Later we can encapsulate this in a dedicated
-        ;; samuraibff.http.docs namespace.
-        public-docs-handler
-        (swagger-ui/create-swagger-ui-handler
-          {:path "/docs/public"
-           :url "/openapi/public.json"
-           :config {:validatorUrl nil}})
-
-        private-docs-handler
-        (-> (swagger-ui/create-swagger-ui-handler
-              {:path "/docs/private"
-               :url "/openapi/private.json"
-               :config {:validatorUrl nil}})
-            ;; Use the same middleware semantics as /api.
-            wrap-authenticate
-            wrap-require-auth)
-
         public-openapi-id ::public
         private-openapi-id ::private
         router
@@ -308,6 +288,21 @@
                               :security [{:bearerAuth []}
                                          {:cookieAuth []}]}
                     :handler (openapi/create-openapi-handler)}}]]
+
+           ["/docs" {:tags ["docs"]}
+            ["/public"
+             {:get {:summary "Swagger UI (public OpenAPI)"
+                    :no-doc true
+                    :handler (swagger-ui/create-swagger-ui-handler
+                              {:url "/openapi/public.json"
+                               :config {:validatorUrl nil}})}}]
+            ["/private"
+             {:middleware [wrap-require-auth]
+              :get {:summary "Swagger UI (private OpenAPI)"
+                    :no-doc true
+                    :handler (swagger-ui/create-swagger-ui-handler
+                              {:url "/openapi/private.json"
+                               :config {:validatorUrl nil}})}}]]
 
            ;; Auth endpoints (browser login flow)
            ["/auth" {:tags ["auth"]
@@ -412,8 +407,6 @@
     (ring/ring-handler
       router
       (ring/routes
-        public-docs-handler
-        private-docs-handler
         static-handler
         (ring/create-default-handler)))))
 
