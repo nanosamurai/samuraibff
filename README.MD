@@ -226,15 +226,13 @@ If Keycloak shows `Invalid parameter: redirect_uri`, fix either:
 
 ### Note on automated auth testing
 
-Right now our automated test suite covers auth mechanics (token extraction and WS rejection when auth is required),
-but it does **not** run a real Keycloak.
+We have added heavy integration test that spins up real Keycloak + Postgres via Testcontainers, creates two users in different tenants, creates M2M credentials as Alice, and asserts that:
 
-A good next step is to add a dockerized Keycloak to integration tests (e.g. via **testcontainers-clj**) so we can:
-- create a realm + client dynamically
-- fetch a real token from Keycloak
-- validate the full `/auth/login` → `/auth/callback` flow end-to-end
+- the M2M token can access Alice’s tenant data
+- it cannot access Bob’s
 
-(We haven't implemented that yet.)
+Test: `test/samuraibff/auth/keycloak_auth_integration_test.clj` Helper: `test/samuraibff/testcontainers/keycloak.clj`
+
 
 ## Enrolled speakers (multi-tenant)
 
@@ -403,6 +401,12 @@ The container reads configuration from `resources/system.edn` (or
 - `SAMURAIBFF_AUTH_CLIENT_ID`
 - `SAMURAIBFF_AUTH_COOKIE_NAME`
 - `SAMURAIBFF_AUTH_TENANT_CLAIM`
+
+#### Auth M2M
+- `SAMURAIBFF_KEYCLOAK_ADMIN_ISSUER` (e.g. `https://auth.nanosamur.ai/realms/nanosamurai`)
+- `SAMURAIBFF_KEYCLOAK_ADMIN_REALM` (e.g. `nanosamurai`)
+- `SAMURAIBFF_KEYCLOAK_ADMIN_CLIENT_ID` (e.g. `bff-admin`)
+- `SAMURAIBFF_KEYCLOAK_ADMIN_CLIENT_SECRET`
 
 #### Database
 - `SAMURAIBFF_DB_JDBC_URL`
