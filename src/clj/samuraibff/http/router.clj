@@ -29,6 +29,7 @@
    [samuraibff.http.ui :as http.ui]
    [reitit.ring.coercion :as rrc]
    [reitit.coercion.malli]
+   [reitit.openapi :as openapi]
    [reitit.swagger :as swagger]
    [reitit.swagger-ui :as swagger-ui]
    [muuntaja.core :as mc]
@@ -244,6 +245,8 @@
                             (http.auth/wrap-authenticate handler config))
         wrap-require-auth (fn [handler]
                             (http.auth/wrap-require-auth handler config))
+        public-openapi-id ::public
+        private-openapi-id ::private
         router
         (ring/router
           [["/" {:get {:handler http.ui/index-handler}}]
@@ -252,8 +255,58 @@
            ["/live" {:get {:handler http.ui/index-handler}}]
            ["/api-credentials" {:get {:handler http.ui/index-handler}}]
 
+           ;; --- OpenAPI + Swagger UI ---
+           ;;
+           ;; We publish two specs:
+           ;; - public: only /auth/* (no auth required to fetch)
+           ;; - private: /api/* (requires auth)
+           ["/openapi" {:tags ["openapi"]}
+            ["/public.json"
+             {:get {:summary "Public OpenAPI spec (auth endpoints)"
+                    :no-doc true
+                    :openapi {:id public-openapi-id
+                              :info {:title "samuraibff public API"
+                                     :version "0.1.0"
+                                     :description "Public endpoints (currently only browser auth flow)."}}
+                    :handler (openapi/create-openapi-handler)}}]
+            ["/private.json"
+             {:middleware [wrap-require-auth]
+              :get {:summary "Private OpenAPI spec (secured API endpoints)"
+                    :no-doc true
+                    :openapi {:id private-openapi-id
+                              :info {:title "samuraibff private API"
+                                     :version "0.1.0"
+                                     :description "Tenant-scoped API. Requires an access token."}
+                              :components {:securitySchemes
+                                           {:bearerAuth {:type "http"
+                                                         :scheme "bearer"
+                                                         :bearerFormat "JWT"}
+                                            :cookieAuth {:type "apiKey"
+                                                         :in "cookie"
+                                                         :name (or (get-in config [:auth :cookie-name]) "access_token")}}}
+                              ;; Allow either header Bearer token or auth cookie.
+                              :security [{:bearerAuth []}
+                                         {:cookieAuth []}]}
+                    :handler (openapi/create-openapi-handler)}}]]
+
+           ["/docs" {:tags ["docs"]}
+            ["/public"
+             {:get {:summary "Swagger UI (public OpenAPI)"
+                    :no-doc true
+                    :handler (swagger-ui/create-swagger-ui-handler
+                              {:url "/openapi/public.json"
+                               :config {:validatorUrl nil}})}}]
+            ["/private"
+             {:middleware [wrap-require-auth]
+              :get {:summary "Swagger UI (private OpenAPI)"
+                    :no-doc true
+                    :handler (swagger-ui/create-swagger-ui-handler
+                              {:url "/openapi/private.json"
+                               :config {:validatorUrl nil}})}}]]
+
            ;; Auth endpoints (browser login flow)
-           ["/auth" {:tags ["auth"]}
+           ["/auth" {:tags ["auth"]
+                     :openapi {:id public-openapi-id}}
             ["/login" {:get {:summary "Start OIDC login (redirect to Keycloak)"
                              :handler (http.auth/login-handler config)}}]
             ["/callback" {:get {:summary "OIDC callback endpoint (code -> token)"
@@ -263,7 +316,8 @@
 
            ;; API endpoints (all tenant-scoped; auth enforced by wrap-require-auth)
            ["/api" {:tags ["api"]
-                    :middleware [wrap-require-auth]}
+                    :middleware [wrap-require-auth]
+                    :openapi {:id private-openapi-id}}
             ["/me" {:get {:summary "Current authenticated user"
                           :handler (http.auth/me-handler config)}}]
 
@@ -306,7 +360,9 @@
                                 :handler (http.internal/refined-callback-handler deps)}}]]
 
            ;; WebSockets
-           ["/ws" {:tags ["ws"]}
+           ["/ws" {:tags ["ws"]
+                   ;; OpenAPI doesn't model WS. Keep these out of generated docs.
+                   :no-doc true}
             ["/audio" {:get {:handler (ws.audio/handler deps)}}]
             ["/events" {:get {:handler (ws.events/handler deps)}}]]]
 
@@ -317,6 +373,7 @@
                   :middleware [parameters/parameters-middleware ; decoding query & form params
                                wrap-cookies
                                wrap-authenticate
+                               openapi/openapi-feature
                                muuntaja/format-middleware       ; content negotiation
                                exception/exception-middleware   ; converting exceptions to HTTP responses
                                rrc/coerce-request-middleware
