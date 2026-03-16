@@ -53,6 +53,29 @@
 
 (defrecord OIDCUser [sub preferred_username email raw])
 
+(defn- claim-string
+  "Normalize a claim value to a trimmed string.
+
+  Accepts:
+  - string claim values
+  - single-value sequential claims (common for Keycloak user attributes)
+
+  Returns:
+  - non-blank string or nil."
+  [v]
+  (cond
+    (and (string? v) (not (str/blank? v)))
+    (str/trim v)
+
+    (and (sequential? v)
+         (= 1 (count v))
+         (string? (first v))
+         (not (str/blank? (first v))))
+    (str/trim (first v))
+
+    :else
+    nil))
+
 (defn auth-required?
   "Return true when auth is required by configuration.
 
@@ -292,8 +315,7 @@
         ;; See `extract-tenant-from-claims*` below.
         (some (fn [k]
                 (let [v (get claims k)]
-                  (when (and (string? v) (not (str/blank? v)))
-                    (str/trim v))))
+                  (claim-string v)))
               [:tenant_id :tenant :org_id :organization_id :company_id])
 
         ;; role encoding: realm_access.roles contains e.g. "tenant:<uuid>"
@@ -326,6 +348,5 @@
           claim-key-kw (when claim-key (keyword claim-key))
           preferred (when claim-key-kw
                       (let [v (get claims claim-key-kw)]
-                        (when (and (string? v) (not (str/blank? v)))
-                          (str/trim v))))]
+                        (claim-string v)))]
       (or preferred (extract-tenant-from-claims user)))))

@@ -36,11 +36,14 @@
     (java.util UUID)))
 
 (defprotocol KeycloakAdmin
-  (create-m2m-client! [this {:keys [tenant-id name]}]
+  (create-m2m-client! [this {:keys [tenant-id name audience-client-id]}]
     "Create a new confidential client with service account enabled.
 
     Inputs:
-    - {:tenant-id string(uuid) :name string}
+    - {:tenant-id string(uuid)
+       :name string
+       :audience-client-id (optional) string ; Keycloak clientId to include in `aud`
+         (recommended: the BFF's resource server client id, e.g. `bff-web`)}
 
     Returns:
     - {:client-id string :client-secret string}")
@@ -212,9 +215,52 @@
         (when-not (<= 200 status 299)
           (throw (ex-info "Keycloak create protocol mapper failed" {:status status :body raw :client-uuid client-uuid})))))))
 
+(defn- ensure-audience-mapper!
+  "Ensure a protocol mapper exists that adds a required audience into access tokens.
+
+  This is needed so that service-account (client_credentials) tokens minted for the
+  newly created M2M client pass our BFF audience verification.
+
+  Inputs:
+  - token: admin access token
+  - admin-base: Keycloak realm admin base URL
+  - client-uuid: UUID of the created client (not clientId)
+  - audience-client-id: string Keycloak clientId to include in `aud`" 
+  [_deps token admin-base client-uuid audience-client-id]
+  (let [aud (some-> audience-client-id str)]
+    (when (seq aud)
+      (let [url (str admin-base "/clients/" client-uuid "/protocol-mappers/models")
+            {:keys [status body raw]} (http-request-json!
+                                       {:method :get
+                                        :url url
+                                        :headers {"Authorization" (str "Bearer " token)}})
+            _ (when-not (<= 200 status 299)
+                (throw (ex-info "Keycloak list protocol mappers failed" {:status status :body raw :client-uuid client-uuid})))
+            existing? (some (fn [m]
+                              (and (= "bff_audience" (get m :name))
+                                   (= "oidc-audience-mapper" (get m :protocolMapper))))
+                            (or body []))]
+        (when-not existing?
+          (let [mapper {:name "bff_audience"
+                        :protocol "openid-connect"
+                        :protocolMapper "oidc-audience-mapper"
+                        :consentRequired false
+                        :config {"included.client.audience" aud
+                                 "id.token.claim" "false"
+                                 "access.token.claim" "true"
+                                 "userinfo.token.claim" "false"}}
+                {:keys [status raw]} (http-request-json!
+                                      {:method :post
+                                       :url url
+                                       :headers {"Authorization" (str "Bearer " token)
+                                                 "Content-Type" "application/json"}
+                                       :body (json/write-value-as-string mapper json-mapper)})]
+            (when-not (<= 200 status 299)
+              (throw (ex-info "Keycloak create audience protocol mapper failed" {:status status :body raw :client-uuid client-uuid})))))))))
+
 (defrecord HttpKeycloakAdmin [deps]
   KeycloakAdmin
-  (create-m2m-client! [_this {:keys [tenant-id name]}]
+  (create-m2m-client! [_this {:keys [tenant-id name audience-client-id]}]
     (let [{:keys [issuer realm]} deps
           token (fetch-admin-token! deps)
           admin-base (admin-base-url issuer realm)
@@ -283,6 +329,11 @@
           (ensure-tenant-claim-mapper! deps token admin-base client-uuid tenant-id)
           (catch Exception e
             (log/warn e "Failed ensuring tenant claim mapper" {:client-id client-id :tenant-id tenant-id})))
+
+        (try
+          (ensure-audience-mapper! deps token admin-base client-uuid audience-client-id)
+          (catch Exception e
+            (log/warn e "Failed ensuring audience mapper" {:client-id client-id :audience-client-id audience-client-id})))
 
         {:client-id client-id
          :client-secret secret})))

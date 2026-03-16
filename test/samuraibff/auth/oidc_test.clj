@@ -35,6 +35,8 @@
 
 (deftest extract-tenant-from-claims-test
   (is (= "tenant-1" (oidc/extract-tenant-from-claims {:raw {:tenant_id "tenant-1"}})))
+  (is (= "tenant-1" (oidc/extract-tenant-from-claims {:raw {:tenant_id ["tenant-1"]}}))
+      "Keycloak user attributes often arrive as single-value lists")
   (is (= "org-2" (oidc/extract-tenant-from-claims {:raw {:org_id "org-2"}})))
   (is (= "abc" (oidc/extract-tenant-from-claims {:raw {:realm_access {:roles ["foo" "tenant:abc"]}}})))
   (is (nil? (oidc/extract-tenant-from-claims {:raw {}})))

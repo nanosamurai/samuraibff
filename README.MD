@@ -105,6 +105,8 @@ Important security properties:
 - The client secret is **never stored** in Postgres.
 - The secret is returned to the UI only **once** (on create/rotate).
 - Tokens issued to the service account contain a `tenant_id` claim (via protocol mapper).
+- Tokens issued to the service account are also configured to include the BFF's expected
+  audience (`:auth :audience`) so they pass JWT verification.
 
 Metadata is stored in Postgres table `api_credentials` (tenant-scoped) so the UI can list/revoke credentials.
 
@@ -148,6 +150,22 @@ curl -s \
 ```
 
 3) Call BFF APIs with `Authorization: Bearer <access_token>`.
+
+### Note on tenant-id inheritance
+
+Keycloak does **not** automatically “inherit” a user’s tenant claim into a newly created
+client.
+
+Instead, the BFF sets tenant scoping explicitly when it creates an M2M client via the
+Admin API:
+
+- it adds a protocol mapper that hardcodes `tenant_id=<creator-tenant-id>` into tokens
+  minted for that client’s service account
+- it adds an audience mapper so the resulting tokens include the BFF's expected audience
+  and are accepted by our JWT verifier
+
+This is asserted by the integration test:
+`test/samuraibff/auth/keycloak_auth_integration_test.clj`.
 
 ### Configuration
 
