@@ -327,6 +327,22 @@ We have an integration test that boots Postgres via Testcontainers and asserts t
 
 ## Running the server
 
+## API documentation (OpenAPI)
+
+The BFF publishes **two** OpenAPI specs:
+
+- **Public** (no auth required): browser auth flow endpoints under `/auth/*`
+  - Spec JSON: `GET /openapi/public.json`
+  - Swagger UI: `GET /docs/public`
+
+- **Private** (**auth required**): tenant-scoped REST endpoints under `/api/*`
+  - Spec JSON: `GET /openapi/private.json`
+  - Swagger UI: `GET /docs/private`
+
+Notes:
+- WebSocket endpoints (`/ws/audio`, `/ws/events`) are currently documented in this README,
+  not in OpenAPI.
+
 ## Docker (Kubernetes-oriented)
 
 This service is intended to run in Kubernetes.

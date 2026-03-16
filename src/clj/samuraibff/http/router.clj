@@ -29,7 +29,7 @@
    [samuraibff.http.ui :as http.ui]
    [reitit.ring.coercion :as rrc]
    [reitit.coercion.malli]
-   [reitit.swagger :as swagger]
+   [reitit.openapi :as openapi]
    [reitit.swagger-ui :as swagger-ui]
    [muuntaja.core :as mc]
    [malli.util :as mu]
@@ -244,6 +244,12 @@
                             (http.auth/wrap-authenticate handler config))
         wrap-require-auth (fn [handler]
                             (http.auth/wrap-require-auth handler config))
+        public-openapi-id ::public
+        docs-handler
+        (swagger-ui/create-swagger-ui-handler
+          {:path "/docs"
+           :url "/openapi.json"
+           :config {:validatorUrl nil}})
         router
         (ring/router
           [["/" {:get {:handler http.ui/index-handler}}]
@@ -251,6 +257,38 @@
            ["/recordings/:session_id" {:get {:handler http.ui/index-handler}}]
            ["/live" {:get {:handler http.ui/index-handler}}]
            ["/api-credentials" {:get {:handler http.ui/index-handler}}]
+
+           ;; --- OpenAPI + Swagger UI ---
+           ;;
+           ;; Minimal / non-invasive for now:
+           ;; - publish a single public OpenAPI spec that lists all HTTP endpoints
+           ;; - serve a public Swagger UI pointing to that spec
+           ;;
+           ;; TODO(security): split public/private specs and protect non-public.
+           ["/openapi" {:tags ["openapi"]}
+            [".json"
+             {:get {:summary "OpenAPI spec"
+                    :no-doc true
+                    :openapi {:id public-openapi-id
+                              :info {:title "samuraibff API"
+                                     :version "0.1.0"
+                                     :description "OpenAPI spec"}}
+                    :handler (openapi/create-openapi-handler)}}]]
+
+           ;; Swagger UI serves the index HTML at /docs(/) and static assets under
+           ;; /docs/* (swagger-ui.css, swagger-ui-bundle.js, ...).
+           ["/docs"
+            {:get {:summary "Swagger UI"
+                   :no-doc true
+                   :handler docs-handler}}]
+           ["/docs/"
+            {:get {:summary "Swagger UI (trailing slash)"
+                   :no-doc true
+                   :handler docs-handler}}]
+           ["/docs/*path"
+            {:get {:summary "Swagger UI assets"
+                   :no-doc true
+                   :handler docs-handler}}]
 
            ;; Auth endpoints (browser login flow)
            ["/auth" {:tags ["auth"]}
@@ -306,7 +344,9 @@
                                 :handler (http.internal/refined-callback-handler deps)}}]]
 
            ;; WebSockets
-           ["/ws" {:tags ["ws"]}
+           ["/ws" {:tags ["ws"]
+                   ;; OpenAPI doesn't model WS. Keep these out of generated docs.
+                   :no-doc true}
             ["/audio" {:get {:handler (ws.audio/handler deps)}}]
             ["/events" {:get {:handler (ws.events/handler deps)}}]]]
 
@@ -314,9 +354,12 @@
                   :coercion reitit.coercion.malli/coercion
                   :malli/options {:error-keys #(mu/keys HealthCheckResponse)}
                   :swagger {:id ::api}
+                  ;; Default all routes to be included in the single public spec.
+                  :openapi {:id public-openapi-id}
                   :middleware [parameters/parameters-middleware ; decoding query & form params
                                wrap-cookies
                                wrap-authenticate
+                               openapi/openapi-feature
                                muuntaja/format-middleware       ; content negotiation
                                exception/exception-middleware   ; converting exceptions to HTTP responses
                                rrc/coerce-request-middleware
