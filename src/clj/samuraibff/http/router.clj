@@ -272,7 +272,7 @@
                     :openapi {:id public-openapi-id
                               :info {:title "samuraibff API"
                                      :version "0.1.0"
-                                     :description "OpenAPI spec (currently public; will be secured later)."}}
+                                     :description "OpenAPI spec"}}
                     :handler (openapi/create-openapi-handler)}}]]
 
            ;; Swagger UI serves the index HTML at /docs(/) and static assets under
@@ -291,8 +291,7 @@
                    :handler docs-handler}}]
 
            ;; Auth endpoints (browser login flow)
-           ["/auth" {:tags ["auth"]
-                     :openapi {:id public-openapi-id}}
+           ["/auth" {:tags ["auth"]}
             ["/login" {:get {:summary "Start OIDC login (redirect to Keycloak)"
                              :handler (http.auth/login-handler config)}}]
             ["/callback" {:get {:summary "OIDC callback endpoint (code -> token)"
@@ -302,8 +301,7 @@
 
            ;; API endpoints (all tenant-scoped; auth enforced by wrap-require-auth)
            ["/api" {:tags ["api"]
-                    :middleware [wrap-require-auth]
-                    :openapi {:id public-openapi-id}}
+                    :middleware [wrap-require-auth]}
             ["/me" {:get {:summary "Current authenticated user"
                           :handler (http.auth/me-handler config)}}]
 
