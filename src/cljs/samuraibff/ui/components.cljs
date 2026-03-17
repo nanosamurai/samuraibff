@@ -399,8 +399,8 @@
           [:th {:style {:textAlign "right"}} "Actions"]]]
         [:tbody
          (for [{:keys [session_id] :as rec} recs]
-           [:<> {:key (str "rec-" session_id)}
-            [recordings-row rec]])]])]))
+           ^{:key (str "rec-" session_id)}
+           [recordings-row rec])]])]))
 
 (defn recordings-page
   "Recordings page." 
@@ -544,8 +544,8 @@
            [:th {:style {:textAlign "right"}} "Actions"]]]
          [:tbody
           (for [item items]
-            [:<> {:key (str "speaker-" (:id item))}
-             [speaker-row item delete!]])]])]]))
+            ^{:key (str "speaker-" (:id item))}
+            [speaker-row item delete!])]])]]))
 
 (defn recording-detail-page
   "Recording detail page.
@@ -1052,8 +1052,8 @@
          (for [c (->> items
                       (sort-by :created_at)
                       reverse)]
-           [:<> {:key (str "cred-" (:id c))}
-            [api-credentials-row c refresh!]])]])]]))
+           ^{:key (str "cred-" (:id c))}
+           [api-credentials-row c refresh!])]])]]))
 
 (defn app
   "Root app component." 
