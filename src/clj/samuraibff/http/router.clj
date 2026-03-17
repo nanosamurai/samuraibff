@@ -399,7 +399,7 @@
            ;; --- OpenAPI + Swagger UI ---
            ["/openapi" {:tags ["openapi"]}
             [".json"
-             {:get {:summary "OpenAPI spec"
+             {:get {:summary "OpenAPI specification"
                     :no-doc true
                     :openapi {:id customer-openapi-id
                               :info {:title "nanosamur.ai API"
