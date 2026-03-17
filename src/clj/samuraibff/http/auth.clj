@@ -71,9 +71,11 @@
 
   Returns: Ring response map." 
   [status body]
+  ;; NOTE: Return a *data* body (map). Muuntaja (installed in router) handles
+  ;; JSON encoding. This is required so Reitit response coercion can validate
+  ;; the response body against Malli schemas.
   {:status status
-   :headers {"content-type" "application/json"}
-   :body (json/write-value-as-string body json-mapper)})
+   :body body})
 
 (defn- request-scheme
   "Best-effort scheme derivation.

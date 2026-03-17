@@ -10,7 +10,20 @@
 (defn- ok-json
   [resp]
   (and (= 200 (:status resp))
-       (string? (:body resp))))
+       (or (string? (:body resp))
+           (map? (:body resp))
+           (instance? java.io.InputStream (:body resp)))))
+
+(defn- parse-json-body
+  [resp]
+  (let [body (:body resp)
+        mapper (json/object-mapper {:decode-key-fn keyword})]
+    (cond
+      (nil? body) nil
+      (map? body) body
+      (string? body) (json/read-value body mapper)
+      (instance? java.io.InputStream body) (json/read-value body mapper)
+      :else (json/read-value (str body) mapper))))
 
 (deftest create-api-credential-missing-name
   (testing "missing name returns 400"
@@ -20,7 +33,7 @@
              {:auth/tenant-id (str (UUID/randomUUID))
               :body-params {}})]
       (is (= 400 (:status h)))
-      (is (re-find #"missing-name" (:body h))))))
+      (is (= "missing-name" (:message (:body h)))))))
 
 (deftest rotate-api-credential-invalid-id
   (testing "invalid uuid in path returns 400"
@@ -30,7 +43,7 @@
              {:auth/tenant-id (str (UUID/randomUUID))
               :path-params {:id "not-a-uuid"}})]
       (is (= 400 (:status h)))
-      (is (re-find #"invalid-id" (:body h))))))
+      (is (= "invalid-id" (:message (:body h)))))))
 
 (deftest list-api-credentials-nil-revoked-at-remains-null
   (testing "revoked_at should be null (not \"nil\") when not revoked"
@@ -48,7 +61,7 @@
       (let [resp ((http.api-creds/list-api-credentials-handler {:db {:ds ::fake}})
                   {:auth/tenant-id (str (UUID/randomUUID))})]
         (is (ok-json resp))
-        (let [body (json/read-value (:body resp) (json/object-mapper {:decode-key-fn keyword}))
+        (let [body (parse-json-body resp)
               item (first (:items body))]
           (is (nil? (:revoked_at item)))
           (is (nil? (:last_used_at item))))))))

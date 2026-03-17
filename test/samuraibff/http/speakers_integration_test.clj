@@ -50,6 +50,16 @@
   [req]
   (assoc req :auth/user {:sub "user-1"} :auth/tenant-id tenant-id))
 
+(defn- parse-json-body
+  [resp]
+  (let [body (:body resp)]
+    (cond
+      (nil? body) nil
+      (map? body) body
+      (string? body) (cheshire/parse-string body true)
+      (instance? java.io.InputStream body) (cheshire/parse-stream (clojure.java.io/reader body) true)
+      :else (cheshire/parse-string (str body) true))))
+
 (deftest speakers-create-list-delete-integration-test
   (testing "Create/list/delete speakers with LocalStack + Postgres"
     (tc.localstack/with-localstack [localstack]
@@ -75,10 +85,10 @@
                                                               :tempfile wav-file}})
                           (auth-req))
                   resp (create-handler req)
-                  body (cheshire/parse-string (:body resp) true)
+                  body (parse-json-body resp)
                   speaker-id (:speaker_id body)
                   list-resp (list-handler (auth-req (mock/request :get "/api/speakers")))
-                  list-body (cheshire/parse-string (:body list-resp) true)
+                  list-body (parse-json-body list-resp)
                   pre-delete-row (jdbc/execute-one!
                                    ds
                                    ["SELECT id, label FROM speakers WHERE id = ?" (UUID/fromString speaker-id)]
@@ -89,7 +99,7 @@
                                 ;; are not populated automatically.
                                 (assoc :path-params {:speaker_id speaker-id})
                                 (auth-req)))
-                  delete-body (cheshire/parse-string (:body delete-resp) true)
+                  delete-body (parse-json-body delete-resp)
                   post-delete-row (jdbc/execute-one!
                                     ds
                                     ["SELECT id FROM speakers WHERE id = ?" (UUID/fromString speaker-id)]

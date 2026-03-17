@@ -13,6 +13,16 @@
 (def ^:private uuid-regex
   #"(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
+(defn- parse-json-body
+  [resp]
+  (let [body (:body resp)]
+    (cond
+      (nil? body) nil
+      (map? body) body
+      (string? body) (cheshire/parse-string body true)
+      (instance? java.io.InputStream body) (cheshire/parse-stream (clojure.java.io/reader body) true)
+      :else (cheshire/parse-string (str body) true))))
+
 (deftest create-session-handler-unit-test
   (testing "POST /api/sessions returns a uuid (no DB)"
     (let [ws-registry {:config {:env :test}
@@ -22,7 +32,7 @@
                                                    ;; DB intentionally missing
                                                    :db {:ds nil}})
           resp (handler {})
-          body (cheshire/parse-string (:body resp) true)
+          body (parse-json-body resp)
           sid (:session_id body)]
       (is (= 200 (:status resp)))
       (is (string? sid))
@@ -49,7 +59,7 @@
                                                      :ws-registry ws-registry
                                                      :db {:ds ds}})
             resp (handler {})
-            body (cheshire/parse-string (:body resp) true)
+            body (parse-json-body resp)
             sid (:session_id body)
             row (jdbc/execute-one!
                   ds

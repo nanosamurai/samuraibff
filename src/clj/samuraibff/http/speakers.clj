@@ -40,9 +40,10 @@
 
   Returns: Ring response map." 
   [status body]
+  ;; NOTE: Return a *data* body (map). Muuntaja JSON-encodes it.
+  ;; This keeps Reitit response coercion compatible with Malli schemas.
   {:status status
-   :headers {"content-type" "application/json"}
-   :body (json/write-value-as-string body json-mapper)})
+   :body body})
 
 (defn- ensure-tenant-id
   "Return tenant UUID or throw.
