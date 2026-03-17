@@ -69,6 +69,122 @@
    [:grpc [:map
            [:up? boolean?]]]])
 
+(def ApiOkResponse
+  "Generic {ok true} response body." 
+  [:map
+   [:ok [:= true]]])
+
+(def ApiErrorResponse
+  "Generic error response.
+
+  This is a minimal common shape used by many endpoints.
+
+  Notes:
+  - The `message` field is a stable, machine-readable string.
+  - Additional keys may be present depending on endpoint.
+  " 
+  [:map
+   [:ok [:= false]]
+   [:message :string]])
+
+(def CreateSessionResponse
+  "Response body for POST /api/sessions." 
+  [:map
+   [:session_id [:re "(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"]]])
+
+(def ApiMeResponse
+  "Response body for GET /api/me.
+
+  When authenticated:
+  - authenticated=true and user info is present.
+
+  When unauthenticated (only possible when auth is not required by config):
+  - authenticated=false and no user/tenant_id is present." 
+  [:map
+   [:ok :boolean]
+   [:authenticated :boolean]
+   [:tenant_id {:optional true} [:re "(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"]]
+   [:user {:optional true}
+    [:map
+     [:sub {:optional true} :string]
+     [:preferred_username {:optional true} :string]
+     [:email {:optional true} :string]]]
+   [:message {:optional true} :string]])
+
+(def RecordingsListResponse
+  "Response body for GET /api/recordings." 
+  [:map
+   [:ok :boolean]
+   [:tenant_id [:re "(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"]]
+   [:items
+    [:sequential
+     [:map
+      [:session_id :string]
+      [:session_key {:optional true} :string]
+      [:status {:optional true} :string]
+      [:started_at {:optional true} :string]
+      [:ended_at {:optional true} :string]
+      [:created_at {:optional true} :string]
+      [:has_recording {:optional true} :boolean]
+      [:has_final_transcript {:optional true} :boolean]
+      [:recording {:optional true}
+       [:map
+        [:created_at {:optional true} :string]
+        [:duration_s {:optional true} :any]
+        [:sample_rate {:optional true} :any]
+        [:lang {:optional true} :string]
+        [:url {:optional true} :string]]]]]]])
+
+(def RecordingDetailResponse
+  "Response body for GET /api/recordings/{session_id}." 
+  [:map
+   [:ok :boolean]
+   [:tenant_id [:re "(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"]]
+   [:session :map]
+   [:transcripts
+    [:map
+     [:refined :any]
+     [:final :any]]]])
+
+(def DeleteRecordingResponse
+  "Response body for DELETE /api/recordings/{session_id}." 
+  [:map
+   [:ok :boolean]
+   [:deleted {:optional true} :boolean]
+   [:message {:optional true} :string]])
+
+(def ApiCredentialsListResponse
+  "Response body for GET /api/api-credentials." 
+  [:map
+   [:ok :boolean]
+   [:tenant_id [:re "(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"]]
+   [:items [:sequential :map]]])
+
+(def CreateApiCredentialRequest
+  "Request body for POST /api/api-credentials." 
+  [:map
+   [:name [:and :string [:fn (fn [s] (<= 1 (count s) 200))]]]])
+
+(def CreateApiCredentialResponse
+  "Response body for POST /api/api-credentials.
+
+  The client_secret is returned only at creation/rotation time." 
+  [:map
+   [:ok :boolean]
+   [:credential_id :string]
+   [:client_id :string]
+   [:client_secret :string]])
+
+(def RotateApiCredentialResponse
+  "Response body for POST /api/api-credentials/{id}/rotate.
+
+  The new client_secret is returned only once." 
+  [:map
+   [:ok :boolean]
+   [:credential_id :string]
+   [:client_id :string]
+   [:client_secret :string]])
+
 ;; --- Routes ---
 
 (defn- healthcheck-route []
@@ -244,7 +360,7 @@
                             (http.auth/wrap-authenticate handler config))
         wrap-require-auth (fn [handler]
                             (http.auth/wrap-require-auth handler config))
-        public-openapi-id ::public
+        customer-openapi-id ::customer
         docs-handler
         (swagger-ui/create-swagger-ui-handler
           {:path "/docs"
@@ -259,20 +375,20 @@
            ["/api-credentials" {:get {:handler http.ui/index-handler}}]
 
            ;; --- OpenAPI + Swagger UI ---
-           ;;
-           ;; Minimal / non-invasive for now:
-           ;; - publish a single public OpenAPI spec that lists all HTTP endpoints
-           ;; - serve a public Swagger UI pointing to that spec
-           ;;
-           ;; TODO(security): split public/private specs and protect non-public.
            ["/openapi" {:tags ["openapi"]}
             [".json"
              {:get {:summary "OpenAPI spec"
                     :no-doc true
-                    :openapi {:id public-openapi-id
-                              :info {:title "samuraibff API"
+                    :openapi {:id customer-openapi-id
+                              :info {:title "nanosamur.ai API"
                                      :version "0.1.0"
-                                     :description "OpenAPI spec"}}
+                                     :description (str
+                                                    "Customer-facing REST API for nanosamur.ai. "
+                                                    "All /api endpoints require an access token.")}
+                              :components {:securitySchemes
+                                           {:bearerAuth {:type "http"
+                                                        :scheme "bearer"
+                                                        :bearerFormat "JWT"}}}}
                     :handler (openapi/create-openapi-handler)}}]]
 
            ;; Swagger UI serves the index HTML at /docs(/) and static assets under
@@ -291,27 +407,76 @@
                    :handler docs-handler}}]
 
            ;; Auth endpoints (browser login flow)
-           ["/auth" {:tags ["auth"]}
-            ["/login" {:get {:summary "Start OIDC login (redirect to Keycloak)"
+           ["/auth" {:tags ["auth"]
+                     :openapi {:id customer-openapi-id}}
+            ["/login" {:get {:summary "Start OIDC login"
+                             :description "Redirects the user agent to the identity provider for authentication."
+                             :parameters {:query [:map
+                                                  [:next {:optional true} :string]]}
+                             :responses {302 {:description "Redirect to identity provider"}
+                                         400 {:body ApiErrorResponse}}
                              :handler (http.auth/login-handler config)}}]
-            ["/callback" {:get {:summary "OIDC callback endpoint (code -> token)"
+            ["/callback" {:get {:summary "OIDC callback"
+                                :description "Completes the OIDC authorization code flow and sets the access token cookie."
+                                :parameters {:query [:map
+                                                     [:code {:optional true} :string]
+                                                     [:state {:optional true} :string]
+                                                     [:error {:optional true} :string]
+                                                     [:error_description {:optional true} :string]]}
+                                :responses {302 {:description "Redirect to the post-login URL"}
+                                            400 {:body ApiErrorResponse}}
                                 :handler (http.auth/callback-handler config)}}]
-            ["/logout" {:post {:summary "Logout (clear auth cookie)"
+            ["/logout" {:post {:summary "Logout"
+                               :description "Clears the access token cookie."
+                               :responses {204 {:description "No Content"}}
                                :handler (http.auth/logout-handler config)}}]]
 
            ;; API endpoints (all tenant-scoped; auth enforced by wrap-require-auth)
            ["/api" {:tags ["api"]
+                    :openapi {:id customer-openapi-id}
+                    :security [{:bearerAuth []}]
                     :middleware [wrap-require-auth]}
-            ["/me" {:get {:summary "Current authenticated user"
+            ["/me" {:get {:summary "Current user"
+                          :description "Returns details about the current authenticated principal."
+                          :responses {200 {:body ApiMeResponse}
+                                      401 {:body ApiErrorResponse}
+                                      403 {:body ApiErrorResponse}}
                           :handler (http.auth/me-handler config)}}]
 
-            ["/recordings" {:get {:summary "List recordings/sessions (DB)"
+            ["/recordings" {:get {:summary "List recordings"
+                                  :description "Returns the tenant-scoped list of recording sessions."
+                                  :parameters {:query [:map
+                                                       [:limit {:optional true} :int]
+                                                       [:offset {:optional true} :int]]}
+                                  :responses {200 {:body RecordingsListResponse}
+                                              400 {:body ApiErrorResponse}
+                                              403 {:body ApiErrorResponse}
+                                              503 {:body ApiErrorResponse}}
                                   :handler (http.recordings/list-recordings-handler deps)}}]
-            ["/recordings/:session_id" {:get {:summary "Recording detail (DB)"
-                                              :handler (http.recordings/get-recording-handler deps)}
-                                      :delete {:summary "Delete recording/session (DB)"
-                                               :handler (http.recordings/delete-recording-handler deps)}}]
-            ["/sessions" {:post {:summary "Create a new session id"
+            ["/recordings/:session_id"
+             {:parameters {:path [:map
+                                  [:session_id :string]]}}
+             {:get {:summary "Get recording detail"
+                    :description "Returns recording metadata and transcript records for the given session id."
+                    :responses {200 {:body RecordingDetailResponse}
+                                400 {:body ApiErrorResponse}
+                                403 {:body ApiErrorResponse}
+                                404 {:body ApiErrorResponse}
+                                503 {:body ApiErrorResponse}}
+                    :handler (http.recordings/get-recording-handler deps)}
+              :delete {:summary "Delete recording"
+                       :description "Deletes the recording session and related data for the current tenant."
+                       :responses {200 {:body DeleteRecordingResponse}
+                                   400 {:body ApiErrorResponse}
+                                   403 {:body ApiErrorResponse}
+                                   404 {:body ApiErrorResponse}
+                                   503 {:body ApiErrorResponse}}
+                       :handler (http.recordings/delete-recording-handler deps)}}]
+            ["/sessions" {:post {:summary "Create session"
+                                 :description "Creates a new session identifier for WebSocket streaming."
+                                 :responses {200 {:body CreateSessionResponse}
+                                             403 {:body ApiErrorResponse}
+                                             500 {:body ApiErrorResponse}}
                                  :handler (http.ui/create-session-handler deps)}}]
 
             ["/speakers" {:get {:summary "List enrolled speakers"
@@ -323,14 +488,42 @@
                                                 :handler (http.speakers/delete-speaker-handler deps)}}]
 
             ;; M2M credential management (human UX; secrets returned once)
-            ["/api-credentials" {:get {:summary "List M2M API credentials"
-                                       :handler (http.api-creds/list-api-credentials-handler deps)}
-                                 :post {:summary "Create M2M API credential (show secret once)"
-                                        :handler (http.api-creds/create-api-credential-handler deps)}}]
-            ["/api-credentials/:id/rotate" {:post {:summary "Rotate M2M API credential secret (show once)"
-                                                   :handler (http.api-creds/rotate-api-credential-handler deps)}}]
-            ["/api-credentials/:id" {:delete {:summary "Revoke/disable M2M API credential"
-                                              :handler (http.api-creds/revoke-api-credential-handler deps)}}]]
+            ["/api-credentials"
+             {:get {:summary "List API credentials"
+                    :description "Lists the current tenant's machine-to-machine API credentials."
+                    :responses {200 {:body ApiCredentialsListResponse}
+                                403 {:body ApiErrorResponse}
+                                503 {:body ApiErrorResponse}}
+                    :handler (http.api-creds/list-api-credentials-handler deps)}
+              :post {:summary "Create API credential"
+                     :description "Creates a new API credential and returns the client secret once."
+                     :parameters {:body CreateApiCredentialRequest}
+                     :responses {200 {:body CreateApiCredentialResponse}
+                                 400 {:body ApiErrorResponse}
+                                 403 {:body ApiErrorResponse}
+                                 503 {:body ApiErrorResponse}
+                                 502 {:body ApiErrorResponse}}
+                     :handler (http.api-creds/create-api-credential-handler deps)}}]
+
+            ["/api-credentials/:id/rotate"
+             {:post {:summary "Rotate API credential secret"
+                    :description "Rotates the client secret and returns the new secret once."
+                    :parameters {:path [:map [:id :string]]}
+                    :responses {200 {:body RotateApiCredentialResponse}
+                                400 {:body ApiErrorResponse}
+                                403 {:body ApiErrorResponse}
+                                404 {:body ApiErrorResponse}
+                                503 {:body ApiErrorResponse}}
+                    :handler (http.api-creds/rotate-api-credential-handler deps)}}]
+            ["/api-credentials/:id"
+             {:delete {:summary "Revoke API credential"
+                       :description "Revokes the API credential for the current tenant."
+                       :parameters {:path [:map [:id :string]]}
+                       :responses {200 {:body ApiOkResponse}
+                                   400 {:body ApiErrorResponse}
+                                   403 {:body ApiErrorResponse}
+                                   404 {:body ApiErrorResponse}}
+                       :handler (http.api-creds/revoke-api-credential-handler deps)}}]]
 
            ;; Health check endpoint
            (healthcheck-route)
@@ -339,7 +532,8 @@
            (readiness-route deps)
 
            ;; Internal callbacks (between BFF instances)
-           ["/internal" {:tags ["internal"]}
+           ["/internal" {:tags ["internal"]
+                         :no-doc true}
             ["/refined" {:post {:summary "BFF-to-BFF refined callback (protobuf)"
                                 :handler (http.internal/refined-callback-handler deps)}}]]
 
@@ -354,8 +548,6 @@
                   :coercion reitit.coercion.malli/coercion
                   :malli/options {:error-keys #(mu/keys HealthCheckResponse)}
                   :swagger {:id ::api}
-                  ;; Default all routes to be included in the single public spec.
-                  :openapi {:id public-openapi-id}
                   :middleware [parameters/parameters-middleware ; decoding query & form params
                                wrap-cookies
                                wrap-authenticate
