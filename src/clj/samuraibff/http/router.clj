@@ -185,6 +185,28 @@
    [:client_id :string]
    [:client_secret :string]])
 
+(def SpeakersListResponse
+  "Response body for GET /api/speakers." 
+  [:map
+   [:ok :boolean]
+   [:items [:sequential :map]]])
+
+(def CreateSpeakerResponse
+  "Response body for POST /api/speakers." 
+  [:map
+   [:ok :boolean]
+   [:speaker_id :string]
+   [:tenant_id :string]
+   [:label :string]
+   [:sample_url :string]
+   [:manifest_url :string]])
+
+(def DeleteSpeakerResponse
+  "Response body for DELETE /api/speakers/{speaker_id}." 
+  [:map
+   [:ok :boolean]
+   [:speaker_id :string]])
+
 ;; --- Routes ---
 
 (defn- healthcheck-route []
@@ -479,13 +501,34 @@
                                              500 {:body ApiErrorResponse}}
                                  :handler (http.ui/create-session-handler deps)}}]
 
-            ["/speakers" {:get {:summary "List enrolled speakers"
-                                :handler (http.speakers/list-speakers-handler deps)}
-                          :post {:summary "Create enrolled speaker"
-                                 :middleware [wrap-multipart-params]
-                                 :handler (http.speakers/create-speaker-handler deps)}}]
-            ["/speakers/:speaker_id" {:delete {:summary "Delete enrolled speaker"
-                                                :handler (http.speakers/delete-speaker-handler deps)}}]
+            ["/speakers"
+             {:get {:summary "List enrolled speakers"
+                    :description "Lists the current tenant's enrolled speakers."
+                    :responses {200 {:body SpeakersListResponse}
+                                403 {:body ApiErrorResponse}}
+                    :handler (http.speakers/list-speakers-handler deps)}
+              :post {:summary "Create enrolled speaker"
+                     :description (str
+                                    "Creates a new enrolled speaker by uploading a single WAV sample. "
+                                    "Request must be multipart/form-data with fields: label (string), sample (file).")
+                     ;; OpenAPI multipart file schemas vary by generator; we document
+                     ;; it textually and still keep response schemas formal.
+                     :responses {200 {:body CreateSpeakerResponse}
+                                 400 {:body ApiErrorResponse}
+                                 403 {:body ApiErrorResponse}
+                                 500 {:body ApiErrorResponse}}
+                     :middleware [wrap-multipart-params]
+                     :handler (http.speakers/create-speaker-handler deps)}}]
+            ["/speakers/:speaker_id"
+             {:delete {:summary "Delete enrolled speaker"
+                       :description "Deletes an enrolled speaker and all associated stored data for the current tenant."
+                       :parameters {:path [:map [:speaker_id :string]]}
+                       :responses {200 {:body DeleteSpeakerResponse}
+                                   400 {:body ApiErrorResponse}
+                                   403 {:body ApiErrorResponse}
+                                   404 {:body ApiErrorResponse}
+                                   500 {:body ApiErrorResponse}}
+                       :handler (http.speakers/delete-speaker-handler deps)}}]
 
             ;; M2M credential management (human UX; secrets returned once)
             ["/api-credentials"
