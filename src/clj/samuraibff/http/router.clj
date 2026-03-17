@@ -241,17 +241,27 @@
            ["/openapi" {:tags ["openapi"]}
             [".json"
              {:get {:summary "OpenAPI specification"
-                    :no-doc true
-                    :openapi {:id customer-openapi-id
-                              :info {:title "nanosamur.ai API"
-                                     :version "0.1.0"
-                                     :description (str
-                                                    "Customer-facing REST API for nanosamur.ai. "
-                                                    "All /api endpoints require an access token.")}
+                    :no-doc  true
+                    :openapi {:id         customer-openapi-id
+                              :info       {:title       "nanosamur.ai API"
+                                           :version     "0.1.0"
+                                           :description (str
+                                                         "Customer-facing REST API for nanosamur.ai. "
+                                                         "The nanosamur.ai API is secured using OAuth 2.0 / OpenID Connect (OIDC).\n\n
+                                                         Authentication modes\n\n
+                                                         1) Browser-based applications (interactive sign-in)\n
+                                                         - Use the OIDC login flow via the `/auth/*` endpoints.\n
+                                                         - After a successful sign-in, nanosamur.ai stores the access token in a secure, HttpOnly cookie.\n
+                                                         - Subsequent API calls from the browser are authenticated automatically via this cookie.\n\n
+                                                         2) Server-to-server / CLI clients (programmatic access)\n
+                                                         - Obtain an access token from your identity provider.\n
+                                                         - Send the token with each request using the `Authorization` header:\n
+                                                         `Authorization: Bearer <access_token>`\n\n
+                                                         All endpoints under `/api/*` require authentication.")}
                               :components {:securitySchemes
-                                           {:bearerAuth {:type "http"
-                                                        :scheme "bearer"
-                                                        :bearerFormat "JWT"}}}}
+                                           {:bearerAuth {:type         "http"
+                                                         :scheme       "bearer"
+                                                         :bearerFormat "JWT"}}}}
                     :handler (openapi/create-openapi-handler)}}]]
 
            ;; Swagger UI serves the index HTML at /docs(/) and static assets under
