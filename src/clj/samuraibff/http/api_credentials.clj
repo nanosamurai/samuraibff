@@ -91,7 +91,11 @@
                     :items (mapv (fn [row]
                                   (-> row
                                       (update :id str)
-                                      (update :tenant_id (fn [v] (some-> v str)))
+                                      ;; NOTE: list-credentials does not select tenant_id; however the
+                                      ;; API response schema (and OpenAPI) includes it per item.
+                                      ;; Since this endpoint is tenant-scoped, we can safely attach the
+                                      ;; tenant id from the request.
+                                      (assoc :tenant_id (str tenant-uuid))
                                       (update :created_at str)
                                       ;; Optional timestamps must stay nil (JSON null) when absent.
                                       ;; Never stringify nil into the literal "nil" string.

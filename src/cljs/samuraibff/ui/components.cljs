@@ -211,14 +211,14 @@
                                          (.-clientHeight el))]
                              (set! (.-current auto-scroll?*) (<= dist 48))))}
         (for [[idx msg] (map-indexed vector msgs)]
-          ^{:key (message-key idx msg)}
-          (let [speaker (:speaker msg)
+          (let [k (message-key idx msg)
+                speaker (:speaker msg)
                 who (transcript/speaker->display-name speaker)
                 avatar (transcript/speaker->avatar-text speaker)
                 start-ts (util/fmt-sec (:start_s msg))
                 end-ts (util/fmt-sec (:end_s msg))
                 bubble-class (str "bubble" (when (and (= "asr" (:kind msg)) (false? (:final msg))) " draft"))]
-            [:div {:class "msg"}
+            [:div {:class "msg" :key k}
              [:div {:class "avatar"} avatar]
              [:div {:class "msgBody"}
               [:div {:class "msgHeader"}
@@ -243,8 +243,7 @@
      (if (empty? lines)
        [:span {:class "muted"} "(empty)"]
        (for [[idx line] (map-indexed vector lines)]
-         ^{:key (str "log-" idx)}
-         [:div {:class "log-line"} line]))]))
+         [:div {:class "log-line" :key (str "log-" idx)} line]))]))
 
 (defn- format-status
   [status]
@@ -400,8 +399,8 @@
           [:th {:style {:textAlign "right"}} "Actions"]]]
         [:tbody
          (for [{:keys [session_id] :as rec} recs]
-           ^{:key (str "rec-" session_id)}
-           [recordings-row rec])]])]))
+           [:<> {:key (str "rec-" session_id)}
+            [recordings-row rec]])]])]))
 
 (defn recordings-page
   "Recordings page." 
@@ -545,8 +544,8 @@
            [:th {:style {:textAlign "right"}} "Actions"]]]
          [:tbody
           (for [item items]
-            ^{:key (str "speaker-" (:id item))}
-            [speaker-row item delete!])]])]]))
+            [:<> {:key (str "speaker-" (:id item))}
+             [speaker-row item delete!]])]])]]))
 
 (defn recording-detail-page
   "Recording detail page.
@@ -683,8 +682,7 @@
            (if (seq cached-log-lines)
              [:div {:class "log"}
               (for [[idx line] (map-indexed vector cached-log-lines)]
-                ^{:key (str "logc-" idx)}
-                [:div {:class "log-line"} line])]
+                [:div {:class "log-line" :key (str "logc-" idx)} line])]
              [:div {:class "muted"} "No log available for this session (not persisted)."])]
           ]
          [:div {:class "card"}
@@ -776,8 +774,7 @@
                  [{:label "Recordings" :route {:page :recordings :params {}}}])]
     [:div {:class "breadcrumbs"}
      (for [[idx c] (map-indexed vector crumbs)]
-       ^{:key (str "crumb-" idx "-" (:label c))}
-       [:span {:class "crumb"}
+       [:span {:class "crumb" :key (str "crumb-" idx "-" (:label c))}
         (when (pos? idx)
           [:span {:class "sep"} "/"])
         [router/link {:route (:route c) :class "crumb-link"}
@@ -1052,11 +1049,11 @@
            [:th "Status"]
            [:th {:style {:textAlign "right"}} "Actions"]]]
          [:tbody
-          (for [c (->> items
-                       (sort-by :created_at)
-                       reverse)]
-            ^{:key (str "cred-" (:id c))}
-            [api-credentials-row c refresh!])]])]]))
+         (for [c (->> items
+                      (sort-by :created_at)
+                      reverse)]
+           [:<> {:key (str "cred-" (:id c))}
+            [api-credentials-row c refresh!]])]])]]))
 
 (defn app
   "Root app component." 

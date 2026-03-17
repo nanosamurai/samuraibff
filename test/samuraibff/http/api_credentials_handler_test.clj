@@ -2,6 +2,7 @@
   (:require
     [clojure.test :refer [deftest is testing]]
     [jsonista.core :as json]
+    [samuraibff.schemas :as schemas]
     [samuraibff.http.api-credentials :as http.api-creds]
     [samuraibff.util.uuid :as util.uuid])
   (:import
@@ -65,3 +66,26 @@
               item (first (:items body))]
           (is (nil? (:revoked_at item)))
           (is (nil? (:last_used_at item))))))))
+
+(deftest list-api-credentials-response-matches-openapi-schema
+  (testing "GET /api/api-credentials response matches schemas/ApiCredentialsListResponse"
+    (let [tenant-id (UUID/randomUUID)]
+      (with-redefs [samuraibff.db.api-credentials/list-credentials
+                    (fn [_ds _tenant]
+                      [{:id (UUID/randomUUID)
+                        ;; Intentionally omit tenant_id to emulate the real DB query.
+                        :name "cred"
+                        :keycloak_client_id "kc"
+                        :created_by_sub "sub"
+                        :created_at (java.time.Instant/parse "2025-01-01T00:00:00Z")
+                        :last_used_at nil
+                        :revoked_at nil}])]
+        (let [resp ((http.api-creds/list-api-credentials-handler {:db {:ds ::fake}})
+                    {:auth/tenant-id (str tenant-id)})
+              body (parse-json-body resp)]
+          (is (= 200 (:status resp)))
+          ;; This assertion is the important one: it would fail if we returned a
+          ;; body that makes Reitit response coercion throw (=> HTTP 500).
+          (is (= body (schemas/validate! schemas/ApiCredentialsListResponse body)))
+          (is (= (str tenant-id) (:tenant_id body)))
+          (is (= (str tenant-id) (get-in body [:items 0 :tenant_id]))))))))
