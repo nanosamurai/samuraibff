@@ -209,23 +209,66 @@
      [:email {:optional true} :string]]]
    [:message {:optional true} :string]])
 
+(def RecordingItem
+  "Single list element returned by `GET /api/recordings`.
+
+  Notes:
+  - Timestamp fields are nullable, depending on whether a session was started/ended.
+  - `recording` contains best-effort metadata from the latest recording.
+  - `recording.url` can be null when no recording is present." 
+  [:map
+   [:session_id Uuid]
+   [:session_key [:maybe :string]]
+   [:status [:maybe :string]]
+   [:started_at [:maybe :string]]
+   [:ended_at [:maybe :string]]
+   [:created_at [:maybe :string]]
+   [:has_recording :boolean]
+   [:has_final_transcript :boolean]
+   [:recording
+    [:map
+     [:created_at [:maybe :string]]
+     [:duration_s [:maybe :any]]
+     [:sample_rate [:maybe :any]]
+     [:lang [:maybe :string]]
+     [:url [:maybe :string]]]]])
+
 (def RecordingsListResponse
   "Response body for GET /api/recordings." 
   [:map
    [:ok :boolean]
    [:tenant_id Uuid]
-   [:items [:sequential :map]]])
+   [:items [:sequential RecordingItem]]])
+
+(def RecordingDetailSession
+  "Session metadata returned by `GET /api/recordings/{session_id}`." 
+  [:map
+   [:id Uuid]
+   [:session_key [:maybe :string]]
+   [:title [:maybe :string]]
+   [:status [:maybe :string]]
+   [:started_at [:maybe :string]]
+   [:ended_at [:maybe :string]]
+   [:created_at [:maybe :string]]])
+
+(def TranscriptRecord
+  "Transcript record element returned by `GET /api/recordings/{session_id}`.
+
+  This API returns transcript records that include a jsonb-serialized `segments`
+  field (as a JSON string) plus various metadata fields. The exact set of keys
+  may evolve; clients should treat unknown keys as forward-compatible." 
+  [:map-of :keyword :any])
 
 (def RecordingDetailResponse
   "Response body for GET /api/recordings/{session_id}." 
   [:map
    [:ok :boolean]
    [:tenant_id Uuid]
-   [:session :map]
+   [:session RecordingDetailSession]
    [:transcripts
     [:map
-     [:refined :any]
-     [:final :any]]]])
+     [:refined [:sequential TranscriptRecord]]
+     [:final [:sequential TranscriptRecord]]]]])
 
 (def DeleteRecordingResponse
   "Response body for DELETE /api/recordings/{session_id}." 
@@ -239,7 +282,17 @@
   [:map
    [:ok :boolean]
    [:tenant_id Uuid]
-   [:items [:sequential :map]]])
+   [:items
+    [:sequential
+     [:map
+      [:id Uuid]
+      [:tenant_id Uuid]
+      [:name :string]
+      [:keycloak_client_id :string]
+      [:created_by_sub [:maybe :string]]
+      [:created_at :string]
+      [:last_used_at [:maybe :string]]
+      [:revoked_at [:maybe :string]]]]]])
 
 (def CreateApiCredentialRequest
   "Request body for POST /api/api-credentials." 
@@ -270,7 +323,15 @@
   "Response body for GET /api/speakers." 
   [:map
    [:ok :boolean]
-   [:items [:sequential :map]]])
+   [:items
+    [:sequential
+     [:map
+      [:id Uuid]
+      [:tenant_id Uuid]
+      [:user_id [:maybe Uuid]]
+      [:label :string]
+      [:audio_url [:maybe :string]]
+      [:created_at [:maybe :string]]]]]])
 
 (def CreateSpeakerResponse
   "Response body for POST /api/speakers." 
