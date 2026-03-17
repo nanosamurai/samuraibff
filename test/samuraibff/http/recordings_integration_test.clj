@@ -20,7 +20,13 @@
     (java.util UUID)))
 
 (defn- parse-json-body [resp]
-  (cheshire/parse-string (:body resp) true))
+  (let [body (:body resp)]
+    (cond
+      (nil? body) nil
+      (map? body) body
+      (string? body) (cheshire/parse-string body true)
+      (instance? java.io.InputStream body) (cheshire/parse-stream (clojure.java.io/reader body) true)
+      :else (cheshire/parse-string (str body) true))))
 
 (deftest recordings-list-and-detail-tenant-scoped-integration-test
   (testing "Recordings list/detail are tenant-scoped and return transcripts"

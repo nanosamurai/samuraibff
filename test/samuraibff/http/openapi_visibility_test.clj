@@ -3,16 +3,16 @@
   "Integration-ish tests for OpenAPI visibility rules.
 
   Goal:
-  - `/openapi.json` is always reachable (currently public) and contains all HTTP endpoints
-  - `/docs/` serves Swagger UI assets without interfering with app static assets
+  - `/openapi.json` is always reachable and contains only customer-facing HTTP endpoints
+    (`/auth/*` and `/api/*`).
+  - `/docs/` serves Swagger UI assets without interfering with app static assets.
 
   These tests avoid Keycloak/Testcontainers by validating only the *missing token*
-  path. Full auth + tenant behavior is covered by the heavy Keycloak tests.
-  "
+  path. Full auth + tenant behavior is covered by the heavy Keycloak tests." 
   (:require
     [cheshire.core :as cheshire]
-    [clojure.test :refer :all]
     [clojure.java.io :as io]
+    [clojure.test :refer :all]
     [samuraibff.http.router :as http.router]))
 
 (defn- parse-json
@@ -43,8 +43,19 @@
      :ws-registry nil
      :keycloak-admin nil}))
 
-(deftest public-openapi-contains-auth-only
-  (testing "OpenAPI is reachable without auth and includes auth + api endpoints"
+(defn- normalize-openapi-path-key
+  "Normalize OpenAPI path key into a plain string like `/api/me`.
+
+  Depending on JSON parsing and OpenAPI generation, path keys can be strings,
+  keywords, or other types." 
+  [k]
+  (cond
+    (string? k) k
+    (keyword? k) (str "/" (name k))
+    :else (str k)))
+
+(deftest openapi-contains-only-api-and-auth
+  (testing "OpenAPI is reachable without auth and contains only /auth + /api endpoints"
     (let [h (handler)
           resp (h {:request-method :get
                    :uri "/openapi.json"
@@ -52,12 +63,23 @@
       (is (= 200 (:status resp)))
       (let [spec (parse-json (:body resp))
             paths (->> (keys (:paths spec))
-                       (map (fn [k] (str "/" (name k))))
+                       (map normalize-openapi-path-key)
                        set)]
+        ;; Must contain some known customer endpoints.
         (is (contains? paths "/auth/login"))
         (is (contains? paths "/auth/callback"))
         (is (contains? paths "/auth/logout"))
-        (is (contains? paths "/api/recordings"))))))
+        (is (contains? paths "/api/recordings"))
+        (is (contains? paths "/api/recordings/{session_id}"))
+        (is (contains? paths "/api/me"))
+
+        ;; Must not contain UI or internal endpoints.
+        (is (not (contains? paths "/")))
+        (is (not (contains? paths "/recordings")))
+        (is (not (contains? paths "/live")))
+        (is (not (contains? paths "/internal/refined")))
+        (is (not (contains? paths "/health")))
+        (is (not (contains? paths "/ready")))))))
 
 (deftest docs-do-not-break-static-assets
   (testing "Swagger UI assets are reachable and do not block /js/main.js"

@@ -31,8 +31,13 @@
 
 (defn- parse-json-body
   [resp]
-  (when-let [body (:body resp)]
-    (cheshire/parse-string body true)))
+  (let [body (:body resp)]
+    (cond
+      (nil? body) nil
+      (map? body) body
+      (string? body) (cheshire/parse-string body true)
+      (instance? java.io.InputStream body) (cheshire/parse-stream (clojure.java.io/reader body) true)
+      :else (cheshire/parse-string (str body) true))))
 
 (defn- authz
   [token]

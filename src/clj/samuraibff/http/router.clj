@@ -27,6 +27,7 @@
    [samuraibff.http.internal :as http.internal]
    [samuraibff.http.speakers :as http.speakers]
    [samuraibff.http.ui :as http.ui]
+   [samuraibff.schemas :as schemas]
    [reitit.ring.coercion :as rrc]
    [reitit.coercion.malli]
    [reitit.openapi :as openapi]
@@ -44,30 +45,8 @@
    [ring.util.response :as resp]))
 
 ;; --- Schemas ---
-
-(def HealthCheckResponse
-  "Schema for health check response"
-  [:map
-   [:status [:enum "ok"]]
-   [:timestamp inst?]
-   [:version string?]])
-
-(def ReadinessResponse
-  "Schema for readiness response.
-
-  Readiness is intended for load balancers / Kubernetes readiness probes.
-  Unlike liveness (/health), readiness may return a non-200 when a required
-  dependency (e.g. Postgres) is unavailable." 
-  [:map
-   [:status [:enum "ok" "degraded"]]
-   [:timestamp inst?]
-   [:version string?]
-   [:db [:map
-         [:up? boolean?]]]
-   [:kafka [:map
-            [:up? boolean?]]]
-   [:grpc [:map
-           [:up? boolean?]]]])
+;;
+;; NOTE: customer-facing OpenAPI schemas live in `samuraibff.schemas`.
 
 ;; --- Routes ---
 
@@ -76,7 +55,7 @@
   ["/health"
    {:get {:summary "Health check"
           :description "Returns health status of the application"
-          :responses {200 {:body HealthCheckResponse}}
+          :responses {200 {:body schemas/HealthCheckResponse}}
           :handler (fn [_]
                      {:status 200
                       :body {:status "ok"
@@ -209,8 +188,8 @@
   ["/ready"
    {:get {:summary "Readiness check"
           :description "Returns readiness status (dependency checks)."
-          :responses {200 {:body ReadinessResponse}
-                      503 {:body ReadinessResponse}}
+          :responses {200 {:body schemas/ReadinessResponse}
+                      503 {:body schemas/ReadinessResponse}}
           :handler (fn [_]
                      (let [db-ok? (db-up? deps)
                            kafka-ok? (kafka-up? deps)
@@ -244,7 +223,7 @@
                             (http.auth/wrap-authenticate handler config))
         wrap-require-auth (fn [handler]
                             (http.auth/wrap-require-auth handler config))
-        public-openapi-id ::public
+        customer-openapi-id ::customer
         docs-handler
         (swagger-ui/create-swagger-ui-handler
           {:path "/docs"
@@ -259,20 +238,30 @@
            ["/api-credentials" {:get {:handler http.ui/index-handler}}]
 
            ;; --- OpenAPI + Swagger UI ---
-           ;;
-           ;; Minimal / non-invasive for now:
-           ;; - publish a single public OpenAPI spec that lists all HTTP endpoints
-           ;; - serve a public Swagger UI pointing to that spec
-           ;;
-           ;; TODO(security): split public/private specs and protect non-public.
            ["/openapi" {:tags ["openapi"]}
             [".json"
-             {:get {:summary "OpenAPI spec"
-                    :no-doc true
-                    :openapi {:id public-openapi-id
-                              :info {:title "samuraibff API"
-                                     :version "0.1.0"
-                                     :description "OpenAPI spec"}}
+             {:get {:summary "OpenAPI specification"
+                    :no-doc  true
+                    :openapi {:id         customer-openapi-id
+                              :info       {:title       "nanosamur.ai API"
+                                           :version     "0.1.0"
+                                           :description (str
+                                                         "Customer-facing REST API for nanosamur.ai. "
+                                                         "The nanosamur.ai API is secured using OAuth 2.0 / OpenID Connect (OIDC).\n\n
+                                                         Authentication modes\n\n
+                                                         1) Browser-based applications (interactive sign-in)\n
+                                                         - Use the OIDC login flow via the `/auth/*` endpoints.\n
+                                                         - After a successful sign-in, nanosamur.ai stores the access token in a secure, HttpOnly cookie.\n
+                                                         - Subsequent API calls from the browser are authenticated automatically via this cookie.\n\n
+                                                         2) Server-to-server / CLI clients (programmatic access)\n
+                                                         - Obtain an access token from your identity provider.\n
+                                                         - Send the token with each request using the `Authorization` header:\n
+                                                         `Authorization: Bearer <access_token>`\n\n
+                                                         All endpoints under `/api/*` require authentication.")}
+                              :components {:securitySchemes
+                                           {:bearerAuth {:type         "http"
+                                                         :scheme       "bearer"
+                                                         :bearerFormat "JWT"}}}}
                     :handler (openapi/create-openapi-handler)}}]]
 
            ;; Swagger UI serves the index HTML at /docs(/) and static assets under
@@ -291,46 +280,144 @@
                    :handler docs-handler}}]
 
            ;; Auth endpoints (browser login flow)
-           ["/auth" {:tags ["auth"]}
-            ["/login" {:get {:summary "Start OIDC login (redirect to Keycloak)"
+           ["/auth" {:tags ["auth"]
+                     :openapi {:id customer-openapi-id}}
+            ["/login" {:get {:summary "Start OIDC login"
+                             :description "Redirects the user agent to the identity provider for authentication."
+                             :parameters {:query [:map
+                                                  [:next {:optional true} :string]]}
+                             :responses {302 {:description "Redirect to identity provider"}
+                                         400 {:body schemas/ApiErrorResponse}}
                              :handler (http.auth/login-handler config)}}]
-            ["/callback" {:get {:summary "OIDC callback endpoint (code -> token)"
+            ["/callback" {:get {:summary "OIDC callback"
+                                :description "Completes the OIDC authorization code flow and sets the access token cookie."
+                                :parameters {:query [:map
+                                                     [:code {:optional true} :string]
+                                                     [:state {:optional true} :string]
+                                                     [:error {:optional true} :string]
+                                                     [:error_description {:optional true} :string]]}
+                                :responses {302 {:description "Redirect to the post-login URL"}
+                                            400 {:body schemas/ApiErrorResponse}}
                                 :handler (http.auth/callback-handler config)}}]
-            ["/logout" {:post {:summary "Logout (clear auth cookie)"
+            ["/logout" {:post {:summary "Logout"
+                               :description "Clears the access token cookie."
+                               :responses {204 {:description "No Content"}}
                                :handler (http.auth/logout-handler config)}}]]
 
            ;; API endpoints (all tenant-scoped; auth enforced by wrap-require-auth)
            ["/api" {:tags ["api"]
+                    :openapi {:id customer-openapi-id}
+                    :security [{:bearerAuth []}]
                     :middleware [wrap-require-auth]}
-            ["/me" {:get {:summary "Current authenticated user"
+            ["/me" {:get {:summary "Current user"
+                          :description "Returns details about the current authenticated principal."
+                          :responses {200 {:body schemas/ApiMeResponse}
+                                      401 {:body schemas/ApiErrorResponse}
+                                      403 {:body schemas/ApiErrorResponse}}
                           :handler (http.auth/me-handler config)}}]
 
-            ["/recordings" {:get {:summary "List recordings/sessions (DB)"
+            ["/recordings" {:get {:summary "List recordings"
+                                  :description "Returns the tenant-scoped list of recording sessions."
+                                  :parameters {:query [:map
+                                                       [:limit {:optional true} :int]
+                                                       [:offset {:optional true} :int]]}
+                                  :responses {200 {:body schemas/RecordingsListResponse}
+                                              400 {:body schemas/ApiErrorResponse}
+                                              403 {:body schemas/ApiErrorResponse}
+                                              503 {:body schemas/ApiErrorResponse}}
                                   :handler (http.recordings/list-recordings-handler deps)}}]
-            ["/recordings/:session_id" {:get {:summary "Recording detail (DB)"
-                                              :handler (http.recordings/get-recording-handler deps)}
-                                      :delete {:summary "Delete recording/session (DB)"
-                                               :handler (http.recordings/delete-recording-handler deps)}}]
-            ["/sessions" {:post {:summary "Create a new session id"
+            ["/recordings/:session_id"
+             {:parameters {:path [:map
+                                  [:session_id :string]]}
+              :get {:summary "Get recording detail"
+                    :description "Returns recording metadata and transcript records for the given session id."
+                    :responses {200 {:body schemas/RecordingDetailResponse}
+                                400 {:body schemas/ApiErrorResponse}
+                                403 {:body schemas/ApiErrorResponse}
+                                404 {:body schemas/ApiErrorResponse}
+                                503 {:body schemas/ApiErrorResponse}}
+                    :handler (http.recordings/get-recording-handler deps)}
+              :delete {:summary "Delete recording"
+                       :description "Deletes the recording session and related data for the current tenant."
+                       :responses {200 {:body schemas/DeleteRecordingResponse}
+                                   400 {:body schemas/ApiErrorResponse}
+                                   403 {:body schemas/ApiErrorResponse}
+                                   404 {:body schemas/ApiErrorResponse}
+                                   503 {:body schemas/ApiErrorResponse}}
+                       :handler (http.recordings/delete-recording-handler deps)}}]
+            ["/sessions" {:post {:summary "Create session"
+                                 :description "Creates a new session identifier for WebSocket streaming."
+                                 :responses {200 {:body schemas/CreateSessionResponse}
+                                             403 {:body schemas/ApiErrorResponse}
+                                             500 {:body schemas/ApiErrorResponse}}
                                  :handler (http.ui/create-session-handler deps)}}]
 
-            ["/speakers" {:get {:summary "List enrolled speakers"
-                                :handler (http.speakers/list-speakers-handler deps)}
-                          :post {:summary "Create enrolled speaker"
-                                 :middleware [wrap-multipart-params]
-                                 :handler (http.speakers/create-speaker-handler deps)}}]
-            ["/speakers/:speaker_id" {:delete {:summary "Delete enrolled speaker"
-                                                :handler (http.speakers/delete-speaker-handler deps)}}]
+            ["/speakers"
+             {:get {:summary "List enrolled speakers"
+                    :description "Lists the current tenant's enrolled speakers."
+                    :responses {200 {:body schemas/SpeakersListResponse}
+                                403 {:body schemas/ApiErrorResponse}}
+                    :handler (http.speakers/list-speakers-handler deps)}
+              :post {:summary "Create enrolled speaker"
+                     :description (str
+                                    "Creates a new enrolled speaker by uploading a single WAV sample. "
+                                    "Request must be multipart/form-data with fields: label (string), sample (file).")
+                     ;; OpenAPI multipart file schemas vary by generator; we document
+                     ;; it textually and still keep response schemas formal.
+                     :responses {200 {:body schemas/CreateSpeakerResponse}
+                                 400 {:body schemas/ApiErrorResponse}
+                                 403 {:body schemas/ApiErrorResponse}
+                                 500 {:body schemas/ApiErrorResponse}}
+                     :middleware [wrap-multipart-params]
+                     :handler (http.speakers/create-speaker-handler deps)}}]
+            ["/speakers/:speaker_id"
+             {:delete {:summary "Delete enrolled speaker"
+                       :description "Deletes an enrolled speaker and all associated stored data for the current tenant."
+                       :parameters {:path [:map [:speaker_id :string]]}
+                       :responses {200 {:body schemas/DeleteSpeakerResponse}
+                                   400 {:body schemas/ApiErrorResponse}
+                                   403 {:body schemas/ApiErrorResponse}
+                                   404 {:body schemas/ApiErrorResponse}
+                                   500 {:body schemas/ApiErrorResponse}}
+                       :handler (http.speakers/delete-speaker-handler deps)}}]
 
             ;; M2M credential management (human UX; secrets returned once)
-            ["/api-credentials" {:get {:summary "List M2M API credentials"
-                                       :handler (http.api-creds/list-api-credentials-handler deps)}
-                                 :post {:summary "Create M2M API credential (show secret once)"
-                                        :handler (http.api-creds/create-api-credential-handler deps)}}]
-            ["/api-credentials/:id/rotate" {:post {:summary "Rotate M2M API credential secret (show once)"
-                                                   :handler (http.api-creds/rotate-api-credential-handler deps)}}]
-            ["/api-credentials/:id" {:delete {:summary "Revoke/disable M2M API credential"
-                                              :handler (http.api-creds/revoke-api-credential-handler deps)}}]]
+            ["/api-credentials"
+             {:get {:summary "List API credentials"
+                    :description "Lists the current tenant's machine-to-machine API credentials."
+                    :responses {200 {:body schemas/ApiCredentialsListResponse}
+                                403 {:body schemas/ApiErrorResponse}
+                                503 {:body schemas/ApiErrorResponse}}
+                    :handler (http.api-creds/list-api-credentials-handler deps)}
+              :post {:summary "Create API credential"
+                     :description "Creates a new API credential and returns the client secret once."
+                     :parameters {:body schemas/CreateApiCredentialRequest}
+                     :responses {200 {:body schemas/CreateApiCredentialResponse}
+                                 400 {:body schemas/ApiErrorResponse}
+                                 403 {:body schemas/ApiErrorResponse}
+                                 503 {:body schemas/ApiErrorResponse}
+                                 502 {:body schemas/ApiErrorResponse}}
+                     :handler (http.api-creds/create-api-credential-handler deps)}}]
+
+            ["/api-credentials/:id/rotate"
+             {:post {:summary "Rotate API credential secret"
+                    :description "Rotates the client secret and returns the new secret once."
+                    :parameters {:path [:map [:id :string]]}
+                    :responses {200 {:body schemas/RotateApiCredentialResponse}
+                                400 {:body schemas/ApiErrorResponse}
+                                403 {:body schemas/ApiErrorResponse}
+                                404 {:body schemas/ApiErrorResponse}
+                                503 {:body schemas/ApiErrorResponse}}
+                    :handler (http.api-creds/rotate-api-credential-handler deps)}}]
+            ["/api-credentials/:id"
+             {:delete {:summary "Revoke API credential"
+                       :description "Revokes the API credential for the current tenant."
+                       :parameters {:path [:map [:id :string]]}
+                       :responses {200 {:body schemas/ApiOkResponse}
+                                   400 {:body schemas/ApiErrorResponse}
+                                   403 {:body schemas/ApiErrorResponse}
+                                   404 {:body schemas/ApiErrorResponse}}
+                       :handler (http.api-creds/revoke-api-credential-handler deps)}}]]
 
            ;; Health check endpoint
            (healthcheck-route)
@@ -339,7 +426,8 @@
            (readiness-route deps)
 
            ;; Internal callbacks (between BFF instances)
-           ["/internal" {:tags ["internal"]}
+           ["/internal" {:tags ["internal"]
+                         :no-doc true}
             ["/refined" {:post {:summary "BFF-to-BFF refined callback (protobuf)"
                                 :handler (http.internal/refined-callback-handler deps)}}]]
 
@@ -352,10 +440,8 @@
 
           {:data {:muuntaja mc/instance
                   :coercion reitit.coercion.malli/coercion
-                  :malli/options {:error-keys #(mu/keys HealthCheckResponse)}
+                  :malli/options {:error-keys #(mu/keys schemas/HealthCheckResponse)}
                   :swagger {:id ::api}
-                  ;; Default all routes to be included in the single public spec.
-                  :openapi {:id public-openapi-id}
                   :middleware [parameters/parameters-middleware ; decoding query & form params
                                wrap-cookies
                                wrap-authenticate

@@ -27,6 +27,24 @@
 (def ^:private json-mapper
   (json/object-mapper {:encode-key-fn name}))
 
+(defn- json-response
+  "Return a response with a data body.
+
+  We intentionally do not JSON-encode the body here. Muuntaja (installed in the
+  HTTP router) will encode the response to JSON.
+
+  This is necessary so Reitit response coercion (Malli) can validate response
+  bodies against the declared schemas.
+
+  Inputs:
+  - status int
+  - body map
+
+  Returns: Ring response map." 
+  [status body]
+  {:status status
+   :body body})
+
 (defn index-handler
   "Serve the SPA index.html from classpath (resources/public/index.html).
 
@@ -154,23 +172,15 @@
           ;; under the same tenant UUID that we persisted into Postgres.
           (ws.registry/ensure-session! ws-registry (str tenant-id-uuid) session-id {})
 
-          {:status 200
-           :headers {"content-type" "application/json"}
-           :body (json/write-value-as-string {:session_id session-id} json-mapper)})
+          (json-response 200 {:session_id session-id}))
         (catch clojure.lang.ExceptionInfo e
           (if (= :samuraibff.http/missing-tenant-id (:type (ex-data e)))
             (do
               (log/warn "Refusing to create session without tenant-id" {:uri (:uri req)})
-              {:status 403
-               :headers {"content-type" "application/json"}
-               :body (json/write-value-as-string {:ok false :message "missing-tenant-id"} json-mapper)})
+              (json-response 403 {:ok false :message "missing-tenant-id"}))
             (do
               (log/error e "Failed to create session" {:uri (:uri req)})
-              {:status 500
-               :headers {"content-type" "application/json"}
-               :body (json/write-value-as-string {:ok false :message "session-create-failed"} json-mapper)})))
+              (json-response 500 {:ok false :message "session-create-failed"}))))
         (catch Exception e
           (log/error e "DB error while creating session" {:uri (:uri req)})
-          {:status 500
-           :headers {"content-type" "application/json"}
-           :body (json/write-value-as-string {:ok false :message "db-error"} json-mapper)})))))
+          (json-response 500 {:ok false :message "db-error"}))))))

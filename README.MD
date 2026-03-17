@@ -329,19 +329,20 @@ We have an integration test that boots Postgres via Testcontainers and asserts t
 
 ## API documentation (OpenAPI)
 
-The BFF publishes **two** OpenAPI specs:
+The service publishes a **customer-facing** OpenAPI spec and Swagger UI:
 
-- **Public** (no auth required): browser auth flow endpoints under `/auth/*`
-  - Spec JSON: `GET /openapi/public.json`
-  - Swagger UI: `GET /docs/public`
+- OpenAPI JSON: `GET /openapi.json`
+- Swagger UI: `GET /docs`
 
-- **Private** (**auth required**): tenant-scoped REST endpoints under `/api/*`
-  - Spec JSON: `GET /openapi/private.json`
-  - Swagger UI: `GET /docs/private`
+The OpenAPI spec includes only:
+- `/auth/*` (browser login flow)
+- `/api/*` (tenant-scoped REST API)
 
-Notes:
-- WebSocket endpoints (`/ws/audio`, `/ws/events`) are currently documented in this README,
-  not in OpenAPI.
+It intentionally excludes:
+- UI/SPA routes (e.g. `/`, `/recordings`, `/live`)
+- internal callbacks (e.g. `/internal/*`)
+- WebSockets (`/ws/*`) (not modeled by OpenAPI)
+- operational probes (`/health`, `/ready`)
 
 ## Docker (Kubernetes-oriented)
 

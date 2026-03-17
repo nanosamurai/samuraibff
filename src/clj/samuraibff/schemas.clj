@@ -134,6 +134,221 @@
 ;; HTTP API schemas
 ;; ---------------------------------------------------------------------
 
+(def ApiOkResponse
+  "Generic ok response body.
+
+  Shape:
+  - {:ok true}" 
+  [:map
+   [:ok [:= true]]])
+
+(def ApiErrorResponse
+  "Generic error response.
+
+  Shape:
+  - {:ok false :message <string>}
+
+  Notes:
+  - `message` is intended to be a stable, machine-readable error identifier.
+  - Additional keys may be present on some endpoints." 
+  [:map
+   [:ok [:= false]]
+   [:message :string]])
+
+(def HealthCheckResponse
+  "Response body for GET /health.
+
+  Shape:
+  - {:status \"ok\" :timestamp <inst> :version <string>}" 
+  [:map
+   [:status [:enum "ok"]]
+   [:timestamp inst?]
+   [:version string?]])
+
+(def ReadinessResponse
+  "Response body for GET /ready.
+
+  Readiness is intended for load balancers / Kubernetes readiness probes.
+  Unlike liveness (/health), readiness may return a non-200 when a required
+  dependency (e.g. Postgres) is unavailable." 
+  [:map
+   [:status [:enum "ok" "degraded"]]
+   [:timestamp inst?]
+   [:version string?]
+   [:db [:map
+         [:up? boolean?]]]
+   [:kafka [:map
+            [:up? boolean?]]]
+   [:grpc [:map
+           [:up? boolean?]]]])
+
+(def CreateSessionResponse
+  "Response body for POST /api/sessions.
+
+  Shape:
+  - {:session_id <uuid>}" 
+  [:map
+   [:session_id Uuid]])
+
+(def ApiMeResponse
+  "Response body for GET /api/me.
+
+  When authenticated:
+  - authenticated=true and user info is present.
+
+  When unauthenticated (only possible when auth is not required by config):
+  - authenticated=false and no user/tenant_id is present." 
+  [:map
+   [:ok :boolean]
+   [:authenticated :boolean]
+   [:tenant_id {:optional true} Uuid]
+   [:user {:optional true}
+    [:map
+     [:sub {:optional true} :string]
+     [:preferred_username {:optional true} :string]
+     [:email {:optional true} :string]]]
+   [:message {:optional true} :string]])
+
+(def RecordingItem
+  "Single list element returned by `GET /api/recordings`.
+
+  Notes:
+  - Timestamp fields are nullable, depending on whether a session was started/ended.
+  - `recording` contains best-effort metadata from the latest recording.
+  - `recording.url` can be null when no recording is present." 
+  [:map
+   [:session_id Uuid]
+   [:session_key [:maybe :string]]
+   [:status [:maybe :string]]
+   [:started_at [:maybe :string]]
+   [:ended_at [:maybe :string]]
+   [:created_at [:maybe :string]]
+   [:has_recording :boolean]
+   [:has_final_transcript :boolean]
+   [:recording
+    [:map
+     [:created_at [:maybe :string]]
+     [:duration_s [:maybe :any]]
+     [:sample_rate [:maybe :any]]
+     [:lang [:maybe :string]]
+     [:url [:maybe :string]]]]])
+
+(def RecordingsListResponse
+  "Response body for GET /api/recordings." 
+  [:map
+   [:ok :boolean]
+   [:tenant_id Uuid]
+   [:items [:sequential RecordingItem]]])
+
+(def RecordingDetailSession
+  "Session metadata returned by `GET /api/recordings/{session_id}`." 
+  [:map
+   [:id Uuid]
+   [:session_key [:maybe :string]]
+   [:title [:maybe :string]]
+   [:status [:maybe :string]]
+   [:started_at [:maybe :string]]
+   [:ended_at [:maybe :string]]
+   [:created_at [:maybe :string]]])
+
+(def TranscriptRecord
+  "Transcript record element returned by `GET /api/recordings/{session_id}`.
+
+  This API returns transcript records that include a jsonb-serialized `segments`
+  field (as a JSON string) plus various metadata fields. The exact set of keys
+  may evolve; clients should treat unknown keys as forward-compatible." 
+  [:map-of :keyword :any])
+
+(def RecordingDetailResponse
+  "Response body for GET /api/recordings/{session_id}." 
+  [:map
+   [:ok :boolean]
+   [:tenant_id Uuid]
+   [:session RecordingDetailSession]
+   [:transcripts
+    [:map
+     [:refined [:sequential TranscriptRecord]]
+     [:final [:sequential TranscriptRecord]]]]])
+
+(def DeleteRecordingResponse
+  "Response body for DELETE /api/recordings/{session_id}." 
+  [:map
+   [:ok :boolean]
+   [:deleted {:optional true} :boolean]
+   [:message {:optional true} :string]])
+
+(def ApiCredentialsListResponse
+  "Response body for GET /api/api-credentials." 
+  [:map
+   [:ok :boolean]
+   [:tenant_id Uuid]
+   [:items
+    [:sequential
+     [:map
+      [:id Uuid]
+      [:tenant_id Uuid]
+      [:name :string]
+      [:keycloak_client_id :string]
+      [:created_by_sub [:maybe :string]]
+      [:created_at :string]
+      [:last_used_at [:maybe :string]]
+      [:revoked_at [:maybe :string]]]]]])
+
+(def CreateApiCredentialRequest
+  "Request body for POST /api/api-credentials." 
+  [:map
+   [:name [:and :string [:fn (fn [s] (<= 1 (count s) 200))]]]])
+
+(def CreateApiCredentialResponse
+  "Response body for POST /api/api-credentials.
+
+  The client_secret is returned only at creation/rotation time." 
+  [:map
+   [:ok :boolean]
+   [:credential_id Uuid]
+   [:client_id :string]
+   [:client_secret :string]])
+
+(def RotateApiCredentialResponse
+  "Response body for POST /api/api-credentials/{id}/rotate.
+
+  The new client_secret is returned only once." 
+  [:map
+   [:ok :boolean]
+   [:credential_id Uuid]
+   [:client_id :string]
+   [:client_secret :string]])
+
+(def SpeakersListResponse
+  "Response body for GET /api/speakers." 
+  [:map
+   [:ok :boolean]
+   [:items
+    [:sequential
+     [:map
+      [:id Uuid]
+      [:tenant_id Uuid]
+      [:user_id [:maybe Uuid]]
+      [:label :string]
+      [:audio_url [:maybe :string]]
+      [:created_at [:maybe :string]]]]]])
+
+(def CreateSpeakerResponse
+  "Response body for POST /api/speakers." 
+  [:map
+   [:ok :boolean]
+   [:speaker_id Uuid]
+   [:tenant_id Uuid]
+   [:label :string]
+   [:sample_url :string]
+   [:manifest_url :string]])
+
+(def DeleteSpeakerResponse
+  "Response body for DELETE /api/speakers/{speaker_id}." 
+  [:map
+   [:ok :boolean]
+   [:speaker_id Uuid]])
+
 (def SessionStartRequest
   "Start a session.
    tenant_id is required; user_id optional."
