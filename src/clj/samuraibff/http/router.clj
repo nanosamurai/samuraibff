@@ -27,6 +27,7 @@
    [samuraibff.http.internal :as http.internal]
    [samuraibff.http.speakers :as http.speakers]
    [samuraibff.http.ui :as http.ui]
+   [samuraibff.schemas :as schemas]
    [reitit.ring.coercion :as rrc]
    [reitit.coercion.malli]
    [reitit.openapi :as openapi]
@@ -44,168 +45,8 @@
    [ring.util.response :as resp]))
 
 ;; --- Schemas ---
-
-(def HealthCheckResponse
-  "Schema for health check response"
-  [:map
-   [:status [:enum "ok"]]
-   [:timestamp inst?]
-   [:version string?]])
-
-(def ReadinessResponse
-  "Schema for readiness response.
-
-  Readiness is intended for load balancers / Kubernetes readiness probes.
-  Unlike liveness (/health), readiness may return a non-200 when a required
-  dependency (e.g. Postgres) is unavailable." 
-  [:map
-   [:status [:enum "ok" "degraded"]]
-   [:timestamp inst?]
-   [:version string?]
-   [:db [:map
-         [:up? boolean?]]]
-   [:kafka [:map
-            [:up? boolean?]]]
-   [:grpc [:map
-           [:up? boolean?]]]])
-
-(def ApiOkResponse
-  "Generic {ok true} response body." 
-  [:map
-   [:ok [:= true]]])
-
-(def ApiErrorResponse
-  "Generic error response.
-
-  This is a minimal common shape used by many endpoints.
-
-  Notes:
-  - The `message` field is a stable, machine-readable string.
-  - Additional keys may be present depending on endpoint.
-  " 
-  [:map
-   [:ok [:= false]]
-   [:message :string]])
-
-(def CreateSessionResponse
-  "Response body for POST /api/sessions." 
-  [:map
-   [:session_id [:re "(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"]]])
-
-(def ApiMeResponse
-  "Response body for GET /api/me.
-
-  When authenticated:
-  - authenticated=true and user info is present.
-
-  When unauthenticated (only possible when auth is not required by config):
-  - authenticated=false and no user/tenant_id is present." 
-  [:map
-   [:ok :boolean]
-   [:authenticated :boolean]
-   [:tenant_id {:optional true} [:re "(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"]]
-   [:user {:optional true}
-    [:map
-     [:sub {:optional true} :string]
-     [:preferred_username {:optional true} :string]
-     [:email {:optional true} :string]]]
-   [:message {:optional true} :string]])
-
-(def RecordingsListResponse
-  "Response body for GET /api/recordings." 
-  [:map
-   [:ok :boolean]
-   [:tenant_id [:re "(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"]]
-   [:items
-    [:sequential
-     [:map
-      [:session_id :string]
-      [:session_key {:optional true} :string]
-      [:status {:optional true} :string]
-      [:started_at {:optional true} :string]
-      [:ended_at {:optional true} :string]
-      [:created_at {:optional true} :string]
-      [:has_recording {:optional true} :boolean]
-      [:has_final_transcript {:optional true} :boolean]
-      [:recording {:optional true}
-       [:map
-        [:created_at {:optional true} :string]
-        [:duration_s {:optional true} :any]
-        [:sample_rate {:optional true} :any]
-        [:lang {:optional true} :string]
-        [:url {:optional true} :string]]]]]]])
-
-(def RecordingDetailResponse
-  "Response body for GET /api/recordings/{session_id}." 
-  [:map
-   [:ok :boolean]
-   [:tenant_id [:re "(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"]]
-   [:session :map]
-   [:transcripts
-    [:map
-     [:refined :any]
-     [:final :any]]]])
-
-(def DeleteRecordingResponse
-  "Response body for DELETE /api/recordings/{session_id}." 
-  [:map
-   [:ok :boolean]
-   [:deleted {:optional true} :boolean]
-   [:message {:optional true} :string]])
-
-(def ApiCredentialsListResponse
-  "Response body for GET /api/api-credentials." 
-  [:map
-   [:ok :boolean]
-   [:tenant_id [:re "(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"]]
-   [:items [:sequential :map]]])
-
-(def CreateApiCredentialRequest
-  "Request body for POST /api/api-credentials." 
-  [:map
-   [:name [:and :string [:fn (fn [s] (<= 1 (count s) 200))]]]])
-
-(def CreateApiCredentialResponse
-  "Response body for POST /api/api-credentials.
-
-  The client_secret is returned only at creation/rotation time." 
-  [:map
-   [:ok :boolean]
-   [:credential_id :string]
-   [:client_id :string]
-   [:client_secret :string]])
-
-(def RotateApiCredentialResponse
-  "Response body for POST /api/api-credentials/{id}/rotate.
-
-  The new client_secret is returned only once." 
-  [:map
-   [:ok :boolean]
-   [:credential_id :string]
-   [:client_id :string]
-   [:client_secret :string]])
-
-(def SpeakersListResponse
-  "Response body for GET /api/speakers." 
-  [:map
-   [:ok :boolean]
-   [:items [:sequential :map]]])
-
-(def CreateSpeakerResponse
-  "Response body for POST /api/speakers." 
-  [:map
-   [:ok :boolean]
-   [:speaker_id :string]
-   [:tenant_id :string]
-   [:label :string]
-   [:sample_url :string]
-   [:manifest_url :string]])
-
-(def DeleteSpeakerResponse
-  "Response body for DELETE /api/speakers/{speaker_id}." 
-  [:map
-   [:ok :boolean]
-   [:speaker_id :string]])
+;;
+;; NOTE: customer-facing OpenAPI schemas live in `samuraibff.schemas`.
 
 ;; --- Routes ---
 
@@ -214,7 +55,7 @@
   ["/health"
    {:get {:summary "Health check"
           :description "Returns health status of the application"
-          :responses {200 {:body HealthCheckResponse}}
+          :responses {200 {:body schemas/HealthCheckResponse}}
           :handler (fn [_]
                      {:status 200
                       :body {:status "ok"
@@ -347,8 +188,8 @@
   ["/ready"
    {:get {:summary "Readiness check"
           :description "Returns readiness status (dependency checks)."
-          :responses {200 {:body ReadinessResponse}
-                      503 {:body ReadinessResponse}}
+          :responses {200 {:body schemas/ReadinessResponse}
+                      503 {:body schemas/ReadinessResponse}}
           :handler (fn [_]
                      (let [db-ok? (db-up? deps)
                            kafka-ok? (kafka-up? deps)
@@ -436,7 +277,7 @@
                              :parameters {:query [:map
                                                   [:next {:optional true} :string]]}
                              :responses {302 {:description "Redirect to identity provider"}
-                                         400 {:body ApiErrorResponse}}
+                                         400 {:body schemas/ApiErrorResponse}}
                              :handler (http.auth/login-handler config)}}]
             ["/callback" {:get {:summary "OIDC callback"
                                 :description "Completes the OIDC authorization code flow and sets the access token cookie."
@@ -446,7 +287,7 @@
                                                      [:error {:optional true} :string]
                                                      [:error_description {:optional true} :string]]}
                                 :responses {302 {:description "Redirect to the post-login URL"}
-                                            400 {:body ApiErrorResponse}}
+                                            400 {:body schemas/ApiErrorResponse}}
                                 :handler (http.auth/callback-handler config)}}]
             ["/logout" {:post {:summary "Logout"
                                :description "Clears the access token cookie."
@@ -460,9 +301,9 @@
                     :middleware [wrap-require-auth]}
             ["/me" {:get {:summary "Current user"
                           :description "Returns details about the current authenticated principal."
-                          :responses {200 {:body ApiMeResponse}
-                                      401 {:body ApiErrorResponse}
-                                      403 {:body ApiErrorResponse}}
+                          :responses {200 {:body schemas/ApiMeResponse}
+                                      401 {:body schemas/ApiErrorResponse}
+                                      403 {:body schemas/ApiErrorResponse}}
                           :handler (http.auth/me-handler config)}}]
 
             ["/recordings" {:get {:summary "List recordings"
@@ -470,42 +311,42 @@
                                   :parameters {:query [:map
                                                        [:limit {:optional true} :int]
                                                        [:offset {:optional true} :int]]}
-                                  :responses {200 {:body RecordingsListResponse}
-                                              400 {:body ApiErrorResponse}
-                                              403 {:body ApiErrorResponse}
-                                              503 {:body ApiErrorResponse}}
+                                  :responses {200 {:body schemas/RecordingsListResponse}
+                                              400 {:body schemas/ApiErrorResponse}
+                                              403 {:body schemas/ApiErrorResponse}
+                                              503 {:body schemas/ApiErrorResponse}}
                                   :handler (http.recordings/list-recordings-handler deps)}}]
             ["/recordings/:session_id"
              {:parameters {:path [:map
-                                  [:session_id :string]]}}
-             {:get {:summary "Get recording detail"
+                                  [:session_id :string]]}
+              :get {:summary "Get recording detail"
                     :description "Returns recording metadata and transcript records for the given session id."
-                    :responses {200 {:body RecordingDetailResponse}
-                                400 {:body ApiErrorResponse}
-                                403 {:body ApiErrorResponse}
-                                404 {:body ApiErrorResponse}
-                                503 {:body ApiErrorResponse}}
+                    :responses {200 {:body schemas/RecordingDetailResponse}
+                                400 {:body schemas/ApiErrorResponse}
+                                403 {:body schemas/ApiErrorResponse}
+                                404 {:body schemas/ApiErrorResponse}
+                                503 {:body schemas/ApiErrorResponse}}
                     :handler (http.recordings/get-recording-handler deps)}
               :delete {:summary "Delete recording"
                        :description "Deletes the recording session and related data for the current tenant."
-                       :responses {200 {:body DeleteRecordingResponse}
-                                   400 {:body ApiErrorResponse}
-                                   403 {:body ApiErrorResponse}
-                                   404 {:body ApiErrorResponse}
-                                   503 {:body ApiErrorResponse}}
+                       :responses {200 {:body schemas/DeleteRecordingResponse}
+                                   400 {:body schemas/ApiErrorResponse}
+                                   403 {:body schemas/ApiErrorResponse}
+                                   404 {:body schemas/ApiErrorResponse}
+                                   503 {:body schemas/ApiErrorResponse}}
                        :handler (http.recordings/delete-recording-handler deps)}}]
             ["/sessions" {:post {:summary "Create session"
                                  :description "Creates a new session identifier for WebSocket streaming."
-                                 :responses {200 {:body CreateSessionResponse}
-                                             403 {:body ApiErrorResponse}
-                                             500 {:body ApiErrorResponse}}
+                                 :responses {200 {:body schemas/CreateSessionResponse}
+                                             403 {:body schemas/ApiErrorResponse}
+                                             500 {:body schemas/ApiErrorResponse}}
                                  :handler (http.ui/create-session-handler deps)}}]
 
             ["/speakers"
              {:get {:summary "List enrolled speakers"
                     :description "Lists the current tenant's enrolled speakers."
-                    :responses {200 {:body SpeakersListResponse}
-                                403 {:body ApiErrorResponse}}
+                    :responses {200 {:body schemas/SpeakersListResponse}
+                                403 {:body schemas/ApiErrorResponse}}
                     :handler (http.speakers/list-speakers-handler deps)}
               :post {:summary "Create enrolled speaker"
                      :description (str
@@ -513,59 +354,59 @@
                                     "Request must be multipart/form-data with fields: label (string), sample (file).")
                      ;; OpenAPI multipart file schemas vary by generator; we document
                      ;; it textually and still keep response schemas formal.
-                     :responses {200 {:body CreateSpeakerResponse}
-                                 400 {:body ApiErrorResponse}
-                                 403 {:body ApiErrorResponse}
-                                 500 {:body ApiErrorResponse}}
+                     :responses {200 {:body schemas/CreateSpeakerResponse}
+                                 400 {:body schemas/ApiErrorResponse}
+                                 403 {:body schemas/ApiErrorResponse}
+                                 500 {:body schemas/ApiErrorResponse}}
                      :middleware [wrap-multipart-params]
                      :handler (http.speakers/create-speaker-handler deps)}}]
             ["/speakers/:speaker_id"
              {:delete {:summary "Delete enrolled speaker"
                        :description "Deletes an enrolled speaker and all associated stored data for the current tenant."
                        :parameters {:path [:map [:speaker_id :string]]}
-                       :responses {200 {:body DeleteSpeakerResponse}
-                                   400 {:body ApiErrorResponse}
-                                   403 {:body ApiErrorResponse}
-                                   404 {:body ApiErrorResponse}
-                                   500 {:body ApiErrorResponse}}
+                       :responses {200 {:body schemas/DeleteSpeakerResponse}
+                                   400 {:body schemas/ApiErrorResponse}
+                                   403 {:body schemas/ApiErrorResponse}
+                                   404 {:body schemas/ApiErrorResponse}
+                                   500 {:body schemas/ApiErrorResponse}}
                        :handler (http.speakers/delete-speaker-handler deps)}}]
 
             ;; M2M credential management (human UX; secrets returned once)
             ["/api-credentials"
              {:get {:summary "List API credentials"
                     :description "Lists the current tenant's machine-to-machine API credentials."
-                    :responses {200 {:body ApiCredentialsListResponse}
-                                403 {:body ApiErrorResponse}
-                                503 {:body ApiErrorResponse}}
+                    :responses {200 {:body schemas/ApiCredentialsListResponse}
+                                403 {:body schemas/ApiErrorResponse}
+                                503 {:body schemas/ApiErrorResponse}}
                     :handler (http.api-creds/list-api-credentials-handler deps)}
               :post {:summary "Create API credential"
                      :description "Creates a new API credential and returns the client secret once."
-                     :parameters {:body CreateApiCredentialRequest}
-                     :responses {200 {:body CreateApiCredentialResponse}
-                                 400 {:body ApiErrorResponse}
-                                 403 {:body ApiErrorResponse}
-                                 503 {:body ApiErrorResponse}
-                                 502 {:body ApiErrorResponse}}
+                     :parameters {:body schemas/CreateApiCredentialRequest}
+                     :responses {200 {:body schemas/CreateApiCredentialResponse}
+                                 400 {:body schemas/ApiErrorResponse}
+                                 403 {:body schemas/ApiErrorResponse}
+                                 503 {:body schemas/ApiErrorResponse}
+                                 502 {:body schemas/ApiErrorResponse}}
                      :handler (http.api-creds/create-api-credential-handler deps)}}]
 
             ["/api-credentials/:id/rotate"
              {:post {:summary "Rotate API credential secret"
                     :description "Rotates the client secret and returns the new secret once."
                     :parameters {:path [:map [:id :string]]}
-                    :responses {200 {:body RotateApiCredentialResponse}
-                                400 {:body ApiErrorResponse}
-                                403 {:body ApiErrorResponse}
-                                404 {:body ApiErrorResponse}
-                                503 {:body ApiErrorResponse}}
+                    :responses {200 {:body schemas/RotateApiCredentialResponse}
+                                400 {:body schemas/ApiErrorResponse}
+                                403 {:body schemas/ApiErrorResponse}
+                                404 {:body schemas/ApiErrorResponse}
+                                503 {:body schemas/ApiErrorResponse}}
                     :handler (http.api-creds/rotate-api-credential-handler deps)}}]
             ["/api-credentials/:id"
              {:delete {:summary "Revoke API credential"
                        :description "Revokes the API credential for the current tenant."
                        :parameters {:path [:map [:id :string]]}
-                       :responses {200 {:body ApiOkResponse}
-                                   400 {:body ApiErrorResponse}
-                                   403 {:body ApiErrorResponse}
-                                   404 {:body ApiErrorResponse}}
+                       :responses {200 {:body schemas/ApiOkResponse}
+                                   400 {:body schemas/ApiErrorResponse}
+                                   403 {:body schemas/ApiErrorResponse}
+                                   404 {:body schemas/ApiErrorResponse}}
                        :handler (http.api-creds/revoke-api-credential-handler deps)}}]]
 
            ;; Health check endpoint
@@ -589,7 +430,7 @@
 
           {:data {:muuntaja mc/instance
                   :coercion reitit.coercion.malli/coercion
-                  :malli/options {:error-keys #(mu/keys HealthCheckResponse)}
+                  :malli/options {:error-keys #(mu/keys schemas/HealthCheckResponse)}
                   :swagger {:id ::api}
                   :middleware [parameters/parameters-middleware ; decoding query & form params
                                wrap-cookies

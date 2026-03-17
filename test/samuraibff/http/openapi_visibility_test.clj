@@ -70,6 +70,7 @@
         (is (contains? paths "/auth/callback"))
         (is (contains? paths "/auth/logout"))
         (is (contains? paths "/api/recordings"))
+        (is (contains? paths "/api/recordings/{session_id}"))
         (is (contains? paths "/api/me"))
 
         ;; Must not contain UI or internal endpoints.
