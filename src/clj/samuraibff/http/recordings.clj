@@ -21,32 +21,48 @@
     (java.util UUID)
     (javax.sql DataSource)))
 
-(defn- jsonb->json-string
-  "Normalize a Postgres json/jsonb value into a JSON string.
-
-  next.jdbc + the Postgres driver typically returns jsonb columns as
-  `org.postgresql.util.PGobject` with `.getValue` returning a JSON string.
+(defn- jsonb->clj
+  "Normalize a Postgres json/jsonb value into a Clojure value.
 
   Inputs:
-  - v: value returned from JDBC
+  - v: value returned from JDBC for a json/jsonb column
 
   Returns:
-  - JSON string (or \"[]\" when nil).
+  - decoded Clojure value (typically vector/map)
 
   Notes:
-  - We intentionally return a string because it is the most portable shape
-    for the CLJS UI (which can JSON.parse it)." 
+  - We decode jsonb into data so OpenAPI/SDK can describe the real wire format.
+  - For transcript segments, nil is normalized to an empty vector.
+  - We expect jsonb columns to arrive either as:
+      - org.postgresql.util.PGobject (common)
+      - already-decoded Clojure map/vector (possible in some setups)
+      - string (rare; but supported)." 
   [v]
   (cond
-    (nil? v) "[]"
-    (string? v) v
+    (nil? v) nil
+
+    ;; Already decoded (depends on driver / next.jdbc config)
+    (or (map? v) (vector? v) (sequential? v)) v
+
+    (string? v) (cheshire/parse-string v true)
 
     ;; Postgres driver jsonb
     (and (some? v) (= "org.postgresql.util.PGobject" (.getName (class v))))
-    (or (some-> v (.getValue) str) "[]")
+    (some-> v (.getValue) (cheshire/parse-string true))
 
-    :else
-    (cheshire/generate-string v)))
+    :else v))
+
+(defn- segments-jsonb->segments
+  "Decode the `segments` jsonb column into a vector of segment maps.
+
+  Inputs:
+  - v: jsonb value
+
+  Returns:
+  - vector of segment maps (empty when nil)." 
+  [v]
+  (let [x (jsonb->clj v)]
+    (vec (or x []))))
 
 (defn- json-response
   "Return a Ring JSON response.
@@ -132,15 +148,14 @@
                              :recording {:created_at (some-> (:recording_created_at r) str)
                                          :duration_s (:duration_s r)
                                          :sample_rate (:sample_rate r)
-                                         :lang (:lang r)
-                                         :url (:recording_url r)}})
+                                         :lang (:lang r)}})
                           rows)
               body {:ok true
                     :tenant_id (str tenant-uuid)
                     :items items}]
           ;; Validate in dev/test.
           (when (#{:dev :test} (:env config))
-            (schemas/validate! [:map [:ok :boolean] [:tenant_id schemas/Uuid] [:items :any]] body))
+            (schemas/validate! schemas/RecordingsListResponse body))
           (json-response 200 body))
         (catch clojure.lang.ExceptionInfo e
           (let [{:keys [type]} (ex-data e)]
@@ -171,7 +186,7 @@
   - final may have multiple entries; UI will pick the latest.
 
   Returns 404 if the session is not found within tenant." 
-  [{:keys [db]}]
+  [{:keys [db config]}]
   (fn [req]
     (let [^DataSource ds (:ds db)]
       (try
@@ -202,11 +217,14 @@
                      :window_length (:window_length r)
                      :segment_start_s (:segment_start_s r)
                      :segment_end_s (:segment_end_s r)
+                     :supersedes_seq (some-> (:supersedes_seq r) vec)
                      :event_created_at_ns (:event_created_at_ns r)
                      :created_at (some-> (:created_at r) str)
+                     :lang (:lang r)
+                     :duration_s (:duration_s r)
                      :full_text (:full_text r)
-                     ;; segments is jsonb; next.jdbc returns PGobject/string depending on driver.
-                     :segments (jsonb->json-string (:segments r))})
+                     ;; segments is jsonb; decode to vector so clients don't need JSON.parse.
+                     :segments (segments-jsonb->segments (:segments r))})
                   body {:ok true
                         :tenant_id (str tenant-uuid)
                         :session {:id (str (:id session))
@@ -218,6 +236,8 @@
                                   :created_at (some-> (:created_at session) str)}
                         :transcripts {:refined (mapv normalize-record refined)
                                       :final (mapv normalize-record final)}}]
+              (when (#{:dev :test} (:env config))
+                (schemas/validate! schemas/RecordingDetailResponse body))
               (json-response 200 body))))
         (catch clojure.lang.ExceptionInfo e
           (let [{:keys [type]} (ex-data e)]

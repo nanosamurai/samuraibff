@@ -215,7 +215,7 @@
   Notes:
   - Timestamp fields are nullable, depending on whether a session was started/ended.
   - `recording` contains best-effort metadata from the latest recording.
-  - `recording.url` can be null when no recording is present." 
+  - The API intentionally does NOT expose internal recording URLs (file://, s3://...)." 
   [:map
    [:session_id Uuid]
    [:session_key [:maybe :string]]
@@ -228,10 +228,9 @@
    [:recording
     [:map
      [:created_at [:maybe :string]]
-     [:duration_s [:maybe :any]]
-     [:sample_rate [:maybe :any]]
-     [:lang [:maybe :string]]
-     [:url [:maybe :string]]]]])
+     [:duration_s [:maybe :double]]
+     [:sample_rate [:maybe :int]]
+     [:lang [:maybe :string]]]]])
 
 (def RecordingsListResponse
   "Response body for GET /api/recordings." 
@@ -254,10 +253,34 @@
 (def TranscriptRecord
   "Transcript record element returned by `GET /api/recordings/{session_id}`.
 
-  This API returns transcript records that include a jsonb-serialized `segments`
-  field (as a JSON string) plus various metadata fields. The exact set of keys
-  may evolve; clients should treat unknown keys as forward-compatible." 
-  [:map-of :keyword :any])
+  Notes:
+  - `segments` is returned as a JSON array of segment objects (not a JSON string).
+  - Only a whitelisted subset of DB fields is exposed (no tenant_id/user_id/etc.)." 
+  [:map
+   [:id Uuid]
+   [:type [:enum "refined" "final"]]
+
+   ;; Pipeline metadata (safe to expose)
+   [:source :string]
+   [:model [:maybe :string]]
+   [:window_length [:maybe :int]]
+
+   ;; Window metadata (may be null depending on source/type)
+   [:segment_start_s [:maybe Sec]]
+   [:segment_end_s [:maybe Sec]]
+
+   ;; Linkage to realtime WS seq numbers (worker-provided)
+   [:supersedes_seq {:optional true} [:maybe [:sequential NonNegInt]]]
+
+   ;; Original event timestamp in nanoseconds (if available)
+   [:event_created_at_ns [:maybe :int]]
+
+   ;; Transcript payload
+   [:created_at :string]
+   [:lang [:maybe LangCode]]
+   [:duration_s [:maybe :double]]
+   [:full_text :string]
+   [:segments [:sequential TranscriptSegment]]])
 
 (def RecordingDetailResponse
   "Response body for GET /api/recordings/{session_id}." 

@@ -340,6 +340,20 @@ The OpenAPI spec includes only:
 - `/auth/*` (browser login flow)
 - `/api/*` (tenant-scoped REST API)
 
+## Recordings + transcripts REST API (contract)
+
+Two endpoints power the Recordings UI and are also part of the customer-facing API:
+
+- `GET /api/recordings`
+  - returns tenant-scoped session list
+  - **does not expose** internal recording URLs (no `file://` / `s3://`)
+
+- `GET /api/recordings/{session_id}`
+  - returns session metadata and stored transcript records
+  - transcript records contain:
+    - `segments`: **JSON array** of `{start_s,end_s,text,speaker?,lang?}` (not a JSON string)
+    - pipeline metadata (`source`, `model`, window fields) needed for debugging and future SDKs
+
 It intentionally excludes:
 - UI/SPA routes (e.g. `/`, `/recordings`, `/live`)
 - internal callbacks (e.g. `/internal/*`)

@@ -88,6 +88,9 @@
         (is (= (str session-a) (get-in items-a [0 :session_id])))
         (is (true? (get-in items-a [0 :has_final_transcript])))
 
+        ;; Security: recordings list must not leak internal recording URLs.
+        (is (nil? (get-in items-a [0 :recording :url])))
+
         (is (= 200 (:status list-resp-b)))
         (is (= 1 (count items-b)))
         (is (= (str session-b) (get-in items-b [0 :session_id])))
@@ -97,6 +100,10 @@
         (is (= (str session-a) (get-in detail-body-a [:session :id])))
         (is (= 1 (count (get-in detail-body-a [:transcripts :refined]))))
         (is (= 1 (count (get-in detail-body-a [:transcripts :final]))))
+
+        ;; Transcript records must expose segments as a decoded vector (JSON array).
+        (is (vector? (get-in detail-body-a [:transcripts :refined 0 :segments])))
+        (is (vector? (get-in detail-body-a [:transcripts :final 0 :segments])))
 
         (is (= 404 (:status detail-resp-cross)))
         (is (= false (:ok detail-body-cross)))
