@@ -4,7 +4,27 @@ Aim of this clojure project (samuraibff) is to rewrite and further evolve
 Please read its readme.md (C:\Users\miros\PycharmProjects\xamurai\README.MD) to get idea what it does.
 
 I decided to isolate the bff and rewrite it in clojure.
-For the data model, please look at C:\Users\miros\PycharmProjects\xamurai\proto\stream.proto .
+For the data model, please look at proto at resources/proto/stream.proto and also at our Malli schema in src/clj/samuraibff/schemas.clj .
+
+--- Main Rules / Best Practices
+- You are usually being run from CLINE IDE plugin, which limits you to the given working repository. If you want to execute commands (i.e. run executables, make git commands) in other folders / repositories, the only way you can do so is via powershell `Set-Location`
+    - e.g. `powershell -NoProfile -Command "Set-Location 'C:\Users\miros\IdeaProjects\samuraipersistor'; clojure -M -e '(println :ok)'"`
+- All changes should be documented accordingly in the relevant .MD docs; before claiming task is coplete, always check docs for gaps as well as for a stale or no longer correct information and fix that
+- For any task, create a dedicated branch (named imperatively) from master (unless told otherwise) and as you progress make small(er) atomic commits named imperatively
+- For a task to be completed, there should be no security risks or concerns, always assess task's completion also from the security standpoint and highlight any risks.
+- NEVER EXPOSE PORTS on local LAN for testing, always use localhost or 127.0.0.1
+- Xamurai used to be called "drsynth", so do not be confused if you do see this name somewhere. That name however is legacy and you should always use xamurai when naming things related to xamurai stack- alternatively, you can also use nanosamurai if the name refers to the whole solution and not just the subset of voice-to-text services
+- before you claim anything is complete, run full set of test/integration tests
+
+# About Nanosamur.ai
+Nanosamurai solution currently consists of
+- **SamuraiBFF** (this repo),
+- **xamurai** (https://github.com/mikub/xamurai ; locally usually at `%USERPROFILE%\PycharmProjects\xamurai`) services connected via Kafka/gRPC
+    - xamurai is a monorepo that contains multiple Speach-to-text and speaker diarization services for Nanosamur.ai solution - they provide both real-time transcription as well as near-real-time refinement.
+- **samuraipersistor** (https://github.com/mikub/samuraipersistor ; locally usually at `%USERPROFILE%\IdeaProjects\samuraipersistor` ) for persistence.
+    - Database persistence is handled by a separate service, the samuraipersistor; consumes from all relevant Kafka topics and stores the data in Postgres
+- **nanodeploy** - Helm charts for local k8s  and aws EKS deployments and also local docker compose setup
+- **nanplatform** - Pulumi infra setup in AWS
 
 # AGENTS.MD — samuraibff (Clojure) Architecture + House Rules
 
@@ -236,13 +256,3 @@ src/
     audio.cljs
     ...
 ```
-
-
---- Other Rules / Best Practices
-- You are usually being run from CLINE IDE plugin, which limits you to the given working repository. If you want to execute commands (i.e. run executables, make git commands) in other folders / repositories, the only way you can do so is via powershell `Set-Location`
-    - e.g. `powershell -NoProfile -Command "Set-Location 'C:\Users\miros\IdeaProjects\samuraipersistor'; clojure -M -e '(println :ok)'"`  
-- All changes should be documented accordingly in the relevant .MD docs; before claiming task is coplete, always check docs for gaps as well as for a stale or no longer correct information and fix that
-- For any task, create a dedicated branch (named imperatively) from master (unless told otherwise) and as you progress make small(er) atomic commits named imperatively
-- For a task to be completed, there should be no security risks or concerns, always assess task's completion also from the security standpoint and highlight any risks.
-- NEVER EXPOSE PORTS on local LAN for testing, always use localhost or 127.0.0.1
-- Xamurai used to be called "drsynth", so do not be confused if you do see this name somewhere. That name however is legacy and you should always use xamurai when naming things related to xamurai stack- alternatively, you can also use nanosamurai if the name refers to the whole solution and not just the subset of voice-to-text services

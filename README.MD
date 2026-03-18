@@ -9,7 +9,8 @@ Nanosamurai solution currently consists of
   - xamurai is a monorepo that contains multiple Speach-to-text and speaker diarization services for Nanosamur.ai solution - they provide both real-time transcription as well as near-real-time refinement. 
 - **samuraipersistor** (https://github.com/mikub/samuraipersistor ; locally usually at `%USERPROFILE%\IdeaProjects\samuraipersistor` ) for persistence.
   - Database persistence is handled by a separate service, the samuraipersistor; consumes from all relevant Kafka topics and stores the data in Postgres 
-
+- **nanodeploy** - Helm charts for local k8s  and aws EKS deployments and also local docker compose setup
+- **nanplatform** - Pulumi infra setup in AWS
 
 ---
 
