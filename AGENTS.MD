@@ -16,6 +16,7 @@ For the data model, please look at proto at resources/proto/stream.proto and als
 - Xamurai used to be called "drsynth", so do not be confused if you do see this name somewhere. That name however is legacy and you should always use xamurai when naming things related to xamurai stack- alternatively, you can also use nanosamurai if the name refers to the whole solution and not just the subset of voice-to-text services
 - before you claim any task is complete, run full set of test/integration tests
 - DO NOT EVER attempt to read or fetch the compiled js code (usually at resources/public/js/main.js ) - it is too big and your cotext will rot into oblivion
+- DO NOT EVER run `clojure -Spath` or similar command to list entire classpath, you would burn too many tokens and rot your context without any significant benefit
 
 # About Nanosamur.ai
 Nanosamurai solution currently consists of
