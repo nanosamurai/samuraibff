@@ -107,7 +107,7 @@ The Clojure BFF is the **canonical API + orchestration layer**:
 * Accepts browser audio via WS and produces **Kafka audio chunks**.
 * Streams audio to rtservice over **gRPC** (realtime ASR).
 * Pushes realtime + refined transcript events to UI.
-* Receives refined transcript data via **HTTP callback** from whisperx worker (not Kafka).
+* Receives refined transcript data via **Kafka consumer** and/or **BFF-to-BFF internal callback** (`POST /internal/refined`).
 * Performs OIDC authentication (Keycloak), derives tenant/user, and persists session/transcript metadata in Postgres.
 
 We explicitly want:
@@ -146,19 +146,22 @@ Use org.corfield.logging4j2 for logging. To new namespaces, import it as follows
 1. UI HTTP (static + REST)
 2. WS `/ws/audio`: browser → BFF (binary PCM16 LE)
 3. WS `/ws/events` (or SSE): BFF → browser (JSON events: asr/refined/status)
-4. HTTP callback: whisperx worker → BFF (refined transcript segments)
+4. Kafka consumer: refined transcript events (`transcripts.refined`) → BFF (RefinedEvent protobuf)
+5. HTTP internal callback: **BFF → BFF** (`POST /internal/refined`, protobuf)
 
 ### Outbound interfaces
 
-1. Kafka: BFF produces `audio.raw.*` (not yet)
-2. gRPC: BFF streams to rtservice (RealtimeASR.Stream)
-3. Postgres: persist sessions, recordings metadata, transcripts, speakers (not yet)
+1. Kafka producer: BFF produces `audio.raw` (AudioChunk protobuf)
+2. gRPC: BFF streams audio to rtservice (RealtimeASR.Stream)
+3. Postgres: tenant-scoped persistence (sessions, recordings metadata, api_credentials, speakers)
+4. S3: enrollment artifacts (speaker manifests + uploaded WAV samples)
 
 ---
 
 ## 4) Proposed repo / namespace structure
 
-(Kept as a long-term target; current repo may still be evolving towards this.)
+This is a **high-level guide** to keep boundaries clear. For the authoritative,
+current layout, consult the actual `src/` tree (namespaces may evolve).
 
 ```
 src/
@@ -166,13 +169,30 @@ src/
     core.clj
     system.clj
     config.clj
-    http/server.clj
     http/router.clj
     http/ui.clj
+    http/auth.clj
+    http/recordings.clj
+    http/api_credentials.clj
+    http/speakers.clj
+    http/internal.clj
+    http/server.clj
     ws/audio.clj
     ws/events.clj
     ws/registry.clj
+    ws/auth.clj
+    ws/tenant.clj
     grpc/client.clj
+    kafka/producer.clj
+    kafka/refined_consumer.clj
+    db/core.clj
+    db/sessions.clj
+    db/recordings.clj
+    db/api_credentials.clj
+    db/speakers.clj
+    s3/enrollment.clj
+    keycloak/admin.clj
+    otel/kafka.clj
   cljs/samuraibff/ui/
     core.cljs
     components.cljs
