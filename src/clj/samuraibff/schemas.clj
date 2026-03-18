@@ -230,8 +230,7 @@
      [:created_at [:maybe :string]]
      [:duration_s [:maybe :double]]
      [:sample_rate [:maybe :int]]
-     [:lang [:maybe :string]]
-     ]]]])
+     [:lang [:maybe :string]]]]])
 
 (def RecordingsListResponse
   "Response body for GET /api/recordings." 
