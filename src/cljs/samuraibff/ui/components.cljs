@@ -593,10 +593,7 @@
         (let [records (vec (or db-refined []))]
           (reduce
             (fn [events r]
-              (let [segments-json (get r :segments "[]")
-                    segments (try
-                               (js->clj (.parse js/JSON segments-json) :keywordize-keys true)
-                               (catch :default _ []))]
+              (let [segments (vec (or (:segments r) []))]
                 (reduce
                   (fn [events seg]
                     (conj events {:seq (or (:event_created_at_ns r) 0)
@@ -628,11 +625,7 @@
 
           ;; Final transcript: take the last record and render its segments (or full_text).
           final-record (last (vec (or db-final [])))
-          final-msgs (let [segments-json (get final-record :segments "[]")
-                           segments (try
-                                      (js->clj (.parse js/JSON segments-json) :keywordize-keys true)
-                                      (catch :default _ []))]
-                       (final-segments->messages segments))]
+          final-msgs (final-segments->messages (vec (or (:segments final-record) [])))]
 
       [:div {:class "page"}
        [:div {:class "page-header"}
