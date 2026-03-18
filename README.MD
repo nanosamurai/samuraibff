@@ -2,6 +2,13 @@
 
 Clojure BFF for the nanosamur.ai solution. 
 
+## Documentation policy
+
+To avoid two sources of truth:
+
+- **README.MD** is the canonical source of truth for **current scope/progress**, endpoints, and operational behavior.
+- **AGENTS.MD** is the canonical source of truth for **agent/dev workflow rules** and stable architectural constraints.
+
 # About Nanosamur.ai
 Nanosamurai solution currently consists of 
 - **SamuraiBFF** (this repo), 

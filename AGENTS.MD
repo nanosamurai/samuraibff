@@ -28,100 +28,23 @@ Nanosamurai solution currently consists of
 - **nanodeploy** - Helm charts for local k8s  and aws EKS deployments and also local docker compose setup
 - **nanplatform** - Pulumi infra setup in AWS
 
+
 # AGENTS.MD — samuraibff (Clojure) Architecture + House Rules
 
-## Status (current implementation)
+## Documentation ownership (avoid two sources of truth)
 
-### Implemented (as of now)
+This file is **not** a changelog.
 
-* **Postgres DB pool** via HikariCP (Integrant key `:samuraibff/db`)
-    * configured via `:db` section in `resources/system.edn`
-    * provides `{:ds <javax.sql.DataSource>}` to handlers/components
+* **README.MD** is the canonical source of truth for:
+  * current product scope / features (endpoints, auth, OpenAPI, refined transcripts, etc.)
+  * operational behavior and configuration notes
+  * “how to run” instructions
 
-* **HTTP server** via Ring + http-kit (Integrant key `:samuraibff/http-server`)
-* **Reitit router** (Integrant key `:samuraibff/router`)
-    * `GET /health`
-    * WS endpoints under `/ws/*`
-    * UI endpoints:
-      * `GET /` – serves `resources/public/index.html`
-      * `GET /recordings` – SPA route (serves index.html; deep-link safe)
-      * `GET /recordings/:session_id` – SPA route (serves index.html; deep-link safe)
-      * `GET /live` – SPA route (serves index.html; deep-link safe)
-      * `POST /api/sessions` – returns `{ "session_id": "<uuid>" }`
-        * session id is generated as **UUIDv7**
-        * a `sessions` row is inserted into Postgres (tenant + optional user)
-        * when auth is disabled, a dev fallback tenant id is used (`00000000-0000-0000-0000-000000000000`)
-      * static assets from `resources/public/*` (incl. shadow-cljs output under `/js/*`)
-* **WebSockets** (http-kit)
-    * `GET /ws/audio` – accepts **binary** PCM16LE frames and enqueues them (non-blocking) into a per-session bounded `core.async` channel.
-    * `GET /ws/events` – streams **JSON** event maps back to the frontend.
-* **In-memory WS session registry** (Integrant key `:samuraibff/ws-registry`)
-    * per-session channels (`:audio-ch`, `:events-ch`) and `mult` for event fanout
-    * per-session monotonic `:seq` and `:chunk-seq`
-    * backpressure: drops audio frames when buffer is full (with throttled warning logging)
-    * can publish refined events into existing local sessions (`publish-refined-proto!`)
-* **Kafka producer** (Integrant key `:samuraibff/kafka-producer`)
-    * publishes `AudioChunk` protobuf messages to Kafka topic `audio.raw`
-    * includes `lang` and `bff_origin_uri` (reply-to) in produced messages
-* **Kafka refined consumer** (Integrant key `:samuraibff/refined-consumer`)
-    * consumes `RefinedEvent` protobuf messages from Kafka topic `transcripts.refined`
-    * if session exists locally: delivers to WS
-    * otherwise forwards to origin BFF via `POST /internal/refined` (protobuf body)
-* **Internal HTTP callback endpoint**
-    * `POST /internal/refined` – accepts protobuf `RefinedEvent` and delivers it only if session exists locally
-* **gRPC client** to rtservice (Integrant key `:samuraibff/grpc-client`)
-    * opens bidirectional stream and forwards `AudioChunk` messages
-    * converts incoming `AsrEvent` to WS event maps
-    * stream close is idempotent to avoid noisy half-close exceptions
-* **Config component** (Integrant key `:samuraibff/config`)
-    * minimal identity component so `resources/system.edn` works with `ig/load-namespaces`
-* **CLI entrypoint**
-    * `samuraibff.core/-main` so `clojure -M:run` starts the Integrant system
-    * `samuraibff.system/read-system-config` uses `integrant.core/read-string` so `#ig/ref` tags work
-    * `samuraibff` namespace acts as an Integrant loader/aggregator for component namespaces
-* **ClojureScript UI scaffold**
-    * shadow-cljs build (`shadow-cljs.edn`) output to `resources/public/js`
-    * React + HSX (Hiccup-ish) rendering (no Reagent)
-    * App shell UI (top bar + sidebar) branded as **nanosamur.ai**
-    * Pages (MVP):
-      * **Recordings** table (in-memory list in browser for now)
-      * **Live Recording** page with transcript feed + right-side Log panel
-      * Recording detail placeholder view
-    * microphone capture + PCM16LE streaming to `/ws/audio`
-    * realtime transcript display via `/ws/events`
-    * **refined transcript rendering** via `/ws/events` (`{"type":"refined" ...}`)
-      * UI is Slack-like (avatar/name/time + bubble)
-      * refined segments are marked and replace ASR segments based on time window containment
-      * UI shows `start → end` for debugging time alignment
-* **Tests**
-    * unit tests for ws registry
-    * integration tests for http server + grpc client
-    * Postgres integration test for session persistence using **Testcontainers**
-      (`test/samuraibff/http/ui_test.clj`)
-    * WS integration test that opens `/ws/events` and `/ws/audio` and asserts a `status` event is received
-      (requires rtservice on `localhost:50052`; otherwise skipped)
+* **AGENTS.MD** is the canonical source of truth for:
+  * agent/dev workflow rules (safety, branching/commits, testing discipline)
+  * stable architectural constraints and conventions that shouldn’t drift every PR
 
-### Pending / not yet implemented (planned PRs)
-
-* Refined transcript merge logic (windowing / overlap resolution) + UI rendering polish
-  (Note: UI-side refined replacement is now implemented; backend merge/windowing may still evolve.)
-* OpenAPI/Swagger polishing for non-WS endpoints (WS not covered by OpenAPI)
-
-### Recently implemented
-
-* **OIDC / Keycloak authentication** (mirrors drsynth Python BFF)
-    * browser login flow: `GET /auth/login` → Keycloak → `GET /auth/callback` (PKCE)
-    * stores access token in HttpOnly cookie (`:auth :cookie-name`, default `access_token`)
-    * `GET /api/me` to fetch current user (used by UI)
-    * `POST /auth/logout` clears cookie
-    * WS `/ws/audio` and `/ws/events` enforce auth **before upgrade** when `:auth {:required? true}`
-
-* Kafka integration (further work)
-    * end-to-end worker compatibility (see notes: worker must copy `bff_origin_uri`)
-* Postgres persistence (sessions/transcripts)
-* Refined transcript merge logic (windowing / overlap resolution) + UI rendering polish
-* OpenAPI/Swagger polishing for non-WS endpoints (WS not covered by OpenAPI)
-* Operational endpoints `/ready`, `/metrics`
+If you add/modify user-facing behavior, update **README.MD**.
 
 ---
 
