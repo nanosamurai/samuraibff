@@ -38,6 +38,25 @@
          (catch Exception _ default))
     default))
 
+(defn- parse-rt-double
+  "Parse a finite double from a string-like input.
+
+  Inputs:
+  - s: any (typically string)
+
+  Returns:
+  - double when parseable and finite
+  - nil otherwise." 
+  [s]
+  (when (some? s)
+    (try
+      (let [x (Double/parseDouble (str s))]
+        (when (and (not (Double/isNaN x))
+                   (not (Double/isInfinite x)))
+          (double x)))
+      (catch Exception _
+        nil))))
+
 (defn handler
   "Return a Ring handler that upgrades `/ws/audio` connections and ingests binary
   audio frames.
@@ -50,6 +69,14 @@
   - session_id   (required) string
   - lang         (optional) string
   - sample_rate  (optional) integer (defaults to 16000)
+
+  Optional rtservice per-session overrides (passed to rtservice via gRPC metadata):
+  - rt_window_sec      (optional) double
+  - rt_overlap_sec     (optional) double
+  - rt_emit_every_sec  (optional) double
+
+  Aliases (accepted for convenience):
+  - window_sec / overlap_sec / emit_every_sec
 
   Dependencies:
   - `:config`      (required)
@@ -70,9 +97,19 @@
           (if-not ok?
             response
             (try
-              (let [session (ws.tenant/assert-session-access!
+              (let [rt-window-sec (parse-rt-double (or (get params :rt_window_sec) (get params "rt_window_sec")
+                                                    (get params :window_sec) (get params "window_sec")))
+                    rt-overlap-sec (parse-rt-double (or (get params :rt_overlap_sec) (get params "rt_overlap_sec")
+                                                     (get params :overlap_sec) (get params "overlap_sec")))
+                    rt-emit-every-sec (parse-rt-double (or (get params :rt_emit_every_sec) (get params "rt_emit_every_sec")
+                                                        (get params :emit_every_sec) (get params "emit_every_sec")))
+                    session-opts (cond-> {:lang lang :sample-rate sample-rate}
+                                   (some? rt-window-sec) (assoc :rt-window-sec rt-window-sec)
+                                   (some? rt-overlap-sec) (assoc :rt-overlap-sec rt-overlap-sec)
+                                   (some? rt-emit-every-sec) (assoc :rt-emit-every-sec rt-emit-every-sec))
+                    session (ws.tenant/assert-session-access!
                               config ws-registry tenant-id session-id
-                              {:lang lang :sample-rate sample-rate})]
+                              session-opts)]
                 ;; Update persisted session lifecycle once we know audio actually started.
                 ;; This is best-effort; WS must continue even if DB is unavailable.
                 (when-let [ds (get db :ds)]

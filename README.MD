@@ -22,6 +22,16 @@ Nanosamurai solution currently consists of
 - forward audio frames to **rtservice** via **gRPC** (bidirectional stream)
 - stream realtime events back to the UI via WebSocket (`/ws/events`) as **JSON**
 
+#### Plan C: rtservice PARTIAL + FINAL semantics
+
+rtservice may emit both:
+- **PARTIAL** hypotheses for the current window (replaceable)
+- **FINAL** results for a completed window (locking)
+
+The UI merges realtime ASR events with this rule:
+- PARTIAL updates replace the current partial line
+- FINAL commits the current line (stops changing)
+
 ### 2) Near-realtime refinement path (Kafka + cross-instance routing)
 - publish `AudioChunk` protobuf messages to Kafka topic **`audio.raw`**
 - consume `RefinedEvent` protobuf messages from Kafka topic **`transcripts.refined`**
@@ -562,6 +572,15 @@ The UI will:
 - create a new session via `POST /api/sessions`
 - open `/ws/events?session_id=<uuid>` and display realtime transcript events
 - capture microphone audio (PCM16LE) and stream it to `/ws/audio?session_id=<uuid>&lang=en&sample_rate=16000`
+
+Optional per-session rtservice overrides (passed as gRPC metadata headers):
+- `rt_window_sec` / `window_sec`
+- `rt_overlap_sec` / `overlap_sec`
+- `rt_emit_every_sec` / `emit_every_sec`
+
+Example:
+
+`/ws/audio?session_id=<uuid>&lang=en&sample_rate=16000&rt_window_sec=5.0&rt_overlap_sec=0.5&rt_emit_every_sec=0.7`
 
 Notes:
 - The compiled JS bundle is large (shadow-cljs dev output). Avoid printing it to the terminal.

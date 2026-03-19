@@ -49,9 +49,15 @@
                     :sessions (atom {})}
           _ (reg/ensure-session! registry "t-1" "s-uc" {})
           updated (reg/update-session-controls! registry "t-1" "s-uc" {:lang "cs"
-                                                                       :sample-rate 8000})]
+                                                                       :sample-rate 8000
+                                                                       :rt-window-sec 5.0
+                                                                       :rt-overlap-sec 0.5
+                                                                       :rt-emit-every-sec 0.7})]
       (is (= "cs" (:lang updated)))
       (is (= 8000 (:sample-rate updated)))
+      (is (= 5.0 (:rt-window-sec updated)))
+      (is (= 0.5 (:rt-overlap-sec updated)))
+      (is (= 0.7 (:rt-emit-every-sec updated)))
       ;; also persisted into registry
       (is (= "cs" (:lang (reg/get-session registry "t-1" "s-uc"))))))
 

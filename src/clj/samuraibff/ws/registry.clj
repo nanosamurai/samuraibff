@@ -32,6 +32,10 @@
   - `:lang`         string (empty string means auto)
   - `:sample-rate`  int
 
+  - `:rt-window-sec`     double? ; optional rtservice override
+  - `:rt-overlap-sec`    double? ; optional rtservice override
+  - `:rt-emit-every-sec` double? ; optional rtservice override
+
   - `:seq*`         (atom int) monotonic per-session seq for outbound WS events
   - `:chunk-seq*`   (atom int) monotonic per-session seq for outbound gRPC AudioChunk
 
@@ -73,6 +77,7 @@
     [org.corfield.logging4j2 :as log]
     [samuraibff.session-trace :as session-trace]
     [samuraibff.grpc.client :as grpc]
+    [samuraibff.grpc.metadata :as grpc.metadata]
     [samuraibff.kafka.producer :as kafka.producer]
     [samuraibff.schemas :as schemas])
   (:import
@@ -273,8 +278,15 @@
       :lang         string
       :sample-rate  int
 
+      ; Optional rtservice per-session override knobs.
+      ; When present, these are attached as gRPC metadata headers.
+      :rt-window-sec     double
+      :rt-overlap-sec    double
+      :rt-emit-every-sec double
+
   Returns a session map (see namespace docstring)."
-  [tenant-id session-id config {:keys [lang sample-rate]
+  [tenant-id session-id config {:keys [lang sample-rate
+                                       rt-window-sec rt-overlap-sec rt-emit-every-sec]
                                 :or {lang ""}}]
   (let [audio-buf-size (or (get-in config [:ws :audio-buffer-size])
                            default-audio-buffer-size)
@@ -284,6 +296,13 @@
      :tenant-id tenant-id
      :lang lang
      :sample-rate (or sample-rate default-sample-rate)
+
+     ;; Optional per-session rtservice override knobs.
+     ;; NOTE: BFF does not enforce business limits; rtservice does.
+     ;; We only ensure the values are numeric so we can serialize them.
+     :rt-window-sec (when (number? rt-window-sec) (double rt-window-sec))
+     :rt-overlap-sec (when (number? rt-overlap-sec) (double rt-overlap-sec))
+     :rt-emit-every-sec (when (number? rt-emit-every-sec) (double rt-emit-every-sec))
 
      :events-subs* (atom 0)
      :audio-socks* (atom 0)
@@ -364,7 +383,8 @@
 
   Returns:
   - the (possibly updated) session map, or nil if session not found." 
-  [{:keys [sessions]} tenant-id session-id {:keys [lang sample-rate]}]
+  [{:keys [sessions]} tenant-id session-id {:keys [lang sample-rate
+                                                   rt-window-sec rt-overlap-sec rt-emit-every-sec]}]
   (let [updated* (atom nil)]
     (swap! sessions
            (fn [m]
@@ -375,7 +395,10 @@
                    m)
                  (let [session' (cond-> session
                                   (some? lang) (assoc :lang (str lang))
-                                  (some? sample-rate) (assoc :sample-rate (int sample-rate)))]
+                                  (some? sample-rate) (assoc :sample-rate (int sample-rate))
+                                  (some? rt-window-sec) (assoc :rt-window-sec (when (number? rt-window-sec) (double rt-window-sec)))
+                                  (some? rt-overlap-sec) (assoc :rt-overlap-sec (when (number? rt-overlap-sec) (double rt-overlap-sec)))
+                                  (some? rt-emit-every-sec) (assoc :rt-emit-every-sec (when (number? rt-emit-every-sec) (double rt-emit-every-sec))))]
                    (reset! updated* session')
                    (assoc-in m [tenant-id session-id] session')))
                (do
@@ -544,9 +567,24 @@
   (if (compare-and-set! (:running?* session) false true)
     (do
       (let [session-id (:session-id session)
-            tenant-id (:tenant-id session)]
+            tenant-id (:tenant-id session)
+            metadata (cond-> {}
+                       (some? (:rt-window-sec session))
+                       (assoc "x-rt-window-sec" (grpc.metadata/header-double (:rt-window-sec session)))
+
+                       (some? (:rt-overlap-sec session))
+                       (assoc "x-rt-overlap-sec" (grpc.metadata/header-double (:rt-overlap-sec session)))
+
+                       (some? (:rt-emit-every-sec session))
+                       (assoc "x-rt-emit-every-sec" (grpc.metadata/header-double (:rt-emit-every-sec session))))
+            metadata (into {} (remove (fn [[_k v]] (nil? v)) metadata))]
         (log/info "Starting realtime gRPC stream" {:session-id session-id :tenant-id tenant-id})
         (publish! registry session (status-event session-id (:seq* session) "started" nil))
+
+        (when (seq metadata)
+          (log/info "Attaching rtservice gRPC metadata" {:session-id session-id
+                                                         :tenant-id tenant-id
+                                                         :metadata (keys metadata)}))
         (let [stream (try
                        (grpc/start-stream!
                          grpc-client
@@ -561,7 +599,8 @@
                                          (log/info "gRPC stream completed" {:session-id session-id :tenant-id tenant-id})
                                          (publish! registry session
                                                    (status-event session-id (:seq* session)
-                                                                 "stopped" "grpc-stream-completed")))})
+                                                                  "stopped" "grpc-stream-completed")))
+                          :metadata metadata})
                        (catch Throwable t
                          ;; If startup fails, allow retry + make failure obvious.
                          (reset! (:running?* session) false)
