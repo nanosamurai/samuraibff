@@ -112,10 +112,16 @@
 (defn upsert-asr
   "Insert or update a realtime ASR message in an existing transcript.
 
-  Semantics (MVP):
-  - if the last message is an ASR partial (final=false) and the incoming message
-    is also ASR partial, replace the last message (to simulate partial updates)
-  - otherwise append
+  Semantics (Plan C / cumulative refinement):
+  - maintain at most one 'current partial' ASR message
+  - incoming PARTIAL replaces the most recent ASR partial
+  - incoming FINAL *commits* the most recent ASR partial by replacing it
+  - if no ASR partial exists, append
+
+  Rationale:
+  - rtservice now emits PARTIAL hypotheses for the same time window, followed
+    by a FINAL event for that window. The UI must treat PARTIALs as replaceable
+    and FINALs as locking.
 
   Inputs:
   - msgs: vector of transcript messages
@@ -127,16 +133,25 @@
   (let [msg (normalize-asr asr-ev)
         msgs (vec (or msgs []))
         n (count msgs)
-        last-msg (when (pos? n) (nth msgs (dec n)))]
+        ;; Scan from the end: the transcript can be re-sorted when refined
+        ;; events arrive, so the most recent partial is not guaranteed to be
+        ;; the last element.
+        partial-idx (loop [i (dec n)]
+                      (when (>= i 0)
+                        (let [m (nth msgs i)]
+                          (if (and (= "asr" (:kind m)) (false? (:final m)))
+                            i
+                            (recur (dec i))))))]
     (cond
-      ;; Partial update: overwrite the last partial ASR.
-      (and last-msg
-           (= "asr" (:kind last-msg))
-           (false? (:final last-msg))
-           (= "asr" (:kind msg))
-           (false? (:final msg)))
-      (assoc msgs (dec n) msg)
+      ;; PARTIAL update: overwrite the most recent partial.
+      (and (some? partial-idx) (false? (:final msg)))
+      (assoc msgs partial-idx msg)
 
+      ;; FINAL commits: if we have an in-progress partial, replace it.
+      (and (some? partial-idx) (true? (:final msg)))
+      (assoc msgs partial-idx msg)
+
+      ;; No partial exists: append.
       :else
       (conj msgs msg))))
 

@@ -12,6 +12,17 @@
       (is (= "hello" (:text (first msgs))))
       (is (= 2 (:seq (first msgs)))))))
 
+(deftest upsert-asr-final-commits-last-partial
+  (testing "FINAL ASR replaces (commits) the most recent partial"
+    (let [msgs []
+          msgs (transcript/upsert-asr msgs {:seq 1 :ts_ms 10 :start_s 0.0 :end_s 1.0 :text "hel" :final false})
+          msgs (transcript/upsert-asr msgs {:seq 2 :ts_ms 11 :start_s 0.0 :end_s 1.2 :text "hello" :final false})
+          msgs (transcript/upsert-asr msgs {:seq 3 :ts_ms 12 :start_s 0.0 :end_s 1.5 :text "hello!" :final true})]
+      (is (= 1 (count msgs)))
+      (is (= "hello!" (:text (first msgs))))
+      (is (= 3 (:seq (first msgs))))
+      (is (true? (:final (first msgs)))))))
+
 (deftest apply-refined-removes-contained-asr-only
   (testing "Refined removes ASR messages fully contained within refined window (inclusive)"
     (let [asr1 {:kind "asr" :seq 1 :ts_ms 1 :start_s 0.0 :end_s 2.0 :text "a" :final true}
