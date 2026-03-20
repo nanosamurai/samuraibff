@@ -92,3 +92,24 @@
           ;; upsert-asr appends; ordering is currently insertion order, apply-refined should sort.
           msgs' (transcript/apply-refined msgs {:seq 3 :ts_ms 3 :start_s 5 :end_s 6 :text "mid"})]
       (is (= [1 3 2] (mapv :seq msgs'))))))
+
+(deftest coalesce-asr-finals-merges-consecutive-same-speaker
+  (testing "Consecutive ASR FINAL messages are merged when gap is small and speaker matches"
+    (let [msgs [{:kind "asr" :seq 1 :ts_ms 1 :start_s 0.0 :end_s 2.0 :text "hello" :speaker "SPEAKER_00" :final true}
+                {:kind "asr" :seq 2 :ts_ms 2 :start_s 2.2 :end_s 4.0 :text "world" :speaker "SPEAKER_00" :final true}]
+          out (transcript/coalesce-asr-finals msgs {:max-gap-s 0.3})]
+      (is (= 1 (count out)))
+      (is (= 0.0 (:start_s (first out))))
+      (is (= 4.0 (:end_s (first out))))
+      (is (= "hello world" (:text (first out))))
+      (is (= 2 (:ts_ms (first out))))))
+
+  (testing "Does not merge when speakers differ or there is a refined boundary"
+    (let [msgs [{:kind "asr" :seq 1 :ts_ms 1 :start_s 0.0 :end_s 2.0 :text "A" :speaker "SPEAKER_00" :final true}
+                {:kind "asr" :seq 2 :ts_ms 2 :start_s 2.2 :end_s 4.0 :text "B" :speaker "SPEAKER_01" :final true}
+                {:kind "refined" :seq 9 :ts_ms 9 :start_s 4.0 :end_s 5.0 :text "R" :speaker "SPEAKER_00"}
+                {:kind "asr" :seq 3 :ts_ms 3 :start_s 5.05 :end_s 6.0 :text "C" :speaker "SPEAKER_00" :final true}
+                {:kind "asr" :seq 4 :ts_ms 4 :start_s 6.10 :end_s 7.0 :text "D" :speaker "SPEAKER_00" :final true}]
+          out (transcript/coalesce-asr-finals msgs {:max-gap-s 0.3})]
+      ;; First two not merged (speaker differs), refined stays, last two merged.
+      (is (= ["A" "B" "R" "C D"] (mapv :text out))))))

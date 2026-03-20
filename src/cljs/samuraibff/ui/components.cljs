@@ -187,7 +187,9 @@
   Refined messages are visually marked (★ refined) and replace overlapping
   realtime messages (handled in store)." 
   [{:keys [messages empty-title empty-hint]}]
-  (let [msgs (vec (or messages []))
+  (let [msgs (->> (or messages [])
+                  transcript/coalesce-asr-finals
+                  vec)
         container-ref (react/useRef nil)
         ;; Auto-scroll unless the user scrolled up.
         auto-scroll?* (react/useRef true)]

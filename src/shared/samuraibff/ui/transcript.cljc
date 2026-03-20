@@ -307,3 +307,78 @@
       (if-let [[_ digits] (re-matches #"(?i)SPEAKER_(\\d+)" s)]
         (str "S" (inc (parse-int digits)))
         (-> s (subs 0 (min 2 (count s))) str/upper-case)))))
+
+;; --- Cosmetic rendering helpers ---
+
+(defn coalesce-asr-finals
+  "Coalesce consecutive realtime ASR FINAL messages into larger bubbles.
+
+  This is a UI-only cosmetic helper to reduce visual fragmentation when rtservice
+  emits short FINAL chunks.
+
+  Merge rule:
+  - only messages with {:kind \"asr\" :final true}
+  - same :speaker (string-equal, treating nil/blank as empty string)
+  - gap between prev.end_s and next.start_s <= max-gap-s
+  - does NOT merge across refined messages (they break the run)
+
+  When merged:
+  - :start_s from the first message
+  - :end_s from the last message
+  - :text concatenated with a single space
+  - :ts_ms taken from the last message (freshest)
+  - :seq taken from the first message (stable)
+
+  Inputs:
+  - msgs: vector/seq of transcript messages
+  - opts: optional map {:max-gap-s double} (default 0.3)
+
+  Returns: vector of transcript messages." 
+  ([msgs]
+   (coalesce-asr-finals msgs {:max-gap-s 0.3}))
+  ([msgs {:keys [max-gap-s] :or {max-gap-s 0.3}}]
+   (let [max-gap-s (double (or max-gap-s 0.3))
+         msgs (sort-messages (vec (or msgs [])))
+         speaker-key (fn [m]
+                       (let [s (some-> (:speaker m) str)]
+                         (if (str/blank? s) "" s)))
+         join-text (fn [a b]
+                     (let [a (str (or a ""))
+                           b (str (or b ""))
+                           a (str/trimr a)
+                           b (str/triml b)]
+                       (cond
+                         (str/blank? a) b
+                         (str/blank? b) a
+                         :else (str a " " b))))
+         mergeable?
+         (fn [prev next]
+           (and (= "asr" (:kind prev))
+                (= "asr" (:kind next))
+                (true? (:final prev))
+                (true? (:final next))
+                (= (speaker-key prev) (speaker-key next))
+                (<= (max 0.0 (- (double (:start_s next)) (double (:end_s prev)))) max-gap-s)))
+         merge2
+         (fn [prev next]
+           (-> prev
+               (assoc :end_s (:end_s next)
+                      :ts_ms (:ts_ms next)
+                      :text (join-text (:text prev) (:text next))
+                      :speaker (:speaker next)
+                      :lang (or (:lang next) (:lang prev)))))]
+     (reduce
+       (fn [out m]
+         (let [prev (peek out)]
+           (cond
+             ;; Never merge across refined boundaries.
+             (= "refined" (:kind m))
+             (conj out m)
+
+             (and prev (mergeable? prev m))
+             (conj (pop out) (merge2 prev m))
+
+             :else
+             (conj out m))))
+       []
+       msgs))))
