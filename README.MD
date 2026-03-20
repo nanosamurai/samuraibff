@@ -29,8 +29,12 @@ rtservice may emit both:
 - **FINAL** results for a completed window (locking)
 
 The UI merges realtime ASR events with this rule:
-- PARTIAL updates replace the current partial line
-- FINAL commits the current line (stops changing)
+- PARTIAL updates replace the current partial line **for the same window**
+- FINAL commits the window (stops changing)
+
+Note: rtservice can emit PARTIALs for the next window while the previous window
+is still being updated. The UI therefore tracks partials per window (derived
+from `start_s`) to avoid leaving “dangling partial bubbles”.
 
 ### 2) Near-realtime refinement path (Kafka + cross-instance routing)
 - publish `AudioChunk` protobuf messages to Kafka topic **`audio.raw`**

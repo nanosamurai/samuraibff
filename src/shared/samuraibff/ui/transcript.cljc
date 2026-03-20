@@ -109,14 +109,24 @@
        (sort-by sort-key)
        vec))
 
+(defn- absd
+  "Absolute value helper usable from both CLJ and CLJS.
+
+  Input: number
+  Returns: double." 
+  [x]
+  #?(:cljs (js/Math.abs (double x))
+     :clj (Math/abs (double x))))
+
 (defn upsert-asr
   "Insert or update a realtime ASR message in an existing transcript.
 
   Semantics (Plan C / cumulative refinement):
-  - maintain at most one 'current partial' ASR message
-  - incoming PARTIAL replaces the most recent ASR partial
-  - incoming FINAL *commits* the most recent ASR partial by replacing it
-  - if no ASR partial exists, append
+  - maintain at most one in-flight ASR message *per window*
+  - incoming PARTIAL replaces the partial for its window (if present)
+  - incoming FINAL commits its window by replacing the in-flight partial
+  - PARTIAL arriving after a FINAL for the same window is ignored
+  - if no matching in-flight window message exists, append
 
   Rationale:
   - rtservice now emits PARTIAL hypotheses for the same time window, followed
@@ -132,28 +142,39 @@
   [msgs asr-ev]
   (let [msg (normalize-asr asr-ev)
         msgs (vec (or msgs []))
-        n (count msgs)
-        ;; Scan from the end: the transcript can be re-sorted when refined
-        ;; events arrive, so the most recent partial is not guaranteed to be
-        ;; the last element.
-        partial-idx (loop [i (dec n)]
-                      (when (>= i 0)
-                        (let [m (nth msgs i)]
-                          (if (and (= "asr" (:kind m)) (false? (:final m)))
-                            i
-                            (recur (dec i))))))]
-    (cond
-      ;; PARTIAL update: overwrite the most recent partial.
-      (and (some? partial-idx) (false? (:final msg)))
-      (assoc msgs partial-idx msg)
-
-      ;; FINAL commits: if we have an in-progress partial, replace it.
-      (and (some? partial-idx) (true? (:final msg)))
-      (assoc msgs partial-idx msg)
-
-      ;; No partial exists: append.
-      :else
-      (conj msgs msg))))
+        ;; Without a stable segment_id in the proto, we derive a best-effort
+        ;; "window key" from timing.
+        ;;
+        ;; Rationale:
+        ;; - rtservice can emit PARTIALs for the *next* window while the
+        ;;   previous window is still being finalized.
+        ;; - if we keep only one global partial, we can overwrite the wrong
+        ;;   window and leave a dangling partial bubble.
+        ;;
+        ;; We match by start_s within a small epsilon, which is robust to minor
+        ;; timing jitter but will not confuse adjacent windows (typically spaced
+        ;; by window_sec-overlap_sec, e.g. 4.5s).
+        window-eps-s 0.75
+        idx (->> (map-indexed vector msgs)
+                 (keep (fn [[i m]]
+                         (when (and (= "asr" (:kind m))
+                                    (<= (absd (- (double (:start_s m)) (double (:start_s msg))))
+                                        window-eps-s))
+                           {:idx i
+                            :delta (absd (- (double (:start_s m)) (double (:start_s msg))))
+                            :final? (boolean (:final m))})))
+                 (sort-by (juxt :delta :idx))
+                 first
+                 :idx)
+        msgs'
+        (if (some? idx)
+          (let [existing (nth msgs idx)]
+            (if (and (true? (:final existing)) (false? (:final msg)))
+              ;; Ignore late PARTIAL updates after a window was already committed.
+              msgs
+              (assoc msgs idx msg)))
+          (conj msgs msg))]
+    (sort-messages msgs')))
 
 (defn- contained-within?
   "Return true if [a0,a1] is fully contained within [b0,b1] (inclusive bounds).

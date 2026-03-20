@@ -4,7 +4,7 @@
     [samuraibff.ui.transcript :as transcript]))
 
 (deftest upsert-asr-partial-replaces-last-partial
-  (testing "Partial ASR updates replace the last partial"
+  (testing "Partial ASR updates replace the partial for the same window"
     (let [msgs []
           msgs (transcript/upsert-asr msgs {:seq 1 :ts_ms 10 :start_s 0.0 :end_s 1.0 :text "hel" :final false})
           msgs (transcript/upsert-asr msgs {:seq 2 :ts_ms 11 :start_s 0.0 :end_s 1.2 :text "hello" :final false})]
@@ -13,7 +13,7 @@
       (is (= 2 (:seq (first msgs)))))))
 
 (deftest upsert-asr-final-commits-last-partial
-  (testing "FINAL ASR replaces (commits) the most recent partial"
+  (testing "FINAL ASR replaces (commits) the partial for the same window"
     (let [msgs []
           msgs (transcript/upsert-asr msgs {:seq 1 :ts_ms 10 :start_s 0.0 :end_s 1.0 :text "hel" :final false})
           msgs (transcript/upsert-asr msgs {:seq 2 :ts_ms 11 :start_s 0.0 :end_s 1.2 :text "hello" :final false})
@@ -21,6 +21,30 @@
       (is (= 1 (count msgs)))
       (is (= "hello!" (:text (first msgs))))
       (is (= 3 (:seq (first msgs))))
+      (is (true? (:final (first msgs)))))))
+
+(deftest upsert-asr-interleaved-windows-do-not-clobber
+  (testing "Interleaved partials for adjacent windows do not overwrite each other"
+    ;; Simulate a sliding window (window=5s overlap=0.5s => stride ~4.5s)
+    ;; where rtservice may emit partials for next window while still updating
+    ;; the previous window.
+    (let [msgs []
+          ;; Window A (start ~4.5)
+          msgs (transcript/upsert-asr msgs {:seq 10 :ts_ms 10 :start_s 4.53 :end_s 7.00 :text "A-partial-1" :final false})
+          ;; Window B begins (start ~9.0)
+          msgs (transcript/upsert-asr msgs {:seq 11 :ts_ms 11 :start_s 9.03 :end_s 10.00 :text "B-partial-1" :final false})
+          ;; Window A partial updates again
+          msgs (transcript/upsert-asr msgs {:seq 12 :ts_ms 12 :start_s 4.53 :end_s 8.50 :text "A-partial-2" :final false})]
+      (is (= 2 (count msgs)))
+      (is (= #{"A-partial-2" "B-partial-1"} (set (map :text msgs)))))))
+
+(deftest upsert-asr-partial-after-final-ignored
+  (testing "Late PARTIAL after a FINAL for the same window is ignored"
+    (let [msgs []
+          msgs (transcript/upsert-asr msgs {:seq 1 :ts_ms 1 :start_s 4.53 :end_s 9.20 :text "A-final" :final true})
+          msgs (transcript/upsert-asr msgs {:seq 2 :ts_ms 2 :start_s 4.53 :end_s 9.50 :text "A-late-partial" :final false})]
+      (is (= 1 (count msgs)))
+      (is (= "A-final" (:text (first msgs))))
       (is (true? (:final (first msgs)))))))
 
 (deftest apply-refined-removes-contained-asr-only
