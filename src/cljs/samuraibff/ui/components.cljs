@@ -167,7 +167,10 @@
     [:span {:class "badge refined"} "★ refined"]
 
     (and (= kind "asr") (false? final))
-    [:span {:class "badge muted"} "partial"]
+    [:span {:class "badge muted typing"
+            :title "partial"}
+     [:span {:class "typing-dots"}
+      [:span]]]
 
     :else
     nil))

@@ -111,6 +111,43 @@
     .badge.ok{border-color:rgba(107,203,255,.45);color:rgba(230,240,255,.95)}
     .badge.bad{border-color:rgba(255,92,122,.55);color:rgba(255,92,122,.95)}
     .badge.muted{border-color:rgba(34,48,70,.8);color:var(--muted)}
+    /* Used for ASR partials: more "draft" look + typing animation. */
+    .badge.muted.typing{
+      border-style: dashed;
+      background: rgba(12,18,27,.45);
+      padding: 2px 10px;
+      gap: 6px;
+    }
+
+    .typing-dots{
+      display:inline-block;
+      width: 22px;
+      height: 10px;
+      position: relative;
+      transform: translateY(1px);
+    }
+
+    .typing-dots::before, .typing-dots::after, .typing-dots span{
+      content:"";
+      position:absolute;
+      top: 50%;
+      width: 4px;
+      height: 4px;
+      border-radius: 99px;
+      background: var(--muted);
+      opacity: .35;
+      transform: translateY(-50%);
+      animation: typingDots 1.05s infinite ease-in-out;
+    }
+
+    .typing-dots::before{left:0; animation-delay:0s}
+    .typing-dots span{left:9px; animation-delay:.15s}
+    .typing-dots::after{left:18px; animation-delay:.3s}
+
+    @keyframes typingDots{
+      0%, 80%, 100% {opacity: .25; transform: translateY(-50%) translateY(0)}
+      40% {opacity: .95; transform: translateY(-50%) translateY(-2px)}
+    }
 
     /* --- Pages --- */
 
