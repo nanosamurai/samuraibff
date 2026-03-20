@@ -47,6 +47,19 @@
       (is (= "A-final" (:text (first msgs))))
       (is (true? (:final (first msgs)))))))
 
+(deftest upsert-asr-final-pairs-with-partial-even-when-start-shifts
+  (testing "FINAL replaces PARTIAL even if diarization shifts start_s and adds speaker"
+    ;; This reproduces the observed UI issue:
+    ;; - PARTIAL arrives early with speaker empty (Unknown) and start at 0
+    ;; - FINAL arrives later with speaker assigned and start shifted (e.g. 1.09)
+    ;; If we match only by start_s epsilon, we'd fail to pair and leave an orphan partial.
+    (let [msgs []
+          msgs (transcript/upsert-asr msgs {:seq 1 :ts_ms 1 :start_s 0.00 :end_s 9.50 :text "Okay good afternoon ..." :speaker "" :final false})
+          msgs (transcript/upsert-asr msgs {:seq 2 :ts_ms 2 :start_s 1.09 :end_s 9.97 :text "Okay good afternoon ... UI" :speaker "SPEAKER_00" :final true})]
+      (is (= 1 (count msgs)) (str "Expected FINAL to replace the PARTIAL, got: " (pr-str msgs)))
+      (is (true? (:final (first msgs))))
+      (is (= "SPEAKER_00" (:speaker (first msgs)))))))
+
 (deftest apply-refined-removes-contained-asr-only
   (testing "Refined removes ASR messages fully contained within refined window (inclusive)"
     (let [asr1 {:kind "asr" :seq 1 :ts_ms 1 :start_s 0.0 :end_s 2.0 :text "a" :final true}

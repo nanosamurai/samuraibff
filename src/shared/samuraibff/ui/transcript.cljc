@@ -118,6 +118,31 @@
   #?(:cljs (js/Math.abs (double x))
      :clj (Math/abs (double x))))
 
+(defn- overlap-score
+  "Compute an overlap score between two [start,end] ranges.
+
+  Score definition:
+  - let overlap = intersection length in seconds
+  - let denom = min(duration-a, duration-b)
+  - score = overlap/denom in [0,1]
+
+  Inputs:
+  - a0,a1,b0,b1: doubles (seconds)
+
+  Returns: double in [0,1]." 
+  [a0 a1 b0 b1]
+  (let [a0 (double a0)
+        a1 (double a1)
+        b0 (double b0)
+        b1 (double b1)
+        start (max a0 b0)
+        end (min a1 b1)
+        overlap (max 0.0 (- end start))
+        da (max 0.0 (- a1 a0))
+        db (max 0.0 (- b1 b0))
+        denom (max 0.000001 (min da db))]
+    (/ overlap denom)))
+
 (defn upsert-asr
   "Insert or update a realtime ASR message in an existing transcript.
 
@@ -151,19 +176,28 @@
         ;; - if we keep only one global partial, we can overwrite the wrong
         ;;   window and leave a dangling partial bubble.
         ;;
-        ;; We match by start_s within a small epsilon, which is robust to minor
-        ;; timing jitter but will not confuse adjacent windows (typically spaced
-        ;; by window_sec-overlap_sec, e.g. 4.5s).
-        window-eps-s 0.75
+        ;; Pair PARTIAL<->FINAL and updates by window overlap.
+        ;;
+        ;; Why not start_s only?
+        ;; - diarization/speaker assignment may shift start_s slightly between
+        ;;   PARTIAL and FINAL (e.g. 0.0 -> 1.09), which would miss an epsilon
+        ;;   match and leave an orphan partial "typing" bubble.
+        ;;
+        ;; Overlap-based pairing still won't confuse adjacent windows because
+        ;; their overlap ratio is small (typically overlap_sec/window_sec).
+        min-overlap-score 0.6
         idx (->> (map-indexed vector msgs)
                  (keep (fn [[i m]]
-                         (when (and (= "asr" (:kind m))
-                                    (<= (absd (- (double (:start_s m)) (double (:start_s msg))))
-                                        window-eps-s))
-                           {:idx i
-                            :delta (absd (- (double (:start_s m)) (double (:start_s msg))))
-                            :final? (boolean (:final m))})))
-                 (sort-by (juxt :delta :idx))
+                         (when (= "asr" (:kind m))
+                           (let [score (overlap-score (:start_s m) (:end_s m)
+                                                      (:start_s msg) (:end_s msg))]
+                             (when (>= score min-overlap-score)
+                               {:idx i
+                                :score score
+                                :delta (absd (- (double (:start_s m)) (double (:start_s msg))))
+                                :final? (boolean (:final m))})))))
+                 ;; Prefer higher overlap, then closer start_s, then earlier index.
+                 (sort-by (juxt (comp - :score) :delta :idx))
                  first
                  :idx)
         msgs'
