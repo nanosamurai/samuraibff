@@ -48,17 +48,27 @@ The UI receives both realtime and refined transcript events over `/ws/events`:
 - realtime ASR: `{"type":"asr", "start_s": <double>, "end_s": <double>, "final": <bool>, ...}`
 - refined (WhisperX): `{"type":"refined", "start_s": <double>, "end_s": <double>, ...}`
 
-The **Live Recording** transcript is rendered as a Slack-like message thread (avatar/name/timestamp + bubble).
+The UI renders transcripts as a Slack-like message thread (avatar/name/timestamp + bubble).
+
+#### Transcript modes / tabs
+Since rtservice realtime quality has improved, the UI **does not merge** refined
+segments into realtime ASR any more.
+
+Instead, the UI shows separate views:
+- **Real-time transcript** (ASR)
+- **Refined real-time** (refined)
+- **Final transcript** (DB final)
 
 ### 4) Front-end
 And of course, this repos also hosts the UI (Clojurescript) - see `src/cljs` .
 
-#### Replacement heuristic
-When a refined segment arrives with time window `[r0, r1]`, the UI removes only **ASR** messages whose time window is fully contained:
+#### Legacy refined replacement heuristic (no longer used)
+Historically, the UI merged refined segments into realtime ASR using a replacement
+heuristic based on time window containment.
 
-- `r0 <= asr.start_s` and `asr.end_s <= r1` (inclusive)
-
-Then it inserts the refined message (marked with `★ refined`) and re-sorts by time.
+We keep the pure helper function in `src/shared/samuraibff/ui/transcript.cljc`
+for reference/testing, but the default UI behavior is now to render ASR and
+refined as separate streams.
 
 #### Timebases and debugging
 In practice, ASR and refined timestamps can come from different sources.
