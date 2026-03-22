@@ -200,6 +200,32 @@
           (and (= "asr" (:kind m))
                (or (true? (:final msg))
                    (false? (:final m)))))
+        ;; If a PARTIAL arrives *after* a FINAL for the same window, ignore it.
+        ;;
+        ;; IMPORTANT: This is distinct from the candidate matching logic below.
+        ;; We avoid matching PARTIALs against FINALs for replacement, but we
+        ;; still want to suppress truly late PARTIAL updates.
+        late-partial?
+        (when (false? (:final msg))
+          (let [{:keys [m score]}
+                (->> msgs
+                     (filter #(and (= "asr" (:kind %)) (true? (:final %))))
+                     (map (fn [m]
+                            {:m m
+                             :score (overlap-score (:start_s m) (:end_s m)
+                                                   (:start_s msg) (:end_s msg))
+                             :delta (absd (- (double (:start_s m)) (double (:start_s msg))))}))
+                     ;; Prefer higher overlap, then closer start.
+                     (sort-by (juxt (comp - :score) :delta))
+                     first)
+                msg-ord (long (or (:ts_ms msg) (:seq msg) 0))
+                fin-ord (long (or (:ts_ms m) (:seq m) 0))]
+            (and m
+                 ;; Only consider it "the same window" if the overlap is very high.
+                 (>= (double (or score 0.0)) 0.9)
+                 ;; And only ignore if it is actually later.
+                 (>= msg-ord fin-ord))))
+
         idx (->> (map-indexed vector msgs)
                  (keep (fn [[i m]]
                          (when (candidate? m)
@@ -215,12 +241,14 @@
                  first
                  :idx)
         msgs'
-        (if (some? idx)
-          (let [existing (nth msgs idx)]
-            (if (and (true? (:final existing)) (false? (:final msg)))
-              ;; Ignore late PARTIAL updates after a window was already committed.
-              msgs
-              (assoc msgs idx msg)))
+        (cond
+          (true? late-partial?)
+          msgs
+
+          (some? idx)
+          (assoc msgs idx msg)
+
+          :else
           (conj msgs msg))]
     (sort-messages msgs')))
 
