@@ -22,6 +22,20 @@ Nanosamurai solution currently consists of
 - forward audio frames to **rtservice** via **gRPC** (bidirectional stream)
 - stream realtime events back to the UI via WebSocket (`/ws/events`) as **JSON**
 
+#### Plan C: rtservice PARTIAL + FINAL semantics
+
+rtservice may emit both:
+- **PARTIAL** hypotheses for the current window (replaceable)
+- **FINAL** results for a completed window (locking)
+
+The UI merges realtime ASR events with this rule:
+- PARTIAL updates replace the current partial line **for the same window**
+- FINAL commits the window (stops changing)
+
+Note: rtservice can emit PARTIALs for the next window while the previous window
+is still being updated. The UI therefore tracks partials per window (derived
+from `start_s`) to avoid leaving “dangling partial bubbles”.
+
 ### 2) Near-realtime refinement path (Kafka + cross-instance routing)
 - publish `AudioChunk` protobuf messages to Kafka topic **`audio.raw`**
 - consume `RefinedEvent` protobuf messages from Kafka topic **`transcripts.refined`**
@@ -34,17 +48,27 @@ The UI receives both realtime and refined transcript events over `/ws/events`:
 - realtime ASR: `{"type":"asr", "start_s": <double>, "end_s": <double>, "final": <bool>, ...}`
 - refined (WhisperX): `{"type":"refined", "start_s": <double>, "end_s": <double>, ...}`
 
-The **Live Recording** transcript is rendered as a Slack-like message thread (avatar/name/timestamp + bubble).
+The UI renders transcripts as a Slack-like message thread (avatar/name/timestamp + bubble).
+
+#### Transcript modes / tabs
+Since rtservice realtime quality has improved, the UI **does not merge** refined
+segments into realtime ASR any more.
+
+Instead, the UI shows separate views:
+- **Real-time transcript** (ASR)
+- **Refined real-time** (refined)
+- **Final transcript** (DB final)
 
 ### 4) Front-end
 And of course, this repos also hosts the UI (Clojurescript) - see `src/cljs` .
 
-#### Replacement heuristic
-When a refined segment arrives with time window `[r0, r1]`, the UI removes only **ASR** messages whose time window is fully contained:
+#### Legacy refined replacement heuristic (no longer used)
+Historically, the UI merged refined segments into realtime ASR using a replacement
+heuristic based on time window containment.
 
-- `r0 <= asr.start_s` and `asr.end_s <= r1` (inclusive)
-
-Then it inserts the refined message (marked with `★ refined`) and re-sorts by time.
+We keep the pure helper function in `src/shared/samuraibff/ui/transcript.cljc`
+for reference/testing, but the default UI behavior is now to render ASR and
+refined as separate streams.
 
 #### Timebases and debugging
 In practice, ASR and refined timestamps can come from different sources.
@@ -562,6 +586,15 @@ The UI will:
 - create a new session via `POST /api/sessions`
 - open `/ws/events?session_id=<uuid>` and display realtime transcript events
 - capture microphone audio (PCM16LE) and stream it to `/ws/audio?session_id=<uuid>&lang=en&sample_rate=16000`
+
+Optional per-session rtservice overrides (passed as gRPC metadata headers):
+- `rt_window_sec` / `window_sec`
+- `rt_overlap_sec` / `overlap_sec`
+- `rt_emit_every_sec` / `emit_every_sec`
+
+Example:
+
+`/ws/audio?session_id=<uuid>&lang=en&sample_rate=16000&rt_window_sec=5.0&rt_overlap_sec=0.5&rt_emit_every_sec=0.7`
 
 Notes:
 - The compiled JS bundle is large (shadow-cljs dev output). Avoid printing it to the terminal.

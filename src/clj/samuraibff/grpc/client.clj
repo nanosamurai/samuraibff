@@ -14,10 +14,25 @@
    [integrant.core :as ig]
    [org.corfield.logging4j2 :as log])
   (:import
-   (io.grpc ManagedChannel ManagedChannelBuilder StatusRuntimeException)
-   (io.grpc.stub StreamObserver)
+   (io.grpc ClientInterceptor ManagedChannel ManagedChannelBuilder Metadata Metadata$Key StatusRuntimeException)
+   (io.grpc.stub MetadataUtils StreamObserver)
    (java.util.concurrent TimeUnit)
    (samuraibff.proto RealtimeASRGrpc)))
+
+(defn- ^Metadata map->metadata
+  "Convert a Clojure map of header-name -> string into gRPC Metadata.
+
+  Inputs:
+  - m: map (string->string)
+
+  Returns: io.grpc.Metadata." 
+  [m]
+  (let [md (Metadata.)]
+    (doseq [[k v] (or m {})]
+      (when (and (string? k) (string? v))
+        (let [^Metadata$Key key (Metadata$Key/of k Metadata/ASCII_STRING_MARSHALLER)]
+          (.put md key v))))
+    md))
 
 (defn- build-channel
   "Create a ManagedChannel for the configured rtservice address.
@@ -67,6 +82,7 @@
       :on-next     (fn [asr-event])        invoked for every incoming AsrEvent
       :on-error    (fn [Throwable])        invoked on error
       :on-complete (fn [])                invoked when server closes stream
+      :metadata    {header-name header-value ...} optional gRPC metadata to attach
 
   Returns a map with operations:
   - :send!     (fn [audio-chunk])         push AudioChunk to rtservice
@@ -77,10 +93,15 @@
   - The returned operations are safe to call multiple times. In particular,
     `:complete!` is idempotent to avoid noisy `call already half-closed`
     exceptions during cleanup." 
-  [{:keys [stub]} {:keys [on-next on-error on-complete]}]
+  [{:keys [stub]} {:keys [on-next on-error on-complete metadata]}]
   (when-not stub
     (throw (ex-info "gRPC stub missing" {})))
   (let [closed?* (atom false)
+        stub' (if (seq metadata)
+                (let [^Metadata md (map->metadata metadata)
+                      ^ClientInterceptor interceptor (MetadataUtils/newAttachHeadersInterceptor md)]
+                  (.withInterceptors stub (into-array ClientInterceptor [interceptor])))
+                stub)
         response-observer
         (reify StreamObserver
           (onNext [_ msg]
@@ -105,7 +126,7 @@
                 (catch Exception e
                   (log/error e "RealtimeASR onComplete handler failed")))
               (log/info "RealtimeASR stream completed"))))
-        request-observer (.stream stub response-observer)]
+        request-observer (.stream stub' response-observer)]
     {:send! (fn [audio-chunk]
               (when-not @closed?*
                 (.onNext request-observer audio-chunk)))

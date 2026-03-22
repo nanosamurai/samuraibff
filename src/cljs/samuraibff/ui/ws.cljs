@@ -42,7 +42,8 @@
                   (str "[events] refined raw start=" (pr-str (:start_s ev))
                        " end=" (pr-str (:end_s ev))
                        (when-let [xs (:supersedes_seq ev)] (str " supersedes=" (pr-str xs)))))
-                (store/apply-refined! ev))
+
+                (store/append-refined! ev))
     (store/append-log! (str "[events] unknown event: " (pr-str ev)))))
 
 (defn connect-events!

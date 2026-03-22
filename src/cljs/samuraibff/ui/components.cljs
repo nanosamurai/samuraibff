@@ -167,7 +167,10 @@
     [:span {:class "badge refined"} "★ refined"]
 
     (and (= kind "asr") (false? final))
-    [:span {:class "badge muted"} "partial"]
+    [:span {:class "badge muted typing"
+            :title "partial"}
+     [:span {:class "typing-dots"}
+      [:span]]]
 
     :else
     nil))
@@ -181,10 +184,15 @@
   - timestamp
   - message bubble
 
-  Refined messages are visually marked (★ refined) and replace overlapping
-  realtime messages (handled in store)." 
+  Refined messages are visually marked (★ refined).
+
+  Note:
+  - We no longer merge refined segments into realtime ASR in the UI.
+  - Each tab renders its own message stream." 
   [{:keys [messages empty-title empty-hint]}]
-  (let [msgs (vec (or messages []))
+  (let [msgs (->> (or messages [])
+                  transcript/coalesce-asr-finals
+                  vec)
         container-ref (react/useRef nil)
         ;; Auto-scroll unless the user scrolled up.
         auto-scroll?* (react/useRef true)]
@@ -230,9 +238,16 @@
 (defn live-transcript
   "Transcript component bound to the live session store." 
   []
-  [transcript-view {:messages (hooks/use-atom store/segments*)
-                    :empty-title "Live transcript"
+  [transcript-view {:messages (hooks/use-atom store/asr-segments*)
+                    :empty-title "Real-time transcript"
                     :empty-hint "No ASR events yet…"}])
+
+(defn refined-live-transcript
+  "Refined realtime transcript component bound to the live session store." 
+  []
+  [transcript-view {:messages (hooks/use-atom store/refined-segments*)
+                    :empty-title "Refined real-time"
+                    :empty-hint "No refined events yet…"}])
 
 (defn log-view
   "Debug log view." 
@@ -551,12 +566,12 @@
   "Recording detail page.
 
   Features:
-  - Preview transcript tab: refined segments from DB, plus cached realtime ASR
-    (when available locally)
+  - Real-time transcript tab: cached realtime ASR (if available locally)
+  - Refined real-time tab: refined segments from DB, plus cached refined WS (if available locally)
   - Final transcript tab: final transcript records from DB
   - Hideable log panel (cached locally only)" 
   [session-id]
-  (let [tab* (react/useState :preview)
+  (let [tab* (react/useState :realtime)
         tab (aget tab* 0)
         set-tab! (aget tab* 1)
         show-log?* (react/useState true)
@@ -571,7 +586,8 @@
         detail (aget detail* 0)
         set-detail! (aget detail* 1)
 
-        cached-asr (store/cached-segments session-id)
+        cached-asr (store/cached-asr-segments session-id)
+        cached-refined (store/cached-refined-segments session-id)
         cached-log-lines (store/cached-log session-id)
 
 
@@ -614,14 +630,21 @@
         js/undefined)
       #js [session-id])
 
-    ;; Build preview transcript by applying refined events (from DB) onto cached ASR.
-    ;; If no cached ASR exists, show refined events only.
-    (let [preview-msgs (if (seq cached-asr)
-                         (reduce (fn [msgs ref]
-                                   (transcript/apply-refined msgs ref))
-                                 (vec cached-asr)
-                                 refined-events)
-                         (refined-events->messages refined-events))
+    ;; Build 3 independent feeds:
+    ;; - realtime ASR (cached locally if available)
+    ;; - refined realtime (DB refined records + cached refined WS items if available)
+    ;; - final transcript (DB)
+    (let [realtime-msgs (transcript/sort-messages (vec (or cached-asr [])))
+          refined-msgs (->> (concat (refined-events->messages refined-events)
+                                    (vec (or cached-refined [])))
+                            ;; de-dupe by :seq so DB and cached don’t double-render
+                            (reduce (fn [acc m]
+                                      (let [k (:seq m)]
+                                        (if (contains? acc k) acc (assoc acc k m))))
+                                    {})
+                            vals
+                            transcript/sort-messages
+                            vec)
 
           ;; Final transcript: take the last record and render its segments (or full_text).
           final-record (last (vec (or db-final [])))
@@ -647,9 +670,12 @@
           "Refresh"]]]
 
        [:div {:class "tabs"}
-        [:button {:class (str "tab " (when (= tab :preview) "active"))
-                  :on-click (fn [_] (set-tab! :preview))}
-         "Preview transcript"]
+        [:button {:class (str "tab " (when (= tab :realtime) "active"))
+                  :on-click (fn [_] (set-tab! :realtime))}
+         "Real-time transcript"]
+        [:button {:class (str "tab " (when (= tab :refined) "active"))
+                  :on-click (fn [_] (set-tab! :refined))}
+         "Refined real-time"]
         [:button {:class (str "tab " (when (= tab :final) "active"))
                   :on-click (fn [_] (set-tab! :final))}
          "Final transcript"]
@@ -661,14 +687,21 @@
        (if show-log?
          [:div {:class "grid-2"}
           [:div {:class "card"}
-           [:div {:class "card-title"} (if (= tab :preview) "Preview" "Final")]
+           [:div {:class "card-title"}
+            (case tab
+              :refined "Refined real-time"
+              :final "Final"
+              "Real-time")]
            (case tab
              :final [transcript-view {:messages final-msgs
                                       :empty-title "Final transcript"
                                       :empty-hint (if final-record "(no segments)" "No final transcript stored") }]
-             [transcript-view {:messages preview-msgs
-                               :empty-title "Preview transcript"
-                               :empty-hint "No transcript available"}])]
+             :refined [transcript-view {:messages refined-msgs
+                                        :empty-title "Refined real-time"
+                                        :empty-hint "No refined transcript available"}]
+             [transcript-view {:messages realtime-msgs
+                               :empty-title "Real-time transcript"
+                               :empty-hint "No realtime transcript available"}])]
 
           [:div {:class "card"}
            [:div {:class "card-title"} "Log"]
@@ -679,14 +712,21 @@
              [:div {:class "muted"} "No log available for this session (not persisted)."])]
           ]
          [:div {:class "card"}
-          [:div {:class "card-title"} (if (= tab :preview) "Preview" "Final")]
+          [:div {:class "card-title"}
+           (case tab
+             :refined "Refined real-time"
+             :final "Final"
+             "Real-time")]
           (case tab
             :final [transcript-view {:messages final-msgs
                                      :empty-title "Final transcript"
                                      :empty-hint (if final-record "(no segments)" "No final transcript stored") }]
-            [transcript-view {:messages preview-msgs
-                              :empty-title "Preview transcript"
-                              :empty-hint "No transcript available"}])])]))
+            :refined [transcript-view {:messages refined-msgs
+                                       :empty-title "Refined real-time"
+                                       :empty-hint "No refined transcript available"}]
+            [transcript-view {:messages realtime-msgs
+                              :empty-title "Real-time transcript"
+                              :empty-hint "No realtime transcript available"}])])]))
 
   )
 
@@ -707,23 +747,37 @@
 (defn live-recording-page
   "Live Recording page." 
   []
-  [:div {:class "page"}
-   [:div {:class "page-header"}
-    [:div
-     [:div {:class "page-title"} "Live Recording"]
-     [:div {:class "muted"} "Realtime transcript via /ws/events + /ws/audio."]]
-    [:div {:class "row"}
-     [router/link {:route {:page :recordings :params {}}
-                   :class "btn"}
-      "Recordings"]]]
+  (let [tab* (react/useState :realtime)
+        tab (aget tab* 0)
+        set-tab! (aget tab* 1)]
+    [:div {:class "page"}
+     [:div {:class "page-header"}
+      [:div
+       [:div {:class "page-title"} "Live Recording"]
+       [:div {:class "muted"} "Realtime transcript via /ws/events + /ws/audio."]]
+      [:div {:class "row"}
+       [router/link {:route {:page :recordings :params {}}
+                     :class "btn"}
+        "Recordings"]]]
 
-   [controls]
+     [controls]
 
-   [:div {:class "split"}
-    [:div {:class "split-main"}
-     [live-transcript]]
-    [:div {:class "split-side"}
-     [right-panel]]]])
+     [:div {:class "tabs"}
+      [:button {:class (str "tab " (when (= tab :realtime) "active"))
+                :on-click (fn [_] (set-tab! :realtime))}
+       "Real-time transcript"]
+      [:button {:class (str "tab " (when (= tab :refined) "active"))
+                :on-click (fn [_] (set-tab! :refined))}
+       "Refined real-time"]
+      [:div {:class "spacer"}]]
+
+     [:div {:class "split"}
+      [:div {:class "split-main"}
+       (case tab
+         :refined [refined-live-transcript]
+         [live-transcript])]
+      [:div {:class "split-side"}
+       [right-panel]]]]))
 
 (defn- sidebar-item
   [{:keys [active? label route]}]
