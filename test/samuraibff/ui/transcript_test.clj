@@ -60,6 +60,16 @@
       (is (true? (:final (first msgs))))
       (is (= "SPEAKER_00" (:speaker (first msgs)))))))
 
+(deftest upsert-asr-partial-is-not-dropped-when-a-final-overlaps
+  (testing "PARTIAL is not ignored just because it overlaps an already-FINAL message"
+    ;; This is the regression that made typing bubbles disappear.
+    ;; With overlap-based pairing, a PARTIAL could match a FINAL strongly,
+    ;; then be ignored by the "late PARTIAL after FINAL" guard.
+    (let [msgs [{:kind "asr" :seq 1 :ts_ms 1 :start_s 0.0 :end_s 2.0 :text "A" :speaker "SPEAKER_00" :final true}]
+          msgs (transcript/upsert-asr msgs {:seq 2 :ts_ms 2 :start_s 1.9 :end_s 3.5 :text "partial" :speaker "" :final false})]
+      (is (= 2 (count msgs)) (pr-str msgs))
+      (is (= #{true false} (set (map :final msgs)))))))
+
 (deftest apply-refined-removes-contained-asr-only
   (testing "Refined removes ASR messages fully contained within refined window (inclusive)"
     (let [asr1 {:kind "asr" :seq 1 :ts_ms 1 :start_s 0.0 :end_s 2.0 :text "a" :final true}

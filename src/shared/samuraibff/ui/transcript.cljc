@@ -186,9 +186,23 @@
         ;; Overlap-based pairing still won't confuse adjacent windows because
         ;; their overlap ratio is small (typically overlap_sec/window_sec).
         min-overlap-score 0.6
+        ;; IMPORTANT:
+        ;; - When a PARTIAL arrives we must *not* match it to an already-FINAL
+        ;;   message (even if it overlaps), otherwise we can end up ignoring it
+        ;;   due to the "late PARTIAL after FINAL" guard.
+        ;; - That would make the UI appear to "lose" the typing bubble.
+        ;;
+        ;; So:
+        ;; - PARTIAL can only match existing non-final ASR messages.
+        ;; - FINAL can match any ASR message (partial preferred by overlap).
+        candidate?
+        (fn [m]
+          (and (= "asr" (:kind m))
+               (or (true? (:final msg))
+                   (false? (:final m)))))
         idx (->> (map-indexed vector msgs)
                  (keep (fn [[i m]]
-                         (when (= "asr" (:kind m))
+                         (when (candidate? m)
                            (let [score (overlap-score (:start_s m) (:end_s m)
                                                       (:start_s msg) (:end_s msg))]
                              (when (>= score min-overlap-score)
