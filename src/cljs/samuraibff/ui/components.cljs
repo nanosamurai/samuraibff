@@ -235,9 +235,16 @@
 (defn live-transcript
   "Transcript component bound to the live session store." 
   []
-  [transcript-view {:messages (hooks/use-atom store/segments*)
-                    :empty-title "Live transcript"
+  [transcript-view {:messages (hooks/use-atom store/asr-segments*)
+                    :empty-title "Real-time transcript"
                     :empty-hint "No ASR events yet…"}])
+
+(defn refined-live-transcript
+  "Refined realtime transcript component bound to the live session store." 
+  []
+  [transcript-view {:messages (hooks/use-atom store/refined-segments*)
+                    :empty-title "Refined real-time"
+                    :empty-hint "No refined events yet…"}])
 
 (defn log-view
   "Debug log view." 
@@ -712,23 +719,37 @@
 (defn live-recording-page
   "Live Recording page." 
   []
-  [:div {:class "page"}
-   [:div {:class "page-header"}
-    [:div
-     [:div {:class "page-title"} "Live Recording"]
-     [:div {:class "muted"} "Realtime transcript via /ws/events + /ws/audio."]]
-    [:div {:class "row"}
-     [router/link {:route {:page :recordings :params {}}
-                   :class "btn"}
-      "Recordings"]]]
+  (let [tab* (react/useState :realtime)
+        tab (aget tab* 0)
+        set-tab! (aget tab* 1)]
+    [:div {:class "page"}
+     [:div {:class "page-header"}
+      [:div
+       [:div {:class "page-title"} "Live Recording"]
+       [:div {:class "muted"} "Realtime transcript via /ws/events + /ws/audio."]]
+      [:div {:class "row"}
+       [router/link {:route {:page :recordings :params {}}
+                     :class "btn"}
+        "Recordings"]]]
 
-   [controls]
+     [controls]
 
-   [:div {:class "split"}
-    [:div {:class "split-main"}
-     [live-transcript]]
-    [:div {:class "split-side"}
-     [right-panel]]]])
+     [:div {:class "tabs"}
+      [:button {:class (str "tab " (when (= tab :realtime) "active"))
+                :on-click (fn [_] (set-tab! :realtime))}
+       "Real-time transcript"]
+      [:button {:class (str "tab " (when (= tab :refined) "active"))
+                :on-click (fn [_] (set-tab! :refined))}
+       "Refined real-time"]
+      [:div {:class "spacer"}]]
+
+     [:div {:class "split"}
+      [:div {:class "split-main"}
+       (case tab
+         :refined [refined-live-transcript]
+         [live-transcript])]
+      [:div {:class "split-side"}
+       [right-panel]]]]))
 
 (defn- sidebar-item
   [{:keys [active? label route]}]
