@@ -6,7 +6,8 @@
   Atoms:
   - `session*`   : current session form state
   - `ws-status*` : statuses of events/audio websockets
-  - `segments*`  : transcript messages (realtime ASR + refined)
+  - `asr-segments*`     : realtime ASR transcript messages
+  - `refined-segments*` : refined realtime transcript messages
   - `log*`       : debug log lines
   - `running?*`  : whether capture/streaming is running
 
@@ -31,7 +32,24 @@
 (defonce segments*
   (atom []))
 
+;; NOTE: `segments*` used to store ASR+refined in one merged feed.
+;; We keep it for a short transitional period to avoid churn elsewhere,
+;; but it is no longer used by UI rendering.
+
+(defonce asr-segments*
+  (atom []))
+
+(defonce refined-segments*
+  (atom []))
+
 (defonce segments-by-session*
+  (atom {}))
+
+;; NOTE: split caches for ASR vs refined.
+(defonce asr-by-session*
+  (atom {}))
+
+(defonce refined-by-session*
   (atom {}))
 
 (defonce transcript-zero-s*
@@ -87,6 +105,28 @@
   [session-id]
   (vec (get @segments-by-session* (or session-id "") [])))
 
+(defn cached-asr-segments
+  "Get cached realtime ASR transcript messages for a session.
+
+  Inputs:
+  - session-id string
+
+  Returns:
+  - vector of transcript message maps (possibly empty)." 
+  [session-id]
+  (vec (get @asr-by-session* (or session-id "") [])))
+
+(defn cached-refined-segments
+  "Get cached refined realtime transcript messages for a session.
+
+  Inputs:
+  - session-id string
+
+  Returns:
+  - vector of transcript message maps (possibly empty)." 
+  [session-id]
+  (vec (get @refined-by-session* (or session-id "") [])))
+
 (defn cached-log
   "Get cached log lines for a session.
 
@@ -132,12 +172,18 @@
         new-id (or session-id "")]
     ;; Persist current transcript/log into per-session caches before switching.
     (when (and (string? old-id) (seq old-id))
+      ;; legacy merged cache
       (swap! segments-by-session* assoc old-id (vec @segments*))
+      ;; split caches
+      (swap! asr-by-session* assoc old-id (vec @asr-segments*))
+      (swap! refined-by-session* assoc old-id (vec @refined-segments*))
       (swap! log-by-session* assoc old-id (vec @log*)))
 
     (swap! session* assoc :id new-id)
     ;; clear-segments! is defined later in this namespace.
     (reset! segments* [])
+    (reset! asr-segments* [])
+    (reset! refined-segments* [])
     (reset! transcript-zero-s* nil)
     (reset! log* [])
     nil))
@@ -236,10 +282,14 @@
   "Clear transcript segments/messages and reset transcript time base." 
   []
   (reset! segments* [])
+  (reset! asr-segments* [])
+  (reset! refined-segments* [])
   (reset! transcript-zero-s* nil)
   (let [sid (or (get @session* :id) "")]
     (when (seq sid)
-      (swap! segments-by-session* assoc sid [])))
+      (swap! segments-by-session* assoc sid [])
+      (swap! asr-by-session* assoc sid [])
+      (swap! refined-by-session* assoc sid [])))
   nil)
 
 (defn set-auth-status!
@@ -393,30 +443,32 @@
   [ev]
   (let [ev' (rebase-event-times ev)
         sid (or (:session_id ev) (get @session* :id) "")]
+    ;; legacy merged
     (swap! segments*
            (fn [xs]
-             (let [xs (transcript/upsert-asr xs ev')
-                   xs (if (> (count xs) max-segments)
-                        (subvec (vec xs) (- (count xs) max-segments))
-                        (vec xs))]
-               xs)))
+             (let [xs (transcript/upsert-asr xs ev')]
+               (if (> (count xs) max-segments)
+                 (subvec (vec xs) (- (count xs) max-segments))
+                 (vec xs)))))
+    ;; split ASR
+    (swap! asr-segments*
+           (fn [xs]
+             (let [xs (transcript/upsert-asr xs ev')]
+               (if (> (count xs) max-segments)
+                 (subvec (vec xs) (- (count xs) max-segments))
+                 (vec xs)))))
     (when (seq sid)
-      (swap! segments-by-session* assoc sid (vec @segments*)))
+      (swap! segments-by-session* assoc sid (vec @segments*))
+      (swap! asr-by-session* assoc sid (vec @asr-segments*)))
     nil))
 
-(defn apply-refined!
-  "Apply a refined transcript message.
+
+(defn append-refined!
+  "Append a refined transcript message.
 
   Important:
+  - Refined messages are not merged into ASR any more.
   - For now we do NOT rebase refined events in the UI.
-
-  Reason:
-  - in practice, refined (WhisperX) timestamps may already be relative to the
-    recording start, while realtime ASR timestamps can be offset (e.g. session-
-    relative). Rebasing refined using the ASR-derived baseline can collapse
-    times to 0..0, which breaks replacement.
-
-  We log missing/degenerate timing for debugging.
 
   Input:
   - ev: map decoded from ws event, expects keys:
@@ -430,14 +482,24 @@
       (append-log! (str "[refined] suspicious times start=" (pr-str start)
                         " end=" (pr-str end)
                         " (no-rebase)")))
-    (swap! segments*
-           (fn [xs]
-             (let [xs (transcript/apply-refined xs ev)
-                   xs (if (> (count xs) max-segments)
-                        (subvec (vec xs) (- (count xs) max-segments))
-                        (vec xs))]
-               xs)))
     (let [sid (or (:session_id ev) (get @session* :id) "")]
       (when (seq sid)
-        (swap! segments-by-session* assoc sid (vec @segments*))))
+        ;; split refined
+        (swap! refined-segments*
+               (fn [xs]
+                 (let [msg (transcript/normalize-refined ev)
+                       xs (->> (conj (vec (or xs [])) msg)
+                               ;; de-dupe by seq for idempotency
+                               (reduce (fn [acc m]
+                                         (let [k (:seq m)]
+                                           (if (contains? acc k) acc (assoc acc k m))))
+                                       {})
+                               vals
+                               transcript/sort-messages
+                               vec)
+                       xs (if (> (count xs) max-segments)
+                            (subvec xs (- (count xs) max-segments))
+                            xs)]
+                   xs)))
+        (swap! refined-by-session* assoc sid (vec @refined-segments*))))
     nil))
