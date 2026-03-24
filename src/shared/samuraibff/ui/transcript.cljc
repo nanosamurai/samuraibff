@@ -37,7 +37,7 @@
   All functions in this namespace are pure.
   "
   (:require
-    [clojure.string :as str]))
+   [clojure.string :as str]))
 
 (defn normalize-asr
   "Normalize an incoming WS `asr` event map into a transcript message.
@@ -113,7 +113,7 @@
   "Absolute value helper usable from both CLJ and CLJS.
 
   Input: number
-  Returns: double." 
+  Returns: double."
   [x]
   #?(:cljs (js/Math.abs (double x))
      :clj (Math/abs (double x))))
@@ -129,7 +129,7 @@
   Inputs:
   - a0,a1,b0,b1: doubles (seconds)
 
-  Returns: double in [0,1]." 
+  Returns: double in [0,1]."
   [a0 a1 b0 b1]
   (let [a0 (double a0)
         a1 (double a1)
@@ -158,12 +158,18 @@
     by a FINAL event for that window. The UI must treat PARTIALs as replaceable
     and FINALs as locking.
 
+  Multi-speaker note:
+  - diarization may yield overlapping segments for different speakers
+    (e.g. long segment + short interjections)
+  - we therefore MUST NOT pair/replace windows across two different *known*
+    speakers; otherwise one speaker can overwrite another speaker's bubble
+
   Inputs:
   - msgs: vector of transcript messages
   - asr-ev: WS event map
 
   Returns:
-  - updated vector of transcript messages." 
+  - updated vector of transcript messages."
   [msgs asr-ev]
   (let [msg (normalize-asr asr-ev)
         msgs (vec (or msgs []))
@@ -186,6 +192,18 @@
         ;; Overlap-based pairing still won't confuse adjacent windows because
         ;; their overlap ratio is small (typically overlap_sec/window_sec).
         min-overlap-score 0.6
+        speaker-key (fn [m]
+                      (let [s (some-> (:speaker m) str)]
+                        (if (str/blank? s) "" s)))
+        speaker-compatible?
+        (fn [a b]
+          (let [a (speaker-key a)
+                b (speaker-key b)]
+            ;; If either is unknown, allow pairing (speaker can arrive late).
+            ;; If both are known, require equality.
+            (or (str/blank? a)
+                (str/blank? b)
+                (= a b))))
         ;; IMPORTANT:
         ;; - When a PARTIAL arrives we must *not* match it to an already-FINAL
         ;;   message (even if it overlaps), otherwise we can end up ignoring it
@@ -195,9 +213,11 @@
         ;; So:
         ;; - PARTIAL can only match existing non-final ASR messages.
         ;; - FINAL can match any ASR message (partial preferred by overlap).
+        ;; - and for multi-speaker, pairing must be speaker-compatible.
         candidate?
         (fn [m]
           (and (= "asr" (:kind m))
+               (speaker-compatible? m msg)
                (or (true? (:final msg))
                    (false? (:final m)))))
         ;; If a PARTIAL arrives *after* a FINAL for the same window, ignore it.
@@ -209,12 +229,15 @@
         (when (false? (:final msg))
           (let [{:keys [m score]}
                 (->> msgs
-                     (filter #(and (= "asr" (:kind %)) (true? (:final %))))
+                     (filter #(and (= "asr" (:kind %))
+                                   (true? (:final %))
+                                   (speaker-compatible? % msg)))
                      (map (fn [m]
                             {:m m
                              :score (overlap-score (:start_s m) (:end_s m)
                                                    (:start_s msg) (:end_s msg))
-                             :delta (absd (- (double (:start_s m)) (double (:start_s msg))))}))
+                             :delta (absd (- (double (:start_s m))
+                                             (double (:start_s msg))))}))
                      ;; Prefer higher overlap, then closer start.
                      (sort-by (juxt (comp - :score) :delta))
                      first)
@@ -234,7 +257,8 @@
                              (when (>= score min-overlap-score)
                                {:idx i
                                 :score score
-                                :delta (absd (- (double (:start_s m)) (double (:start_s msg))))
+                                :delta (absd (- (double (:start_s m))
+                                                (double (:start_s msg))))
                                 :final? (boolean (:final m))})))))
                  ;; Prefer higher overlap, then closer start_s, then earlier index.
                  (sort-by (juxt (comp - :score) :delta :idx))
@@ -258,7 +282,7 @@
   Inputs:
   - a0,a1,b0,b1: doubles (seconds)
 
-  Returns: boolean." 
+  Returns: boolean."
   [a0 a1 b0 b1]
   (and (<= (double b0) (double a0))
        (<= (double a1) (double b1))))
@@ -281,7 +305,7 @@
   - refined-ev: WS event map
 
   Returns:
-  - updated vector of transcript messages." 
+  - updated vector of transcript messages."
   [msgs refined-ev]
   (let [ref (normalize-refined refined-ev)
         start (double (:start_s ref))
@@ -310,7 +334,7 @@
   Inputs:
   - s: string
 
-  Returns: long." 
+  Returns: long."
   [s]
   #?(:cljs (js/parseInt s 10)
      :clj (Long/parseLong s)))
@@ -323,7 +347,7 @@
   - SPEAKER_00 => Speaker 1 (index+1)
   - otherwise => original label
 
-  Returns: string." 
+  Returns: string."
   [speaker]
   (let [s (some-> speaker str)]
     (cond
@@ -340,7 +364,7 @@
   - SPEAKER_00 => S1
   - otherwise => first 2 characters uppercased
 
-  Returns: string." 
+  Returns: string."
   [speaker]
   (let [s (some-> speaker str)]
     (cond
@@ -375,7 +399,7 @@
   - msgs: vector/seq of transcript messages
   - opts: optional map {:max-gap-s double} (default 0.3)
 
-  Returns: vector of transcript messages." 
+  Returns: vector of transcript messages."
   ([msgs]
    (coalesce-asr-finals msgs {:max-gap-s 0.3}))
   ([msgs {:keys [max-gap-s] :or {max-gap-s 0.3}}]
@@ -410,17 +434,17 @@
                       :speaker (:speaker next)
                       :lang (or (:lang next) (:lang prev)))))]
      (reduce
-       (fn [out m]
-         (let [prev (peek out)]
-           (cond
+      (fn [out m]
+        (let [prev (peek out)]
+          (cond
              ;; Never merge across refined boundaries.
-             (= "refined" (:kind m))
-             (conj out m)
+            (= "refined" (:kind m))
+            (conj out m)
 
-             (and prev (mergeable? prev m))
-             (conj (pop out) (merge2 prev m))
+            (and prev (mergeable? prev m))
+            (conj (pop out) (merge2 prev m))
 
-             :else
-             (conj out m))))
-       []
-       msgs))))
+            :else
+            (conj out m))))
+      []
+      msgs))))
