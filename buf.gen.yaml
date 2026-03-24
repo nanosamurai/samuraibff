@@ -1,7 +1,10 @@
 version: v2
 clean: true
 plugins:
-  - remote: buf.build/protocolbuffers/java
+  # Pin remote protoc plugins to avoid generator drift.
+  # If version is omitted, Buf uses the latest plugin version, which can silently
+  # bump the Protobuf Java gencode version and break runtime compatibility.
+  - remote: buf.build/protocolbuffers/java:v4.34.1
     out: src/java
-  - remote: buf.build/grpc/java
+  - remote: buf.build/grpc/java:v1.77.0
     out: src/java
