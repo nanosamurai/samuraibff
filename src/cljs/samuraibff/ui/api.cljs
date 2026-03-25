@@ -5,6 +5,7 @@
   - POST /api/sessions -> {:session_id <uuid-string>}
   - GET /api/recordings
   - GET /api/recordings/:session_id
+  - GET /api/recordings/:session_id/audio
   - DELETE /api/recordings/:session_id
   - GET /api/speakers
   - POST /api/speakers (multipart)
@@ -88,6 +89,17 @@
       (.then (fn [res] (.json res)))
       (.then (fn [body]
                (js->clj body :keywordize-keys true)))))
+
+(defn recording-audio-url
+  "Return the audio playback URL for a recording.
+
+  Inputs:
+  - session-id: string
+
+  Returns:
+  - string URL (relative)" 
+  [session-id]
+  (str "/api/recordings/" (js/encodeURIComponent (or session-id "")) "/audio"))
 
 (defn delete-recording!
   "Delete a session/recording (tenant-scoped).

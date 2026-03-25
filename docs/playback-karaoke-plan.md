@@ -28,9 +28,9 @@ Upstream context:
 
 ### Phase 2 — UI playback (Final transcript tab)
 
-- [ ] Add UI helper to build audio URL (`/api/recordings/:session_id/audio`).
-- [ ] Render `<audio controls>` in the “Final transcript” tab.
-- [ ] Ensure UI keeps and passes word timing data (`segment.words`).
+- [x] Add UI helper to build audio URL (`/api/recordings/:session_id/audio`).
+- [x] Render `<audio controls>` in the “Final transcript” tab.
+- [x] Ensure UI keeps and passes word timing data (`segment.words`).
 
 ### Phase 3 — Karaoke highlighting
 
