@@ -34,7 +34,7 @@ Upstream context:
 
 ### Phase 3 — Karaoke highlighting
 
-- [ ] Add shared pure helpers (CLJC) for karaoke indexing + binary search.
+- [x] Add shared pure helpers (CLJC) for karaoke indexing + binary search.
 - [ ] Render final transcript as word spans when `words[]` present.
 - [ ] Highlight active word based on audio `currentTime`.
 - [ ] Click word to seek.
@@ -42,7 +42,7 @@ Upstream context:
 
 ### Phase 4 — Tests + documentation
 
-- [ ] Unit tests for karaoke pure functions.
+- [x] Unit tests for karaoke pure functions.
 - [ ] Update README.MD (new endpoint + config + karaoke feature).
 - [ ] Run full test suite (`clojure -X:test`).
 
