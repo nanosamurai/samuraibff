@@ -328,23 +328,29 @@
                                   :handler (http.recordings/list-recordings-handler deps)}}]
             ["/recordings/:session_id"
              {:parameters {:path [:map
-                                  [:session_id :string]]}
-              :get {:summary "Get recording detail"
-                    :description "Returns recording metadata and transcript records for the given session id."
-                    :responses {200 {:body schemas/RecordingDetailResponse}
-                                400 {:body schemas/ApiErrorResponse}
-                                403 {:body schemas/ApiErrorResponse}
-                                404 {:body schemas/ApiErrorResponse}
-                                503 {:body schemas/ApiErrorResponse}}
-                    :handler (http.recordings/get-recording-handler deps)}
-              :delete {:summary "Delete recording"
-                       :description "Deletes the recording session and related data for the current tenant."
-                       :responses {200 {:body schemas/DeleteRecordingResponse}
-                                   400 {:body schemas/ApiErrorResponse}
-                                   403 {:body schemas/ApiErrorResponse}
-                                   404 {:body schemas/ApiErrorResponse}
-                                   503 {:body schemas/ApiErrorResponse}}
-                       :handler (http.recordings/delete-recording-handler deps)}}
+                                  [:session_id :string]]}}
+
+             ;; NOTE: Reitit route nodes that have children should not define
+             ;; method handlers directly at the same node. Put them under an
+             ;; empty-path child instead.
+             [""
+              {:get {:summary "Get recording detail"
+                     :description "Returns recording metadata and transcript records for the given session id."
+                     :responses {200 {:body schemas/RecordingDetailResponse}
+                                 400 {:body schemas/ApiErrorResponse}
+                                 403 {:body schemas/ApiErrorResponse}
+                                 404 {:body schemas/ApiErrorResponse}
+                                 503 {:body schemas/ApiErrorResponse}}
+                     :handler (http.recordings/get-recording-handler deps)}
+               :delete {:summary "Delete recording"
+                        :description "Deletes the recording session and related data for the current tenant."
+                        :responses {200 {:body schemas/DeleteRecordingResponse}
+                                    400 {:body schemas/ApiErrorResponse}
+                                    403 {:body schemas/ApiErrorResponse}
+                                    404 {:body schemas/ApiErrorResponse}
+                                    503 {:body schemas/ApiErrorResponse}}
+                        :handler (http.recordings/delete-recording-handler deps)}}]
+
              ;; Audio playback (binary stream). OpenAPI support for binary is
              ;; limited; we document responses but do not provide a Malli body.
              ["/audio"
