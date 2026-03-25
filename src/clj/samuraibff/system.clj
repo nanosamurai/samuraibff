@@ -163,6 +163,12 @@
 
       :grpc {:rtservice-addr (s "SAMURAIBFF_GRPC_RTSERVICE_ADDR")}
 
+      ;; Recordings playback (audio).
+      ;; - local-root: filesystem path allowed for file:// recording_url values
+      ;; - s3-bucket: optional allowlist bucket for s3:// recording_url values
+      :recordings {:local-root (s "SAMURAIBFF_RECORDINGS_LOCAL_ROOT")
+                   :s3-bucket (s "SAMURAIBFF_RECORDINGS_S3_BUCKET")}
+
       :s3 {:bucket (s "SAMURAIBFF_S3_BUCKET")
            :enrollment-prefix (s "SAMURAIBFF_S3_ENROLLMENT_PREFIX")
            :region (s "SAMURAIBFF_S3_REGION")

@@ -80,7 +80,19 @@
        :endpoint "http://localhost:4566"            ;; set for localstack/minio (e.g. http://localhost:4566)
        :access-key ""
        :secret-key ""
-       :force-path-style? true}}
+       :force-path-style? true}
+
+  ;; --- Recordings playback (audio) ---
+  ;; Used by GET /api/recordings/:session_id/audio.
+  ;;
+  ;; Security:
+  ;; - `recordings.recording_url` may be `file://...` or `s3://...`.
+  ;; - We do NOT expose these URLs directly to the browser.
+  ;; - For file:// URLs, we only allow paths under `:recordings :local-root`.
+  :recordings {:local-root ""
+               ;; Optional allowlist bucket for s3:// URLs. If blank/nil, any
+               ;; bucket is accepted (not recommended for prod).
+               :s3-bucket ""}}
 
  ;; --- Integrant components ---
 

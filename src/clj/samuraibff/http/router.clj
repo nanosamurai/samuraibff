@@ -344,7 +344,20 @@
                                    403 {:body schemas/ApiErrorResponse}
                                    404 {:body schemas/ApiErrorResponse}
                                    503 {:body schemas/ApiErrorResponse}}
-                       :handler (http.recordings/delete-recording-handler deps)}}]
+                       :handler (http.recordings/delete-recording-handler deps)}}
+             ;; Audio playback (binary stream). OpenAPI support for binary is
+             ;; limited; we document responses but do not provide a Malli body.
+             ["/audio"
+              {:get {:summary "Get recording audio"
+                     :description "Streams the session recording audio (supports Range requests)."
+                     :responses {200 {:description "Audio stream"}
+                                 206 {:description "Partial audio stream (Range)"}
+                                 400 {:body schemas/ApiErrorResponse}
+                                 403 {:body schemas/ApiErrorResponse}
+                                 404 {:body schemas/ApiErrorResponse}
+                                 416 {:body schemas/ApiErrorResponse}
+                                 503 {:body schemas/ApiErrorResponse}}
+                     :handler (http.recordings/get-recording-audio-handler deps)}}]]
             ["/sessions" {:post {:summary "Create session"
                                  :description "Creates a new session identifier for WebSocket streaming."
                                  :responses {200 {:body schemas/CreateSessionResponse}
