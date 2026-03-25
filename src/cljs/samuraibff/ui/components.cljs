@@ -6,24 +6,24 @@
   from React via `samuraibff.ui.hooks`.
 
   This file intentionally contains only UI rendering logic; side effects
-  (ws/audio/fetch) should remain in their dedicated namespaces." 
+  (ws/audio/fetch) should remain in their dedicated namespaces."
   (:require
-    [io.factorhouse.hsx.core :as hsx]
-    [clojure.string :as str]
-    [samuraibff.ui.api :as api]
-    [samuraibff.ui.audio :as audio]
-    [samuraibff.ui.auth :as auth]
-    [samuraibff.ui.hooks :as hooks]
-    [samuraibff.ui.router :as router]
-    [samuraibff.ui.store :as store]
-    [samuraibff.ui.api-credentials-store :as api-creds.store]
-    [samuraibff.ui.transcript :as transcript]
-    [samuraibff.ui.util :as util]
-    [samuraibff.ui.ws :as ws]
-    ["react" :as react]))
+   [io.factorhouse.hsx.core :as hsx]
+   [clojure.string :as str]
+   [samuraibff.ui.api :as api]
+   [samuraibff.ui.audio :as audio]
+   [samuraibff.ui.auth :as auth]
+   [samuraibff.ui.hooks :as hooks]
+   [samuraibff.ui.router :as router]
+   [samuraibff.ui.store :as store]
+   [samuraibff.ui.api-credentials-store :as api-creds.store]
+   [samuraibff.ui.transcript :as transcript]
+   [samuraibff.ui.util :as util]
+   [samuraibff.ui.ws :as ws]
+   ["react" :as react]))
 
 (defn- iso->local
-  "Best-effort formatting of an ISO timestamp into a local date/time string." 
+  "Best-effort formatting of an ISO timestamp into a local date/time string."
   [s]
   (when (seq (str s))
     (try
@@ -32,14 +32,14 @@
         (str s)))))
 
 (defn- refined-events->messages
-  "Convert refined events (with start/end/text) into transcript messages." 
+  "Convert refined events (with start/end/text) into transcript messages."
   [events]
   (->> (or events [])
        (mapv transcript/normalize-refined)
        transcript/sort-messages))
 
 (defn- final-segments->messages
-  "Convert final transcript segments (from DB json) into transcript messages." 
+  "Convert final transcript segments (from DB json) into transcript messages."
   [segments]
   (mapv (fn [seg]
           {:kind "final"
@@ -53,7 +53,7 @@
         (vec (or segments []))))
 
 (defn- status-dot-class
-  "Translate websocket status keyword to CSS class name." 
+  "Translate websocket status keyword to CSS class name."
   [status]
   (case status
     :connected "dot ok"
@@ -81,7 +81,7 @@
 (defn controls
   "Session controls (create session, set lang, start/stop).
 
-  This is the top strip of the Live Recording page." 
+  This is the top strip of the Live Recording page."
   []
   (let [{:keys [id lang]} (hooks/use-atom store/session*)
         running? (hooks/use-atom store/running?*)]
@@ -94,8 +94,8 @@
                                 (.then (fn [sid]
                                          (store/set-session-id! sid)
                                          (store/add-recording! {:session_id sid
-                                                              :created_at_ms (util/now-ms)
-                                                              :status :ready})
+                                                                :created_at_ms (util/now-ms)
+                                                                :status :ready})
                                          (store/append-log! (str "[ui] new session " sid))))
                                 (.catch (fn [e]
                                           (store/append-log! (str "[ui] failed creating session: " e))))))}
@@ -132,7 +132,7 @@
                                 (.catch (fn [_]
                                           ;; audio will log; ensure running resets
                                           (store/set-running! false)
-                                          (store/set-recording-status! id :ready))))) }
+                                          (store/set-recording-status! id :ready)))))}
        "Start"]
 
       [:button {:class "btn"
@@ -188,7 +188,7 @@
 
   Note:
   - We no longer merge refined segments into realtime ASR in the UI.
-  - Each tab renders its own message stream." 
+  - Each tab renders its own message stream."
   [{:keys [messages empty-title empty-hint]}]
   (let [msgs (->> (or messages [])
                   transcript/coalesce-asr-finals
@@ -198,12 +198,12 @@
         auto-scroll?* (react/useRef true)]
 
     (react/useEffect
-      (fn []
-        (when-let [el (.-current container-ref)]
-          (when (true? (.-current auto-scroll?*))
-            (set! (.-scrollTop el) (.-scrollHeight el))))
-        js/undefined)
-      #js [(count msgs)])
+     (fn []
+       (when-let [el (.-current container-ref)]
+         (when (true? (.-current auto-scroll?*))
+           (set! (.-scrollTop el) (.-scrollHeight el))))
+       js/undefined)
+     #js [(count msgs)])
 
     [:div {:class "transcript"}
      (if (empty? msgs)
@@ -236,21 +236,21 @@
               [:div {:class bubble-class} (:text msg)]]]))])]))
 
 (defn live-transcript
-  "Transcript component bound to the live session store." 
+  "Transcript component bound to the live session store."
   []
   [transcript-view {:messages (hooks/use-atom store/asr-segments*)
                     :empty-title "Real-time transcript"
                     :empty-hint "No ASR events yet…"}])
 
 (defn refined-live-transcript
-  "Refined realtime transcript component bound to the live session store." 
+  "Refined realtime transcript component bound to the live session store."
   []
   [transcript-view {:messages (hooks/use-atom store/refined-segments*)
                     :empty-title "Refined real-time"
                     :empty-hint "No refined events yet…"}])
 
 (defn log-view
-  "Debug log view." 
+  "Debug log view."
   []
   (let [lines (->> (hooks/use-atom store/log*)
                    (take-last 160))]
@@ -325,7 +325,7 @@
   - s: string
   - opts: optional map {:title string}
 
-  Returns: hiccup" 
+  Returns: hiccup"
   ([s] (icon s nil))
   ([s {:keys [title]}]
    [:span {:class "icon" :title title} (or s "")]))
@@ -336,7 +336,7 @@
   Inputs:
   - rec: a map from /api/recordings
 
-  Returns: hiccup <tr>" 
+  Returns: hiccup <tr>"
   [{:keys [session_id started_at created_at] :as rec}]
   (let [{:keys [label badge-class title]
          icon-glyph :icon} (rec->display-status rec)]
@@ -373,11 +373,11 @@
                                             (store/remove-recording-db! session_id)))
                                    (.catch (fn [e]
                                              (store/append-log!
-                                               (str "[ui] failed deleting session: " e)))))))}
+                                              (str "[ui] failed deleting session: " e)))))))}
         (icon "×" {:title "Delete"})]]]]))
 
 (defn recordings-table
-  "Table of DB-backed recordings." 
+  "Table of DB-backed recordings."
   []
   (let [recs0 (->> (hooks/use-atom store/recordings-db*)
                    (sort-by :created_at)
@@ -418,7 +418,7 @@
            [recordings-row rec])]])]))
 
 (defn recordings-page
-  "Recordings page." 
+  "Recordings page."
   []
   (let [loading?* (react/useState false)
         loading? (aget loading?* 0)
@@ -432,10 +432,10 @@
                                  (store/append-log! (str "[ui] failed loading recordings: " e))))
                        (.finally (fn [] (set-loading! false)))))]
     (react/useEffect
-      (fn []
-        (refresh!)
-        js/undefined)
-      #js [])
+     (fn []
+       (refresh!)
+       js/undefined)
+     #js [])
     [:div {:class "page"}
      [:div {:class "page-header"}
       [:div
@@ -453,8 +453,8 @@
                                  (.then (fn [sid]
                                           (store/set-session-id! sid)
                                           (store/add-recording! {:session_id sid
-                                                               :created_at_ms (util/now-ms)
-                                                               :status :ready})
+                                                                 :created_at_ms (util/now-ms)
+                                                                 :status :ready})
                                           (router/navigate! {:page :live :params {}})
                                           (store/append-log! (str "[ui] new session " sid))))
                                  (.catch (fn [e]
@@ -475,7 +475,7 @@
      "Delete"]]])
 
 (defn speakers-page
-  "Enrolled speakers management page." 
+  "Enrolled speakers management page."
   []
   (let [items (hooks/use-atom store/speakers*)
         label* (react/useState "")
@@ -503,10 +503,10 @@
                         (.catch (fn [e]
                                   (store/append-log! (str "[ui] failed deleting speaker: " e)))))))]
     (react/useEffect
-      (fn []
-        (refresh!)
-        js/undefined)
-      #js [])
+     (fn []
+       (refresh!)
+       js/undefined)
+     #js [])
     [:div {:class "page"}
      [:div {:class "page-header"}
       [:div
@@ -536,14 +536,14 @@
                              (-> (api/create-speaker! label sample)
                                  (.then (fn [resp]
                                           (store/prepend-speaker!
-                                            {:id (aget resp "speaker_id")
-                                             :label (aget resp "label")
-                                             :created_at_ms (.getTime (js/Date.))})
+                                           {:id (aget resp "speaker_id")
+                                            :label (aget resp "label")
+                                            :created_at_ms (.getTime (js/Date.))})
                                           (set-label! "")
                                           (set-sample! nil)))
                                  (.catch (fn [e]
                                            (store/append-log! (str "[ui] failed creating speaker: " e))))
-                                 (.finally (fn [] (set-loading! false))))) }
+                                 (.finally (fn [] (set-loading! false)))))}
         "Upload"]]]
 
      [:div {:class "card"}
@@ -569,7 +569,7 @@
   - Real-time transcript tab: cached realtime ASR (if available locally)
   - Refined real-time tab: refined segments from DB, plus cached refined WS (if available locally)
   - Final transcript tab: final transcript records from DB
-  - Hideable log panel (cached locally only)" 
+  - Hideable log panel (cached locally only)"
   [session-id]
   (let [tab* (react/useState :realtime)
         tab (aget tab* 0)
@@ -590,7 +590,6 @@
         cached-refined (store/cached-refined-segments session-id)
         cached-log-lines (store/cached-log session-id)
 
-
         refresh! (fn []
                    (set-loading! true)
                    (-> (api/get-recording! session-id)
@@ -608,27 +607,27 @@
         refined-events
         (let [records (vec (or db-refined []))]
           (reduce
-            (fn [events r]
-              (let [segments (vec (or (:segments r) []))]
-                (reduce
-                  (fn [events seg]
-                    (conj events {:seq (or (:event_created_at_ns r) 0)
-                                  :ts_ms 0
-                                  :start_s (:start_s seg)
-                                  :end_s (:end_s seg)
-                                  :text (:text seg)
-                                  :speaker (:speaker seg)
-                                  :lang (:lang seg)}))
-                  events
-                  segments)))
-            []
-            records))]
+           (fn [events r]
+             (let [segments (vec (or (:segments r) []))]
+               (reduce
+                (fn [events seg]
+                  (conj events {:seq (or (:event_created_at_ns r) 0)
+                                :ts_ms 0
+                                :start_s (:start_s seg)
+                                :end_s (:end_s seg)
+                                :text (:text seg)
+                                :speaker (:speaker seg)
+                                :lang (:lang seg)}))
+                events
+                segments)))
+           []
+           records))]
 
     (react/useEffect
-      (fn []
-        (refresh!)
-        js/undefined)
-      #js [session-id])
+     (fn []
+       (refresh!)
+       js/undefined)
+     #js [session-id])
 
     ;; Build 3 independent feeds:
     ;; - realtime ASR (cached locally if available)
@@ -695,7 +694,7 @@
            (case tab
              :final [transcript-view {:messages final-msgs
                                       :empty-title "Final transcript"
-                                      :empty-hint (if final-record "(no segments)" "No final transcript stored") }]
+                                      :empty-hint (if final-record "(no segments)" "No final transcript stored")}]
              :refined [transcript-view {:messages refined-msgs
                                         :empty-title "Refined real-time"
                                         :empty-hint "No refined transcript available"}]
@@ -709,8 +708,7 @@
              [:div {:class "log"}
               (for [[idx line] (map-indexed vector cached-log-lines)]
                 [:div {:class "log-line" :key (str "logc-" idx)} line])]
-             [:div {:class "muted"} "No log available for this session (not persisted)."])]
-          ]
+             [:div {:class "muted"} "No log available for this session (not persisted)."])]]
          [:div {:class "card"}
           [:div {:class "card-title"}
            (case tab
@@ -720,32 +718,41 @@
           (case tab
             :final [transcript-view {:messages final-msgs
                                      :empty-title "Final transcript"
-                                     :empty-hint (if final-record "(no segments)" "No final transcript stored") }]
+                                     :empty-hint (if final-record "(no segments)" "No final transcript stored")}]
             :refined [transcript-view {:messages refined-msgs
                                        :empty-title "Refined real-time"
                                        :empty-hint "No refined transcript available"}]
             [transcript-view {:messages realtime-msgs
                               :empty-title "Real-time transcript"
-                              :empty-hint "No realtime transcript available"}])])]))
-
-  )
+                              :empty-hint "No realtime transcript available"}])])])))
 
 (defn right-panel
   "Right-side panel for Live Recording.
 
-  Contains tabs (for now: Log only)." 
+  Contains tabs (for now: Log only)."
   []
-  (let [active :log]
+  (let [active :log
+        debug-asr? (hooks/use-atom store/debug-asr-log?*)]
     [:div {:class "right-panel"}
      [:div {:class "tabs"}
       [:button {:class (str "tab " (when (= active :log) "active"))}
        "Log"]]
      [:div {:class "right-panel-body"}
       [ws-indicator]
+      [:label {:class "muted"
+               :style {:display "inline-flex"
+                       :gap "8px"
+                       :alignItems "center"
+                       :margin "8px 0"}}
+       [:input {:type "checkbox"
+                :checked (boolean debug-asr?)
+                :on-change (fn [e]
+                             (store/set-debug-asr-log! (.. e -target -checked)))}]
+       "Log ASR events"]
       [log-view]]]))
 
 (defn live-recording-page
-  "Live Recording page." 
+  "Live Recording page."
   []
   (let [tab* (react/useState :realtime)
         tab (aget tab* 0)
@@ -786,7 +793,7 @@
    [:span {:class "nav-label"} label]])
 
 (defn sidebar
-  "Left navigation sidebar." 
+  "Left navigation sidebar."
   [route]
   (let [page (:page route)]
     [:aside {:class "sidebar"}
@@ -806,7 +813,7 @@
                      :active? (= page :api-credentials)}]]]))
 
 (defn breadcrumbs
-  "Breadcrumbs derived from current route." 
+  "Breadcrumbs derived from current route."
   [route]
   (let [{:keys [page params]} route
         crumbs (case page
@@ -828,7 +835,7 @@
          (:label c)]])]))
 
 (defn topbar
-  "Top application bar (logo + product name + breadcrumbs)." 
+  "Top application bar (logo + product name + breadcrumbs)."
   [route]
   (let [{:keys [status detail]} (hooks/use-atom store/auth*)
         user (get detail :user)
@@ -873,7 +880,7 @@
   Inputs:
   - e: JS error
 
-  Returns: string." 
+  Returns: string."
   [e]
   (let [msg (some-> e .-message str)]
     (if (seq msg) msg "Request failed")))
@@ -885,7 +892,7 @@
   - s: string
 
   Returns:
-  - Promise resolving to true/false." 
+  - Promise resolving to true/false."
   [s]
   (let [s (str (or s ""))]
     (cond
@@ -903,7 +910,7 @@
   "Modal that shows `client_secret` exactly once.
 
   Security:
-  - The secret is kept only in memory (store atom) and cleared on close." 
+  - The secret is kept only in memory (store atom) and cleared on close."
   []
   (let [st (hooks/use-atom store/api-credentials*)
         {:keys [open? credential-id client-id client-secret copied?]} (:secret-modal st)]
@@ -970,9 +977,9 @@
                                (-> (api/rotate-api-credential! id)
                                    (.then (fn [resp]
                                             (store/api-credentials-open-secret!
-                                              {:credential-id (:credential_id resp)
-                                               :client-id (:client_id resp)
-                                               :client-secret (:client_secret resp)})
+                                             {:credential-id (:credential_id resp)
+                                              :client-id (:client_id resp)
+                                              :client-secret (:client_secret resp)})
                                             (refresh!)))
                                    (.catch (fn [e]
                                              (store/api-credentials-set-error! (safe-http-error e))))
@@ -999,7 +1006,7 @@
         "Revoke"]]]]))
 
 (defn api-credentials-page
-  "API credentials management page (tenant-scoped)." 
+  "API credentials management page (tenant-scoped)."
   []
   (let [st (hooks/use-atom store/api-credentials*)
         items (api-creds.store/visible-items st)
@@ -1029,9 +1036,9 @@
                       (.then (fn [resp]
                                (set-name! "")
                                (store/api-credentials-open-secret!
-                                 {:credential-id (:credential_id resp)
-                                  :client-id (:client_id resp)
-                                  :client-secret (:client_secret resp)})
+                                {:credential-id (:credential_id resp)
+                                 :client-id (:client_id resp)
+                                 :client-secret (:client_secret resp)})
                                (refresh!)))
                       (.catch (fn [e]
                                 (store/api-credentials-set-error! (safe-http-error e))))
@@ -1039,10 +1046,10 @@
                                   (store/api-credentials-set-loading! false)))))]
 
     (react/useEffect
-      (fn []
-        (refresh!)
-        js/undefined)
-      #js [])
+     (fn []
+       (refresh!)
+       js/undefined)
+     #js [])
 
     [:div {:class "page"}
      [api-credentials-secret-modal]
@@ -1096,25 +1103,25 @@
            [:th "Status"]
            [:th {:style {:textAlign "right"}} "Actions"]]]
          [:tbody
-         (for [c (->> items
-                      (sort-by :created_at)
-                      reverse)]
-           ^{:key (str "cred-" (:id c))}
-           [api-credentials-row c refresh!])]])]]))
+          (for [c (->> items
+                       (sort-by :created_at)
+                       reverse)]
+            ^{:key (str "cred-" (:id c))}
+            [api-credentials-row c refresh!])]])]]))
 
 (defn app
-  "Root app component." 
+  "Root app component."
   []
   (let [route (hooks/use-atom store/route*)
         {:keys [status detail]} (hooks/use-atom store/auth*)
         auth-required? (true? (get detail :auth-required?))]
     (react/useEffect
-      (fn []
-        (when (and (= status :anonymous) auth-required?)
+     (fn []
+       (when (and (= status :anonymous) auth-required?)
           ;; Keep it harder to poke around: force a full redirect to login.
-          (auth/login! (router/route->href route)))
-        js/undefined)
-      #js [status auth-required? (:page route) (get-in route [:params :session_id])])
+         (auth/login! (router/route->href route)))
+       js/undefined)
+     #js [status auth-required? (:page route) (get-in route [:params :session_id])])
     [:div {:class "app"}
      [topbar route]
      [:div {:class "body"}
@@ -1129,6 +1136,6 @@
          [recordings-page])]]]))
 
 (defn memo-clear!
-  "Clear HSX memoization cache (used by core reload hook)." 
+  "Clear HSX memoization cache (used by core reload hook)."
   []
   (hsx/memo-clear!))

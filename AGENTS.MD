@@ -17,6 +17,7 @@ For the data model, please look at proto at resources/proto/stream.proto and als
 - before you claim any task is complete, run full set of test/integration tests
 - DO NOT EVER attempt to read or fetch the compiled js code (usually at resources/public/js/main.js ) - it is too big and your cotext will rot into oblivion
 - DO NOT EVER run `clojure -Spath` or similar command to list entire classpath, you would burn too many tokens and rot your context without any significant benefit
+- Remember that if you have issues formatting clojure, you should use the clojure mcp server running locally to validate any expression, test new functions etc. - or you can run clojure tool locally and execute also any code to see how it fares.
 
 # About Nanosamur.ai
 Nanosamurai solution currently consists of

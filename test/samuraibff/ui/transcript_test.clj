@@ -1,7 +1,7 @@
 (ns samuraibff.ui.transcript-test
   (:require
-    [clojure.test :refer [deftest is testing]]
-    [samuraibff.ui.transcript :as transcript]))
+   [clojure.test :refer [deftest is testing]]
+   [samuraibff.ui.transcript :as transcript]))
 
 (deftest upsert-asr-partial-replaces-last-partial
   (testing "Partial ASR updates replace the partial for the same window"
@@ -69,6 +69,27 @@
           msgs (transcript/upsert-asr msgs {:seq 2 :ts_ms 2 :start_s 1.9 :end_s 3.5 :text "partial" :speaker "" :final false})]
       (is (= 2 (count msgs)) (pr-str msgs))
       (is (= #{true false} (set (map :final msgs)))))))
+
+(deftest upsert-asr-does-not-clobber-across-speakers
+  (testing "Overlapping windows from different known speakers should not replace each other"
+    ;; Repro of the observed UI issue in multi-speaker diarization:
+    ;; a long segment for one speaker overlaps with short interjections
+    ;; from another speaker.
+    (let [msgs []
+          msgs (transcript/upsert-asr msgs {:seq 1 :ts_ms 1 :start_s 0.0 :end_s 10.0 :text "long A" :speaker "SPEAKER_00" :final true})
+          ;; Overlaps strongly with the previous window (score ~0.8), but is a different speaker.
+          msgs (transcript/upsert-asr msgs {:seq 2 :ts_ms 2 :start_s 2.0 :end_s 12.0 :text "B interjection" :speaker "SPEAKER_01" :final true})]
+      (is (= 2 (count msgs)) (pr-str msgs))
+      (is (= #{"SPEAKER_00" "SPEAKER_01"} (set (map :speaker msgs))))))
+
+  (testing "A FINAL with known speaker can still replace a PARTIAL with blank speaker"
+    ;; This must keep working because diarization/speaker label may arrive late.
+    (let [msgs []
+          msgs (transcript/upsert-asr msgs {:seq 1 :ts_ms 1 :start_s 0.0 :end_s 9.0 :text "partial" :speaker "" :final false})
+          msgs (transcript/upsert-asr msgs {:seq 2 :ts_ms 2 :start_s 0.2 :end_s 9.2 :text "final" :speaker "SPEAKER_00" :final true})]
+      (is (= 1 (count msgs)) (pr-str msgs))
+      (is (true? (:final (first msgs))))
+      (is (= "SPEAKER_00" (:speaker (first msgs)))))))
 
 (deftest apply-refined-removes-contained-asr-only
   (testing "Refined removes ASR messages fully contained within refined window (inclusive)"

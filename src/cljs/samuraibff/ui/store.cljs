@@ -13,9 +13,9 @@
 
   All public functions are side-effecting and named with verbs."
   (:require
-    [samuraibff.ui.api-credentials-store :as api-creds.store]
-    [samuraibff.ui.transcript :as transcript]
-    [samuraibff.ui.util :as util]))
+   [samuraibff.ui.api-credentials-store :as api-creds.store]
+   [samuraibff.ui.transcript :as transcript]
+   [samuraibff.ui.util :as util]))
 
 (defonce route*
   (atom {:page :recordings
@@ -27,7 +27,7 @@
 
 (defonce ws-status*
   (atom {:events {:status :disconnected :detail nil}
-         :audio  {:status :disconnected :detail nil}}))
+         :audio {:status :disconnected :detail nil}}))
 
 (defonce segments*
   (atom []))
@@ -64,6 +64,25 @@
 (defonce running?*
   (atom false))
 
+(defonce debug-asr-log?*
+  (atom false))
+
+(defn set-debug-asr-log!
+  "Enable/disable compact per-ASR-event logging in the UI debug log.
+
+  Inputs:
+  - enabled?: boolean
+
+  Returns: nil."
+  [enabled?]
+  (reset! debug-asr-log?* (boolean enabled?))
+  nil)
+
+(defn debug-asr-log-enabled?
+  "Return true if compact ASR event logging is enabled."
+  []
+  (true? @debug-asr-log?*))
+
 (defonce recordings*
   (atom []))
 
@@ -76,7 +95,7 @@
   Inputs:
   - items: vector of recording/session maps (from /api/recordings)
 
-  Returns: nil." 
+  Returns: nil."
   [items]
   (reset! recordings-db* (vec (or items [])))
   nil)
@@ -87,7 +106,7 @@
   Inputs:
   - session-id: string
 
-  Returns: nil." 
+  Returns: nil."
   [session-id]
   (swap! recordings-db*
          (fn [xs]
@@ -101,7 +120,7 @@
   - session-id string
 
   Returns:
-  - vector of transcript message maps (possibly empty)." 
+  - vector of transcript message maps (possibly empty)."
   [session-id]
   (vec (get @segments-by-session* (or session-id "") [])))
 
@@ -112,7 +131,7 @@
   - session-id string
 
   Returns:
-  - vector of transcript message maps (possibly empty)." 
+  - vector of transcript message maps (possibly empty)."
   [session-id]
   (vec (get @asr-by-session* (or session-id "") [])))
 
@@ -123,7 +142,7 @@
   - session-id string
 
   Returns:
-  - vector of transcript message maps (possibly empty)." 
+  - vector of transcript message maps (possibly empty)."
   [session-id]
   (vec (get @refined-by-session* (or session-id "") [])))
 
@@ -134,7 +153,7 @@
   - session-id string
 
   Returns:
-  - vector of strings (possibly empty)." 
+  - vector of strings (possibly empty)."
   [session-id]
   (vec (get @log-by-session* (or session-id "") [])))
 
@@ -166,7 +185,7 @@
   "Set the current session id (string).
 
   Note: we clear transcript state because session_id is an isolation boundary
-  for the transcript." 
+  for the transcript."
   [session-id]
   (let [old-id (get @session* :id)
         new-id (or session-id "")]
@@ -194,7 +213,7 @@
   (swap! session* assoc :lang (or lang "")))
 
 (defn set-running!
-  "Set whether the UI is currently streaming audio." 
+  "Set whether the UI is currently streaming audio."
   [running?]
   (reset! running?* (boolean running?)))
 
@@ -279,7 +298,7 @@
   nil)
 
 (defn clear-segments!
-  "Clear transcript segments/messages and reset transcript time base." 
+  "Clear transcript segments/messages and reset transcript time base."
   []
   (reset! segments* [])
   (reset! asr-segments* [])
@@ -299,7 +318,7 @@
   - status: keyword (:unknown | :loading | :authenticated | :anonymous)
   - detail: optional map (e.g. {:user {...} :tenant_id \"...\"})
 
-  Returns: nil." 
+  Returns: nil."
   [status detail]
   (reset! auth* {:status status :detail detail})
   nil)
@@ -310,7 +329,7 @@
   Inputs:
   - items: vector of speaker maps
 
-  Returns: nil." 
+  Returns: nil."
   [items]
   (reset! speakers* (vec (or items [])))
   nil)
@@ -318,7 +337,7 @@
 ;; --- API Credentials state ---
 
 (defn api-credentials-set-loading!
-  "Set API credentials loading flag." 
+  "Set API credentials loading flag."
   [loading?]
   (swap! api-credentials* api-creds.store/set-loading loading?)
   nil)
@@ -329,7 +348,7 @@
   Inputs:
   - message: string? (nil clears)
 
-  Returns nil." 
+  Returns nil."
   [message]
   (swap! api-credentials* api-creds.store/set-error message)
   nil)
@@ -340,13 +359,13 @@
   Inputs:
   - items: vector of credential maps
 
-  Returns nil." 
+  Returns nil."
   [items]
   (swap! api-credentials* api-creds.store/set-items items)
   nil)
 
 (defn api-credentials-toggle-show-revoked!
-  "Toggle whether revoked credentials are shown." 
+  "Toggle whether revoked credentials are shown."
   []
   (swap! api-credentials* api-creds.store/toggle-show-revoked)
   nil)
@@ -357,7 +376,7 @@
   Inputs:
   - {:keys [credential-id client-id client-secret]} strings
 
-  Returns nil." 
+  Returns nil."
   [{:keys [credential-id client-id client-secret]}]
   (swap! api-credentials* api-creds.store/open-secret-modal
          {:credential-id credential-id
@@ -366,19 +385,19 @@
   nil)
 
 (defn api-credentials-close-secret!
-  "Close the show-once secret modal and clear any in-memory secret." 
+  "Close the show-once secret modal and clear any in-memory secret."
   []
   (swap! api-credentials* api-creds.store/close-secret-modal)
   nil)
 
 (defn api-credentials-mark-secret-copied!
-  "Set secret modal copied indicator." 
+  "Set secret modal copied indicator."
   [copied?]
   (swap! api-credentials* api-creds.store/mark-secret-copied copied?)
   nil)
 
 (defn api-credentials-mark-revoked!
-  "Mark a credential revoked in local state." 
+  "Mark a credential revoked in local state."
   [credential-id]
   (swap! api-credentials* api-creds.store/mark-revoked credential-id)
   nil)
@@ -389,7 +408,7 @@
   Inputs:
   - speaker-id: string
 
-  Returns: nil." 
+  Returns: nil."
   [speaker-id]
   (swap! speakers* (fn [xs]
                      (vec (remove #(= speaker-id (:id %)) xs))))
@@ -401,7 +420,7 @@
   Inputs:
   - item: speaker map
 
-  Returns: nil." 
+  Returns: nil."
   [item]
   (swap! speakers* (fn [xs]
                      (vec (cons item (or xs [])))))
@@ -421,7 +440,7 @@
   Inputs:
   - ev: map with :start_s/:end_s
 
-  Returns: updated event map." 
+  Returns: updated event map."
   [ev]
   (let [start (double (or (:start_s ev) 0))
         end (double (or (:end_s ev) 0))
@@ -439,10 +458,28 @@
   - ev: map decoded from ws event, expects keys:
     :seq, :ts_ms, :start_s, :end_s, :text, :speaker (optional), :lang (optional), :final
 
-  Returns: nil." 
+  Side effects:
+  - updates realtime transcript atoms
+  - when `debug-asr-log?*` is enabled, appends a compact debug line to `log*`
+
+  Returns: nil."
   [ev]
   (let [ev' (rebase-event-times ev)
-        sid (or (:session_id ev) (get @session* :id) "")]
+        sid (or (:session_id ev) (get @session* :id) "")
+        speaker (or (:speaker ev') "")
+        start (double (or (:start_s ev') 0.0))
+        end (double (or (:end_s ev') 0.0))
+        final? (true? (:final ev'))
+        text (str (or (:text ev') ""))]
+    (when (debug-asr-log-enabled?)
+      (append-log!
+       (str "[asr] "
+            (if final? "FINAL" "PARTIAL")
+            " sp=" (pr-str speaker)
+            " t=" (util/fmt-sec start) "→" (util/fmt-sec end)
+            " len=" (count text)
+            (when (seq text) (str " text=" (pr-str (subs text 0 (min 32 (count text)))))))))
+
     ;; legacy merged
     (swap! segments*
            (fn [xs]
@@ -461,7 +498,6 @@
       (swap! segments-by-session* assoc sid (vec @segments*))
       (swap! asr-by-session* assoc sid (vec @asr-segments*)))
     nil))
-
 
 (defn append-refined!
   "Append a refined transcript message.
