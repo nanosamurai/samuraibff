@@ -39,6 +39,33 @@
   (:require
    [clojure.string :as str]))
 
+(defn refined-dedupe-key
+  "Return a stable de-duplication key for a refined transcript message.
+
+  Why this exists:
+  - Refined segments can be sourced from multiple places in the UI:
+    - live WS `refined` events (with BFF-assigned :seq)
+    - DB transcript records, where :seq may not be stable per segment
+      (e.g. many segments share the same event_created_at_ns)
+  - Therefore, the UI must not de-dupe refined messages solely by :seq.
+
+  Inputs:
+  - msg: transcript message map (ideally from `normalize-refined`)
+
+  Returns:
+  - vector key suitable for using in a map/set.
+
+  Notes:
+  - We trim text to avoid duplicates caused by whitespace differences.
+  - We include speaker/lang so diarization changes don't collapse bubbles." 
+  [msg]
+  ["refined"
+   (double (or (:start_s msg) 0.0))
+   (double (or (:end_s msg) 0.0))
+   (-> (str (or (:text msg) "")) str/trim)
+   (some-> (:speaker msg) str)
+   (some-> (:lang msg) str)])
+
 (defn normalize-asr
   "Normalize an incoming WS `asr` event map into a transcript message.
 

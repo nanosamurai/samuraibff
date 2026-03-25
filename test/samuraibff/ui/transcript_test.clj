@@ -3,6 +3,13 @@
    [clojure.test :refer [deftest is testing]]
    [samuraibff.ui.transcript :as transcript]))
 
+(deftest refined-dedupe-key-stable
+  (testing "Refined dedupe key is stable across seq differences"
+    (let [m1 (transcript/normalize-refined {:seq 1 :ts_ms 1 :start_s 0.0 :end_s 1.0 :text " hello " :speaker "S" :lang "en"})
+          m2 (transcript/normalize-refined {:seq 999 :ts_ms 2 :start_s 0.0 :end_s 1.0 :text "hello" :speaker "S" :lang "en"})]
+      (is (= (transcript/refined-dedupe-key m1)
+             (transcript/refined-dedupe-key m2))))))
+
 (deftest upsert-asr-partial-replaces-last-partial
   (testing "Partial ASR updates replace the partial for the same window"
     (let [msgs []
