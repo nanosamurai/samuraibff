@@ -38,6 +38,23 @@
        (mapv transcript/normalize-refined)
        transcript/sort-messages))
 
+(defn- dedupe-by
+  "De-dupe a sequence by key function, preserving the first seen item.
+
+  Inputs:
+  - key-fn: (fn [x] k)
+  - xs: seq
+
+  Returns: vector." 
+  [key-fn xs]
+  (->> (or xs [])
+       (reduce (fn [acc x]
+                 (let [k (key-fn x)]
+                   (if (contains? acc k) acc (assoc acc k x))))
+               {})
+       vals
+       vec))
+
 (defn- final-segments->messages
   "Convert final transcript segments (from DB json) into transcript messages."
   [segments]
@@ -48,6 +65,8 @@
            :start_s (:start_s seg)
            :end_s (:end_s seg)
            :text (:text seg)
+           ;; Optional word-level timing for karaoke highlighting.
+           :words (:words seg)
            :speaker (:speaker seg)
            :lang (:lang seg)})
         (vec (or segments []))))
@@ -234,6 +253,28 @@
                [:span {:class "ts"} (str start-ts " → " end-ts)]
                (badge msg)]
               [:div {:class bubble-class} (:text msg)]]]))])]))
+
+(defn- final-audio-player
+  "Render audio player for finalized transcript playback.
+
+  Inputs:
+  - session-id: string
+  - enabled?: boolean
+
+  Returns: hiccup" 
+  [{:keys [session-id enabled?]}]
+  (let [url (api/recording-audio-url session-id)]
+    [:div {:class "card"}
+     [:div {:class "card-title"} "Playback"]
+     (if (and (true? enabled?) (seq (str session-id)))
+       [:audio {:controls true
+                :preload "metadata"
+                :src url
+                ;; Help some browsers with Range.
+                :crossOrigin "anonymous"
+                :style {:width "100%"}}]
+       [:div {:class "muted"}
+        "Audio playback not available (no recording or no final transcript)."])]))
 
 (defn live-transcript
   "Transcript component bound to the live session store."
@@ -610,8 +651,13 @@
            (fn [events r]
              (let [segments (vec (or (:segments r) []))]
                (reduce
-                (fn [events seg]
-                  (conj events {:seq (or (:event_created_at_ns r) 0)
+                (fn [events [idx seg]]
+                  ;; IMPORTANT:
+                  ;; - One DB transcript record may contain many segments.
+                  ;; - These segments all share the same :event_created_at_ns.
+                  ;; - If we used that value as :seq for every segment and then
+                  ;;   de-duped by :seq, we'd collapse to one bubble.
+                  (conj events {:seq (+ (long (or (:event_created_at_ns r) 0)) (long idx))
                                 :ts_ms 0
                                 :start_s (:start_s seg)
                                 :end_s (:end_s seg)
@@ -619,7 +665,7 @@
                                 :speaker (:speaker seg)
                                 :lang (:lang seg)}))
                 events
-                segments)))
+                (map-indexed vector segments))))
            []
            records))]
 
@@ -636,18 +682,21 @@
     (let [realtime-msgs (transcript/sort-messages (vec (or cached-asr [])))
           refined-msgs (->> (concat (refined-events->messages refined-events)
                                     (vec (or cached-refined [])))
-                            ;; de-dupe by :seq so DB and cached don’t double-render
-                            (reduce (fn [acc m]
-                                      (let [k (:seq m)]
-                                        (if (contains? acc k) acc (assoc acc k m))))
-                                    {})
-                            vals
+                            ;; De-dupe refined segments by stable content/time key.
+                            ;; :seq is not stable across DB vs WS.
+                            (dedupe-by transcript/refined-dedupe-key)
                             transcript/sort-messages
                             vec)
 
           ;; Final transcript: take the last record and render its segments (or full_text).
           final-record (last (vec (or db-final [])))
-          final-msgs (final-segments->messages (vec (or (:segments final-record) [])))]
+          final-msgs (final-segments->messages (vec (or (:segments final-record) [])))
+
+          ;; Playback is only shown when we have both:
+          ;; - a recording stored
+          ;; - a final transcript stored
+          playback-enabled? (boolean (and final-record
+                                         (true? (get-in detail [:session :has_recording]))))]
 
       [:div {:class "page"}
        [:div {:class "page-header"}
@@ -692,9 +741,12 @@
               :final "Final"
               "Real-time")]
            (case tab
-             :final [transcript-view {:messages final-msgs
-                                      :empty-title "Final transcript"
-                                      :empty-hint (if final-record "(no segments)" "No final transcript stored")}]
+             :final [:div {:style {:display "flex" :flexDirection "column" :gap "12px"}}
+                     [final-audio-player {:session-id session-id
+                                          :enabled? (boolean final-record)}]
+                     [transcript-view {:messages final-msgs
+                                       :empty-title "Final transcript"
+                                       :empty-hint (if final-record "(no segments)" "No final transcript stored")}]]
              :refined [transcript-view {:messages refined-msgs
                                         :empty-title "Refined real-time"
                                         :empty-hint "No refined transcript available"}]
@@ -712,13 +764,16 @@
          [:div {:class "card"}
           [:div {:class "card-title"}
            (case tab
-             :refined "Refined real-time"
-             :final "Final"
-             "Real-time")]
+                 :refined "Refined real-time"
+                 :final "Final"
+                 "Real-time")]
           (case tab
-            :final [transcript-view {:messages final-msgs
-                                     :empty-title "Final transcript"
-                                     :empty-hint (if final-record "(no segments)" "No final transcript stored")}]
+            :final [:div {:style {:display "flex" :flexDirection "column" :gap "12px"}}
+                    [final-audio-player {:session-id session-id
+                                         :enabled? (boolean final-record)}]
+                    [transcript-view {:messages final-msgs
+                                      :empty-title "Final transcript"
+                                      :empty-hint (if final-record "(no segments)" "No final transcript stored")}]]
             :refined [transcript-view {:messages refined-msgs
                                        :empty-title "Refined real-time"
                                        :empty-hint "No refined transcript available"}]

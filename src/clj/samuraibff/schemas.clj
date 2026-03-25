@@ -69,7 +69,15 @@
    [:end_s Sec]
    [:text :string]
    [:lang {:optional true} LangCode]
-   [:speaker {:optional true} SpeakerLabel]])
+   [:speaker {:optional true} SpeakerLabel]
+   ;; Optional word-level timing (karaoke highlighting). Present on FINAL
+   ;; transcripts when WhisperX alignment succeeds.
+   [:words {:optional true}
+    [:sequential
+     [:map
+      [:start_s Sec]
+      [:end_s Sec]
+      [:text :string]]]]])
 
 (def AsrEvent
   "Realtime ASR event from BFF to UI.

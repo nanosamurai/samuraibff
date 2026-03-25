@@ -14,6 +14,7 @@
     [cheshire.core :as cheshire]
     [clojure.test :refer :all]
     [next.jdbc :as jdbc]
+    [samuraibff.http.router :as http.router]
     [samuraibff.http.recordings :as http.recordings]
     [samuraibff.testcontainers.postgres :as tc.pg])
   (:import
@@ -152,3 +153,51 @@
         (is (= 200 (:status delete-ok)))
         (is (nil? row-session))
         (is (nil? row-tr))))))
+
+(deftest recording-audio-handler-file-url-range-integration-test
+  (testing "GET /api/recordings/:session_id/audio streams local file with Range"
+    (tc.pg/with-postgres [pg]
+      (let [jdbc-url (tc.pg/jdbc-url pg)
+            ds (tc.pg/datasource jdbc-url "drsynth" "drsynth")
+            _ (tc.pg/apply-schema! ds)
+
+            tenant-a (UUID/fromString "00000000-0000-0000-0000-000000000000")
+            _ (jdbc/execute! ds ["INSERT INTO tenants (id, name) VALUES (?, ?)" tenant-a "Tenant A"])
+
+            session-a (UUID/fromString "00000000-0000-0000-0000-000000000010")
+            _ (jdbc/execute! ds ["INSERT INTO sessions (id, tenant_id, session_key, status, created_at) VALUES (?, ?, ?, ?, now())"
+                                session-a tenant-a session-a "active"])
+
+            root-path (java.nio.file.Files/createTempDirectory
+                        "samuraibff-audio-test"
+                        (make-array java.nio.file.attribute.FileAttribute 0))
+            root-file (.toFile root-path)
+            audio-file (java.io.File. root-file "a.wav")
+            bytes (byte-array (range 0 128))
+            _ (java.nio.file.Files/write (.toPath audio-file) bytes (into-array java.nio.file.OpenOption []))
+            url (str (.toURI audio-file))
+
+            _ (jdbc/execute! ds ["INSERT INTO recordings (id, session_id, recording_url, duration_s, sample_rate, lang, created_at)
+                                VALUES (?, ?, ?, 1.0, 16000, 'en', now())"
+                                (UUID/fromString "00000000-0000-0000-0000-000000000200") session-a url])
+
+            deps {:db {:ds ds}
+                  :config {:env :test
+                           :recordings {:local-root (.getPath root-file)}
+                           ;; allowlist irrelevant for file://
+                           :s3 {:bucket "x"}}}
+
+            handler (http.recordings/get-recording-audio-handler deps)
+            ;; Request bytes 10-19.
+            resp (handler {:auth/tenant-id (str tenant-a)
+                           :uri (str "/api/recordings/" session-a "/audio")
+                           :path-params {:session_id (str session-a)}
+                           :headers {"range" "bytes=10-19"}})
+            out (with-open [in ^java.io.InputStream (:body resp)]
+                  (let [buf (byte-array 64)
+                        n (.read ^java.io.InputStream in buf)]
+                    (vec (take n buf))))]
+        (is (= 206 (:status resp)) (pr-str resp))
+        (is (= "bytes" (get-in resp [:headers "Accept-Ranges"])) (pr-str (:headers resp)))
+        (is (= 10 (first out)))
+        (is (= 10 (count out)))))))

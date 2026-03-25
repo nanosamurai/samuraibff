@@ -107,6 +107,28 @@
      tenant-id session-id]
     {:builder-fn rs/as-unqualified-lower-maps}))
 
+(defn find-latest-recording
+  "Find the latest recording row for a session, scoped to tenant.
+
+  Inputs:
+  - ds: DataSource
+  - tenant-id: UUID
+  - session-id: UUID
+
+  Returns:
+  - map with keys (unqualified):
+      :id :session_id :recording_url :duration_s :sample_rate :lang :created_at
+    or nil when no recording exists." 
+  [^DataSource ds ^UUID tenant-id ^UUID session-id]
+  (when-not (and ds (instance? UUID tenant-id) (instance? UUID session-id))
+    (throw (ex-info "find-latest-recording missing required params"
+                    {:tenant-id tenant-id :session-id session-id})))
+  (jdbc/execute-one!
+    ds
+    ["SELECT r.id, r.session_id, r.recording_url, r.duration_s, r.sample_rate, r.lang, r.created_at\n      FROM recordings r\n      JOIN sessions s ON s.id = r.session_id\n      WHERE s.tenant_id = ? AND s.id = ?\n      ORDER BY r.created_at DESC\n      LIMIT 1"
+     tenant-id session-id]
+    {:builder-fn rs/as-unqualified-lower-maps}))
+
 (defn list-transcript-records
   "List transcript records for a session, scoped to tenant.
 

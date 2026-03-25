@@ -375,8 +375,14 @@ Two endpoints power the Recordings UI and are also part of the customer-facing A
 - `GET /api/recordings/{session_id}`
   - returns session metadata and stored transcript records
   - transcript records contain:
-    - `segments`: **JSON array** of `{start_s,end_s,text,speaker?,lang?}` (not a JSON string)
+    - `segments`: **JSON array** of `{start_s,end_s,text,speaker?,lang?,words?}` (not a JSON string)
+      - `words` (optional): array of `{start_s,end_s,text}` for word-level timing (karaoke)
     - pipeline metadata (`source`, `model`, window fields) needed for debugging and future SDKs
+
+- `GET /api/recordings/{session_id}/audio`
+  - streams the recorded audio for playback (protected by auth + tenant isolation)
+  - supports HTTP Range requests (`Range: bytes=start-end`) so the browser can seek
+  - does **not** expose internal `recording_url` values (`file://`, `s3://`) to the browser
 
 It intentionally excludes:
 - UI/SPA routes (e.g. `/`, `/recordings`, `/live`)
