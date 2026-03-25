@@ -47,25 +47,6 @@
        (map normalize-word)
        vec))
 
-(defn active-word-idx
-  "Return the index of the currently active word at time `t-s`.
-
-  Definition:
-  - a word is active when start_s <= t-s <= end_s (inclusive, with epsilon)
-
-  Inputs:
-  - words: vector/seq of word maps (see namespace docstring)
-  - t-s: number (seconds)
-
-  Returns:
-  - int index into the normalized words vector, or nil when no word is active." 
-  [words t-s]
-  (let [ws (normalize-words words)
-        ;; Delegate to the normalized implementation so callers that already
-        ;; normalized can skip the repeated work.
-        idx (active-word-idx-normalized ws t-s)]
-    idx))
-
 (defn active-word-idx-normalized
   "Return the index of the currently active word at time `t-s`.
 
@@ -101,6 +82,22 @@
             (if (<= start_s t)
               (recur (inc mid) hi mid)
               (recur lo (dec mid) best))))))))
+
+(defn active-word-idx
+  "Return the index of the currently active word at time `t-s`.
+
+  Definition:
+  - a word is active when start_s <= t-s <= end_s (inclusive, with epsilon)
+
+  Inputs:
+  - words: vector/seq of word maps (see namespace docstring)
+  - t-s: number (seconds)
+
+  Returns:
+  - int index into the normalized words vector, or nil when no word is active." 
+  [words t-s]
+  (let [ws (normalize-words words)]
+    (active-word-idx-normalized ws t-s)))
 
 (defn build-word-index
   "Build a flattened word index for a transcript.
