@@ -120,6 +120,12 @@
                (do
                  (swap! remaining* dec)
                  b)))))
+
+        ([b]
+         ;; Java InputStream defines read(byte[]) which we must implement.
+         ;; Delegate to the (read byte[] off len) variant.
+         (.read ^FilterInputStream this b 0 (alength ^bytes b)))
+
         ([b off len]
          (let [rem @remaining*]
            (cond
@@ -412,7 +418,8 @@
             (str/blank? recording-url)
             (json-response 404 {:ok false :message "recording-url-missing"})
 
-            (str/starts-with? recording-url "file://")
+            ;; Accept any `file:` URI form (file:/... or file:///...).
+            (= "file" (some-> (URI/create recording-url) (.getScheme)))
             (let [root (get-in config [:recordings :local-root])
                   f (safe-file-under-root root recording-url)]
               (if (and (.exists ^File f) (.isFile ^File f))
@@ -420,7 +427,7 @@
                     (assoc-in [:headers "Cache-Control"] "no-store"))
                 (json-response 404 {:ok false :message "audio-file-not-found"})))
 
-            (str/starts-with? recording-url "s3://")
+            (= "s3" (some-> (URI/create recording-url) (.getScheme)))
             (let [{:keys [bucket key]} (parse-s3-url recording-url)
                   allow-bucket (recordings-s3-allow-bucket config)]
               (when-not (and (seq bucket) (seq key))
