@@ -150,7 +150,7 @@
         :auto-scroll? false
         :initial-scroll :top
         :empty-title "Final transcript"
-        :empty-hint "No final transcript stored"}]))
+        :empty-hint "No final transcript stored"}])))
 
 (defn- final-segments->messages
   "Convert final transcript segments (from DB json) into transcript messages."
