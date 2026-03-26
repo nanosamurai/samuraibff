@@ -69,18 +69,34 @@
   ;; --- gRPC ---
   :grpc {:rtservice-addr "localhost:50052"}
 
-  ;; --- S3 (enrolled speakers) ---
-  ;; Storage layout:
-  ;; s3://<bucket>/<enrollment-prefix>/<tenant_id>/speakers/<speaker_id>/
-  ;;   speaker.json
-  ;;   samples/<sample_id>.wav
-  :s3 {:bucket "xamurai-enrollment"
-       :enrollment-prefix "enrollment"
-       :region ""
-       :endpoint "http://localhost:4566"            ;; set for localstack/minio (e.g. http://localhost:4566)
+  ;; --- S3 / object storage (enrollments + recordings playback) ---
+  ;;
+  ;; Credentials:
+  ;; - In production we expect IAM (IRSA / instance roles), so access/secret keys
+  ;;   are typically NOT configured.
+  ;; - For localstack/minio/ceph, configure :endpoint and (optionally) static keys.
+  ;;
+  ;; Buckets:
+  ;; - Enrollments layout:
+  ;;   s3://<enrollments-bucket>/<enrollment-prefix>/<tenant_id>/speakers/<speaker_id>/
+  ;;     speaker.json
+  ;;     samples/<sample_id>.wav
+  ;;
+  ;; - Recordings playback uses `recordings.recording_url` stored in Postgres
+  ;;   as either:
+  ;;     file://...
+  ;;     s3://<recordings-bucket>/<key>
+  ;;   and the BFF streams the bytes to the browser via
+  ;;     GET /api/recordings/:session_id/audio
+  :s3 {:region ""
+       :endpoint "http://localhost:4566"            ;; localstack/minio/ceph (e.g. http://localhost:4566)
        :access-key ""
        :secret-key ""
-       :force-path-style? true}
+       :force-path-style? true
+       :buckets {:enrollments {:bucket "xamurai-enrollment"
+                               :prefix "enrollment"}
+                 :recordings  {:bucket "xamurai-recordings"
+                               :prefix "recordings"}}}
 
   ;; --- Recordings playback (audio) ---
   ;; Used by GET /api/recordings/:session_id/audio.
@@ -89,10 +105,7 @@
   ;; - `recordings.recording_url` may be `file://...` or `s3://...`.
   ;; - We do NOT expose these URLs directly to the browser.
   ;; - For file:// URLs, we only allow paths under `:recordings :local-root`.
-  :recordings {:local-root ""
-               ;; Optional allowlist bucket for s3:// URLs. If blank/nil, any
-               ;; bucket is accepted (not recommended for prod).
-               :s3-bucket ""}}
+  :recordings {:local-root ""}}
 
  ;; --- Integrant components ---
 

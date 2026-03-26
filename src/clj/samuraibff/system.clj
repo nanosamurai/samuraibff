@@ -165,17 +165,17 @@
 
       ;; Recordings playback (audio).
       ;; - local-root: filesystem path allowed for file:// recording_url values
-      ;; - s3-bucket: optional allowlist bucket for s3:// recording_url values
-      :recordings {:local-root (s "SAMURAIBFF_RECORDINGS_LOCAL_ROOT")
-                   :s3-bucket (s "SAMURAIBFF_RECORDINGS_S3_BUCKET")}
+      :recordings {:local-root (s "SAMURAIBFF_RECORDINGS_LOCAL_ROOT")}
 
-      :s3 {:bucket (s "SAMURAIBFF_S3_BUCKET")
-           :enrollment-prefix (s "SAMURAIBFF_S3_ENROLLMENT_PREFIX")
-           :region (s "SAMURAIBFF_S3_REGION")
+      :s3 {:region (s "SAMURAIBFF_S3_REGION")
            :endpoint (s "SAMURAIBFF_S3_ENDPOINT")
            :access-key (s "SAMURAIBFF_S3_ACCESS_KEY")
            :secret-key (s "SAMURAIBFF_S3_SECRET_KEY")
-           :force-path-style? (b "SAMURAIBFF_S3_FORCE_PATH_STYLE")}
+           :force-path-style? (b "SAMURAIBFF_S3_FORCE_PATH_STYLE")
+           :buckets {:enrollments {:bucket (s "SAMURAIBFF_S3_ENROLLMENTS_BUCKET")
+                                   :prefix (s "SAMURAIBFF_S3_ENROLLMENTS_PREFIX")}
+                     :recordings {:bucket (s "SAMURAIBFF_S3_RECORDINGS_BUCKET")
+                                  :prefix (s "SAMURAIBFF_S3_RECORDINGS_PREFIX")}}}
 
       :bff {:origin-uri (s "SAMURAIBFF_ORIGIN_URI")
             :callback-path (s "SAMURAIBFF_CALLBACK_PATH")}}}))
