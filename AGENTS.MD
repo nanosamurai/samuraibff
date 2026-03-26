@@ -11,6 +11,7 @@ For the data model, please look at proto at resources/proto/stream.proto and als
     - e.g. `powershell -NoProfile -Command "Set-Location 'C:\Users\miros\IdeaProjects\samuraipersistor'; clojure -M -e '(println :ok)'"`
 - All changes should be documented accordingly in the relevant .MD docs; before claiming task is coplete, always check docs for gaps as well as for a stale or no longer correct information and fix that
 - For any task, create a dedicated branch (named imperatively) from master (unless told otherwise) and as you progress make small(er) atomic commits named imperatively
+  - Remember however that “Task resumption” is a Cline/session thing, not a new job, and should be treated as “continue on the existing branch”
 - For a task to be completed, there should be no security risks or concerns, always assess task's completion also from the security standpoint and highlight any risks.
 - NEVER EXPOSE PORTS on local LAN for testing, always use localhost or 127.0.0.1
 - Xamurai used to be called "drsynth", so do not be confused if you do see this name somewhere. That name however is legacy and you should always use xamurai when naming things related to xamurai stack- alternatively, you can also use nanosamurai if the name refers to the whole solution and not just the subset of voice-to-text services
