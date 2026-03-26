@@ -16,7 +16,8 @@
     (software.amazon.awssdk.auth.credentials AwsBasicCredentials StaticCredentialsProvider)
     (software.amazon.awssdk.regions Region)
     (software.amazon.awssdk.services.s3 S3Client)
-    (software.amazon.awssdk.services.s3.model CreateBucketRequest ListObjectsV2Request)
+    (software.amazon.awssdk.services.s3.model CreateBucketRequest ListObjectsV2Request PutObjectRequest)
+    (software.amazon.awssdk.core.sync RequestBody)
     (java.util.function Consumer)
     (java.net URI)))
 
@@ -90,6 +91,31 @@
                 (.build))
         resp (.listObjectsV2 s3 req)]
     (vec (map #(.key %) (.contents resp)))))
+
+(defn put-object!
+  "Put an object to a bucket/key.
+
+  Inputs:
+  - s3: S3Client
+  - bucket: string
+  - key: string
+  - bytes: byte-array
+  - opts: map (optional)
+      :content-type string
+
+  Returns:
+  - {:bucket string :key string}" 
+  ([^S3Client s3 bucket key bytes]
+   (put-object! s3 bucket key bytes {}))
+  ([^S3Client s3 bucket key ^bytes bytes {:keys [content-type]}]
+   (.putObject s3
+               (cond-> (PutObjectRequest/builder)
+                 true (.bucket bucket)
+                 true (.key key)
+                 (some? content-type) (.contentType (str content-type))
+                 true (.build))
+               (RequestBody/fromBytes bytes))
+   {:bucket bucket :key key}))
 
 (defmacro with-localstack
   "Run body with a running LocalStack container.

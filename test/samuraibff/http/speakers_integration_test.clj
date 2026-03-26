@@ -38,13 +38,15 @@
   (let [{:keys [access-key secret-key region]} (tc.localstack/s3-credentials localstack)
         endpoint (tc.localstack/s3-endpoint localstack)]
     {:auth {:required? true}
-     :s3 {:bucket "xamurai-enrollment"
-          :enrollment-prefix "enrollment"
-          :region region
+     :s3 {:region region
           :endpoint endpoint
           :access-key access-key
           :secret-key secret-key
-          :force-path-style? true}}))
+          :force-path-style? true
+          :buckets {:enrollments {:bucket "xamurai-enrollment"
+                                  :prefix "enrollment"}
+                    :recordings {:bucket "xamurai-recordings"
+                                 :prefix "recordings"}}}}))
 
 (defn- auth-req
   [req]

@@ -18,7 +18,7 @@
     [clojure.string :as str]
     [org.corfield.logging4j2 :as log]
     [samuraibff.db.recordings :as db.recordings]
-    [samuraibff.s3.enrollment :as s3.enrollment]
+    [samuraibff.s3.client :as s3.client]
     [samuraibff.schemas :as schemas])
   (:import
     (java.io File FileInputStream FilterInputStream InputStream)
@@ -251,6 +251,30 @@
                 (assoc "Content-Range" (str "bytes " start "-" end "/" size)))
      :body (bounded-input-stream in len)}))
 
+(defn- close-on-close
+  "Wrap an InputStream so that closing it also closes a related resource.
+
+  This is used to ensure we keep the S3Client alive for the lifetime of the
+  response stream, and then close it once the Ring server finishes streaming.
+
+  Inputs:
+  - in: InputStream
+  - close-fn: (fn [])
+
+  Returns:
+  - InputStream (delegating wrapper)." 
+  ^InputStream
+  [^InputStream in close-fn]
+  (proxy [FilterInputStream] [in]
+    (close []
+      (try
+        (.close ^InputStream in)
+        (finally
+          (try
+            (close-fn)
+            (catch Exception _
+              nil)))))))
+
 (defn- jsonb->clj
   "Normalize a Postgres json/jsonb value into a Clojure value.
 
@@ -364,16 +388,13 @@
   "Return the configured allowlist bucket for recording playback.
 
   Precedence:
-  1) config [:recordings :s3-bucket]
-  2) config [:s3 :bucket] (legacy default)
+  1) config [:s3 :buckets :recordings :bucket]
 
   Returns:
   - string? (blank => nil)." 
   [config]
-  (let [b0 (some-> (get-in config [:recordings :s3-bucket]) str str/trim)
-        b1 (some-> (get-in config [:s3 :bucket]) str str/trim)
-        b (if (seq b0) b0 (when (seq b1) b1))]
-    (when (seq b) b)))
+  (let [b0 (some-> (get-in config [:s3 :buckets :recordings :bucket]) str str/trim)]
+    (when (seq b0) b0)))
 
 (defn get-recording-audio-handler
   "Handler for `GET /api/recordings/:session_id/audio`.
@@ -387,7 +408,7 @@
   Security:
   - Tenant-scoped (session must belong to tenant)
   - For `file://`, access is restricted to `[:recordings :local-root]`.
-  - For `s3://`, bucket is allowlisted (see `[:recordings :s3-bucket]`).
+  - For `s3://`, bucket is allowlisted (see `[:s3 :buckets :recordings :bucket]`).
 
   Range:
   - Supports `Range: bytes=start-end` (single range) for seeking.
@@ -439,8 +460,13 @@
                                 {:type :samuraibff.http/recording-bucket-not-allowed
                                  :bucket bucket
                                  :allowed allow-bucket})))
-              (with-open [^S3Client s3 (s3.enrollment/build-s3-client config)]
-                (-> (ring-stream-s3 s3 bucket key range)
+              ;; Important: do NOT close the S3Client before the response body is consumed.
+              ;; Ring/http-kit will stream the InputStream asynchronously.
+              (let [^S3Client s3 (s3.client/build-s3-client config)
+                    resp0 (ring-stream-s3 s3 bucket key range)
+                    body' (close-on-close ^InputStream (:body resp0) #(.close s3))]
+                (-> resp0
+                    (assoc :body body')
                     (assoc-in [:headers "Cache-Control"] "no-store"))))
 
             :else

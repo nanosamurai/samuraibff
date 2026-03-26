@@ -20,13 +20,11 @@
   (:require
     [clojure.string :as str]
     [jsonista.core :as json]
-    [org.corfield.logging4j2 :as log])
+    [org.corfield.logging4j2 :as log]
+    [samuraibff.s3.client :as s3.client])
   (:import
     (java.time Instant)
-    (java.util.function Consumer)
-    (software.amazon.awssdk.auth.credentials AwsBasicCredentials StaticCredentialsProvider)
     (software.amazon.awssdk.core.sync RequestBody)
-    (software.amazon.awssdk.regions Region)
     (software.amazon.awssdk.services.s3 S3Client)
     (software.amazon.awssdk.services.s3.model DeleteObjectRequest ListObjectsV2Request PutObjectRequest)))
 
@@ -34,38 +32,21 @@
   (json/object-mapper {:encode-key-fn name
                        :escape-non-ascii true}))
 
+
 (defn build-s3-client
   "Create an AWS SDK S3 client from config.
 
-  Inputs:
-  - config: map containing :s3 keys
+  DEPRECATED: use `samuraibff.s3.client/build-s3-client`.
+  This function remains as a thin wrapper so call sites can migrate smoothly
+  within this PR.
 
-  Expected keys (all optional except bucket for writes):
-  - :region string
-  - :endpoint string (e.g. http://localhost:4566)
-  - :access-key string
-  - :secret-key string
-  - :force-path-style? boolean
+  Inputs:
+  - config: config map
 
   Returns:
-  - software.amazon.awssdk.services.s3.S3Client" 
+  - software.amazon.awssdk.services.s3.S3Client"
   [config]
-  (let [{:keys [region endpoint access-key secret-key force-path-style?]} (:s3 config)
-        builder (cond-> (S3Client/builder)
-                  (seq (str region)) (.region (Region/of region))
-                  (seq (str endpoint)) (.endpointOverride (java.net.URI/create endpoint))
-                  (some? force-path-style?)
-                  (.serviceConfiguration
-                    (reify Consumer
-                      (accept [_ cfg-builder]
-                        ;; cfg-builder is software.amazon.awssdk.services.s3.S3Configuration$Builder
-                        (.pathStyleAccessEnabled cfg-builder (boolean force-path-style?)))))
-                  (and (seq (str access-key)) (seq (str secret-key)))
-                  (.credentialsProvider
-                    (StaticCredentialsProvider/create
-                      (AwsBasicCredentials/create access-key secret-key)))
-                  )]
-    (.build builder)))
+  (s3.client/build-s3-client config))
 
 (defn- join-path
   "Join path segments into an S3 key (no double slashes)." 
@@ -87,7 +68,7 @@
   Returns:
   - string prefix (no trailing slash)." 
   [config tenant-id speaker-id]
-  (let [prefix (get-in config [:s3 :enrollment-prefix])]
+  (let [prefix (get-in config [:s3 :buckets :enrollments :prefix])]
     (join-path prefix tenant-id "speakers" speaker-id)))
 
 (defn manifest-key
@@ -147,7 +128,7 @@
 
   Inputs:
   - s3: S3Client
-  - config: config map (expects :s3 :bucket)
+  - config: config map
   - tenant-id: UUID/string
   - speaker-id: UUID/string
   - label: string
@@ -157,9 +138,9 @@
   Returns:
   - {:sample-url string :manifest-url string :sample-key string :manifest-key string}"
   [^S3Client s3 config tenant-id speaker-id label sample-id sample-bytes]
-  (let [bucket (get-in config [:s3 :bucket])]
+  (let [bucket (get-in config [:s3 :buckets :enrollments :bucket])]
     (when-not (seq (str bucket))
-      (throw (ex-info "S3 bucket missing" {:config (select-keys (:s3 config) [:bucket])})))
+      (throw (ex-info "S3 bucket missing" {:config (select-keys (get-in config [:s3 :buckets :enrollments]) [:bucket])})))
     (let [sample-key (sample-key config tenant-id speaker-id sample-id)
           manifest-key (manifest-key config tenant-id speaker-id)
           sample-url (s3-url bucket sample-key)
@@ -198,10 +179,10 @@
   Returns:
   - number of deleted objects." 
   [^S3Client s3 config tenant-id speaker-id]
-  (let [bucket (get-in config [:s3 :bucket])
+  (let [bucket (get-in config [:s3 :buckets :enrollments :bucket])
         prefix (str (speaker-prefix config tenant-id speaker-id) "/")]
     (when-not (seq (str bucket))
-      (throw (ex-info "S3 bucket missing" {:config (select-keys (:s3 config) [:bucket])})))
+      (throw (ex-info "S3 bucket missing" {:config (select-keys (get-in config [:s3 :buckets :enrollments]) [:bucket])})))
     (loop [deleted 0
            token nil]
       (let [req (cond-> (ListObjectsV2Request/builder)

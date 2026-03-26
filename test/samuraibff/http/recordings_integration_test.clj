@@ -16,6 +16,7 @@
     [next.jdbc :as jdbc]
     [samuraibff.http.router :as http.router]
     [samuraibff.http.recordings :as http.recordings]
+    [samuraibff.testcontainers.localstack :as tc.localstack]
     [samuraibff.testcontainers.postgres :as tc.pg])
   (:import
     (java.util UUID)))
@@ -187,7 +188,7 @@
                   :config {:env :test
                            :recordings {:local-root (.getPath root-file)}
                            ;; allowlist irrelevant for file://
-                           :s3 {:bucket "x"}}}
+                           :s3 {:buckets {:recordings {:bucket "x"}}}}}
 
             handler (http.recordings/get-recording-audio-handler deps)
             ;; Request bytes 10-19.
@@ -203,3 +204,70 @@
         (is (= "bytes" (get-in resp [:headers "Accept-Ranges"])) (pr-str (:headers resp)))
         (is (= 10 (first out)))
         (is (= 10 (count out)))))))
+
+(deftest recording-audio-handler-s3-url-range-integration-test
+  (testing "GET /api/recordings/:session_id/audio streams S3 object with Range (LocalStack)"
+    (tc.localstack/with-localstack [localstack]
+      (tc.pg/with-postgres [pg]
+        (let [jdbc-url (tc.pg/jdbc-url pg)
+              ds (tc.pg/datasource jdbc-url "drsynth" "drsynth")
+              _ (tc.pg/apply-schema! ds)
+
+              tenant-a (UUID/fromString "00000000-0000-0000-0000-000000000000")
+              _ (jdbc/execute! ds ["INSERT INTO tenants (id, name) VALUES (?, ?)" tenant-a "Tenant A"])
+
+              session-a (UUID/fromString "00000000-0000-0000-0000-000000000010")
+              _ (jdbc/execute! ds ["INSERT INTO sessions (id, tenant_id, session_key, status, created_at) VALUES (?, ?, ?, ?, now())"
+                                  session-a tenant-a session-a "active"])
+
+              s3 (tc.localstack/s3-client localstack)
+              endpoint (tc.localstack/s3-endpoint localstack)
+              {:keys [access-key secret-key region]} (tc.localstack/s3-credentials localstack)
+
+              ;; Use two buckets to ensure playback is allowlisted by the recordings bucket
+              ;; and does not accidentally depend on the enrollments bucket.
+              enrollments-bucket "xamurai-enrollment"
+              recordings-bucket "xamurai-recordings"
+              _ (tc.localstack/create-bucket! s3 enrollments-bucket)
+              _ (tc.localstack/create-bucket! s3 recordings-bucket)
+
+              key "recordings/test/a.wav"
+              bytes (byte-array (range 0 128))
+              _ (tc.localstack/put-object! s3 recordings-bucket key bytes {:content-type "audio/wav"})
+              url (str "s3://" recordings-bucket "/" key)
+
+              _ (jdbc/execute! ds ["INSERT INTO recordings (id, session_id, recording_url, duration_s, sample_rate, lang, created_at)
+                                  VALUES (?, ?, ?, 1.0, 16000, 'en', now())"
+                                  (UUID/fromString "00000000-0000-0000-0000-000000000200") session-a url])
+
+              config {:env :test
+                      :s3 {:region region
+                           :endpoint endpoint
+                           :access-key access-key
+                           :secret-key secret-key
+                           :force-path-style? true
+                           :buckets {:enrollments {:bucket enrollments-bucket
+                                                   :prefix "enrollment"}
+                                     :recordings {:bucket recordings-bucket
+                                                  :prefix "recordings"}}}
+                      :recordings {:local-root ""}}
+              deps {:db {:ds ds}
+                    :config config}
+
+              handler (http.recordings/get-recording-audio-handler deps)
+              resp (handler {:auth/tenant-id (str tenant-a)
+                             :uri (str "/api/recordings/" session-a "/audio")
+                             :path-params {:session_id (str session-a)}
+                             :headers {"range" "bytes=10-19"}})
+
+              out (with-open [in ^java.io.InputStream (:body resp)]
+                    (let [buf (byte-array 64)
+                          n (.read ^java.io.InputStream in buf)]
+                      (vec (take n buf))))]
+          (try
+            (is (= 206 (:status resp)) (pr-str resp))
+            (is (= "bytes" (get-in resp [:headers "Accept-Ranges"])) (pr-str (:headers resp)))
+            (is (= 10 (first out)))
+            (is (= 10 (count out)))
+            (finally
+              (.close s3))))))))
