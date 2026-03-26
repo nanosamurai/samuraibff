@@ -251,6 +251,30 @@
                 (assoc "Content-Range" (str "bytes " start "-" end "/" size)))
      :body (bounded-input-stream in len)}))
 
+(defn- close-on-close
+  "Wrap an InputStream so that closing it also closes a related resource.
+
+  This is used to ensure we keep the S3Client alive for the lifetime of the
+  response stream, and then close it once the Ring server finishes streaming.
+
+  Inputs:
+  - in: InputStream
+  - close-fn: (fn [])
+
+  Returns:
+  - InputStream (delegating wrapper)." 
+  ^InputStream
+  [^InputStream in close-fn]
+  (proxy [FilterInputStream] [in]
+    (close []
+      (try
+        (.close ^InputStream in)
+        (finally
+          (try
+            (close-fn)
+            (catch Exception _
+              nil)))))))
+
 (defn- jsonb->clj
   "Normalize a Postgres json/jsonb value into a Clojure value.
 
@@ -436,8 +460,13 @@
                                 {:type :samuraibff.http/recording-bucket-not-allowed
                                  :bucket bucket
                                  :allowed allow-bucket})))
-              (with-open [^S3Client s3 (s3.client/build-s3-client config)]
-                (-> (ring-stream-s3 s3 bucket key range)
+              ;; Important: do NOT close the S3Client before the response body is consumed.
+              ;; Ring/http-kit will stream the InputStream asynchronously.
+              (let [^S3Client s3 (s3.client/build-s3-client config)
+                    resp0 (ring-stream-s3 s3 bucket key range)
+                    body' (close-on-close ^InputStream (:body resp0) #(.close s3))]
+                (-> resp0
+                    (assoc :body body')
                     (assoc-in [:headers "Cache-Control"] "no-store"))))
 
             :else
