@@ -14,6 +14,7 @@
    [samuraibff.ui.audio :as audio]
    [samuraibff.ui.auth :as auth]
    [samuraibff.ui.hooks :as hooks]
+   [samuraibff.ui.karaoke :as karaoke]
    [samuraibff.ui.router :as router]
    [samuraibff.ui.store :as store]
    [samuraibff.ui.api-credentials-store :as api-creds.store]
@@ -41,19 +42,111 @@
 (defn- dedupe-by
   "De-dupe a sequence by key function, preserving the first seen item.
 
+  Arity:
+  - (dedupe-by key-fn xs) => vector
+  - (dedupe-by key-fn)    => (fn [xs] ...) convenience for ->> pipelines
+
   Inputs:
   - key-fn: (fn [x] k)
   - xs: seq
 
   Returns: vector." 
-  [key-fn xs]
-  (->> (or xs [])
-       (reduce (fn [acc x]
-                 (let [k (key-fn x)]
-                   (if (contains? acc k) acc (assoc acc k x))))
-               {})
-       vals
-       vec))
+  ([key-fn]
+   (fn [xs] (dedupe-by key-fn xs)))
+  ([key-fn xs]
+   (->> (or xs [])
+        (reduce (fn [acc x]
+                  (let [k (key-fn x)]
+                    (if (contains? acc k) acc (assoc acc k x))))
+                {})
+        vals
+        vec)))
+
+(defn- on-time->current-time-s
+  "Read the currentTime (seconds) from a React timeupdate event.
+
+  Inputs:
+  - e: React synthetic event emitted by <audio>
+
+  Returns: double (>=0)." 
+  [e]
+  (let [t (some-> e .-target .-currentTime)]
+    (max 0.0 (double (or t 0.0)))))
+
+;; `final-transcript-karaoke` is defined before `transcript-view` in this file,
+;; so we declare it to avoid CLJS compile-time unresolved var errors.
+(declare transcript-view)
+
+(defn- final-transcript-karaoke
+  "Render final transcript with word-level karaoke highlighting.
+
+  Inputs:
+  - messages: vector of final transcript messages (each may contain :words)
+  - audio-ref: React ref to the <audio> element
+  - current-time-s: double
+  - follow?* : React useState tuple for follow toggle
+
+  Returns: hiccup." 
+  [{:keys [messages audio-ref current-time-s follow?]}]
+  (let [msgs (vec (or messages []))
+        word-index (react/useMemo (fn [] (karaoke/build-word-index msgs)) #js [msgs])
+        active-flat-idx (karaoke/active-word-idx-normalized word-index current-time-s)
+        active-word (when (some? active-flat-idx) (nth word-index active-flat-idx))
+        active-msg-idx (:msg-idx active-word)
+        active-word-idx (:word-idx active-word)
+        active-el-ref (react/useRef nil)]
+
+    (react/useEffect
+     (fn []
+       (when (and (true? follow?) (some? (.-current active-el-ref)))
+         (try
+           (.scrollIntoView (.-current active-el-ref)
+                            #js {:block "nearest" :inline "nearest"})
+           (catch :default _
+             nil)))
+       js/undefined)
+     #js [follow? active-flat-idx])
+
+    ;; Inline word rendering inside transcript-view bubbles.
+    (let [rendered-msgs
+          (mapv
+           (fn [msg-idx m]
+             (let [words (vec (or (:words m) []))]
+               (if (empty? words)
+                 m
+                 (let [word-spans
+                       (map-indexed
+                        (fn [widx w]
+                          (let [txt (karaoke/word-text w)
+                                active? (and (= msg-idx active-msg-idx)
+                                             (= widx active-word-idx))]
+                            [:span
+                             {:key (str "w-" msg-idx "-" widx "-" (double (or (:start_s w) 0.0)))
+                              :class (str "word" (when active? " active"))
+                              :ref (when active?
+                                     (fn [el]
+                                       (set! (.-current active-el-ref) el)))
+                              :on-click (fn [_]
+                                          (when-let [audio (.-current audio-ref)]
+                                            (try
+                                              (set! (.-currentTime audio) (double (or (:start_s w) 0.0)))
+                                              ;; Autoplay requested.
+                                              (-> (.play audio)
+                                                  (.catch (fn [_] nil)))
+                                              (catch :default _
+                                                nil))))}
+                             (if (seq txt) txt "")
+                             " "]))
+                        words)]
+                   (assoc m :text
+                          (into [:span {:class "karaoke"}]
+                                word-spans))))))
+           (range (count msgs))
+           msgs)]
+      [#'transcript-view
+       {:messages rendered-msgs
+        :empty-title "Final transcript"
+        :empty-hint "No final transcript stored"}])))
 
 (defn- final-segments->messages
   "Convert final transcript segments (from DB json) into transcript messages."
@@ -262,8 +355,9 @@
   - enabled?: boolean
 
   Returns: hiccup" 
-  [{:keys [session-id enabled?]}]
-  (let [url (api/recording-audio-url session-id)]
+  [{:keys [session-id enabled? audio-ref on-time]}]
+  (let [url (api/recording-audio-url session-id)
+        on-time (or on-time (fn [_] nil))]
     [:div {:class "card"}
      [:div {:class "card-title"} "Playback"]
      (if (and (true? enabled?) (seq (str session-id)))
@@ -272,6 +366,9 @@
                 :src url
                 ;; Help some browsers with Range.
                 :crossOrigin "anonymous"
+                :ref audio-ref
+                :on-time-update on-time
+                :on-seeked on-time
                 :style {:width "100%"}}]
        [:div {:class "muted"}
         "Audio playback not available (no recording or no final transcript)."])]))
@@ -615,6 +712,13 @@
   (let [tab* (react/useState :realtime)
         tab (aget tab* 0)
         set-tab! (aget tab* 1)
+        audio-ref (react/useRef nil)
+        current-time* (react/useState 0.0)
+        current-time-s (aget current-time* 0)
+        set-current-time! (aget current-time* 1)
+        follow?* (react/useState true)
+        follow? (aget follow?* 0)
+        set-follow! (aget follow?* 1)
         show-log?* (react/useState true)
         show-log? (aget show-log?* 0)
         set-show-log! (aget show-log?* 1)
@@ -696,7 +800,15 @@
           ;; - a recording stored
           ;; - a final transcript stored
           playback-enabled? (boolean (and final-record
-                                         (true? (get-in detail [:session :has_recording]))))]
+                                         (true? (get-in detail [:session :has_recording]))))
+
+          karaoke-enabled? (boolean (and playback-enabled?
+                                        (seq final-msgs)
+                                        (some (fn [m] (seq (:words m))) final-msgs)))
+
+          on-audio-time
+          (fn [e]
+            (set-current-time! (on-time->current-time-s e)))]
 
       [:div {:class "page"}
        [:div {:class "page-header"}
@@ -743,10 +855,30 @@
            (case tab
              :final [:div {:style {:display "flex" :flexDirection "column" :gap "12px"}}
                      [final-audio-player {:session-id session-id
-                                          :enabled? (boolean final-record)}]
-                     [transcript-view {:messages final-msgs
-                                       :empty-title "Final transcript"
-                                       :empty-hint (if final-record "(no segments)" "No final transcript stored")}]]
+                                          :enabled? playback-enabled?
+                                          :audio-ref audio-ref
+                                          :on-time on-audio-time}]
+
+                     (when karaoke-enabled?
+                       [:div {:class "row" :style {:marginTop "-4px"}}
+                        [:label {:class "muted"
+                                 :style {:display "inline-flex" :gap "8px" :alignItems "center"}}
+                         [:input {:type "checkbox"
+                                  :checked (boolean follow?)
+                                  :on-change (fn [e]
+                                               (set-follow! (.. e -target -checked)))}]
+                         "Follow"]
+                        [:span {:class "muted"}
+                         (str "t=" (util/fmt-sec current-time-s))]])
+
+                     (if karaoke-enabled?
+                       [final-transcript-karaoke {:messages final-msgs
+                                                 :audio-ref audio-ref
+                                                 :current-time-s current-time-s
+                                                 :follow? follow?}]
+                       [transcript-view {:messages final-msgs
+                                         :empty-title "Final transcript"
+                                         :empty-hint (if final-record "(no segments)" "No final transcript stored")}])]
              :refined [transcript-view {:messages refined-msgs
                                         :empty-title "Refined real-time"
                                         :empty-hint "No refined transcript available"}]
@@ -761,25 +893,46 @@
               (for [[idx line] (map-indexed vector cached-log-lines)]
                 [:div {:class "log-line" :key (str "logc-" idx)} line])]
              [:div {:class "muted"} "No log available for this session (not persisted)."])]]
+
          [:div {:class "card"}
           [:div {:class "card-title"}
            (case tab
-                 :refined "Refined real-time"
-                 :final "Final"
-                 "Real-time")]
+             :refined "Refined real-time"
+             :final "Final"
+             "Real-time")]
           (case tab
             :final [:div {:style {:display "flex" :flexDirection "column" :gap "12px"}}
                     [final-audio-player {:session-id session-id
-                                         :enabled? (boolean final-record)}]
-                    [transcript-view {:messages final-msgs
-                                      :empty-title "Final transcript"
-                                      :empty-hint (if final-record "(no segments)" "No final transcript stored")}]]
+                                         :enabled? playback-enabled?
+                                         :audio-ref audio-ref
+                                         :on-time on-audio-time}]
+
+                    (when karaoke-enabled?
+                      [:div {:class "row" :style {:marginTop "-4px"}}
+                       [:label {:class "muted"
+                                :style {:display "inline-flex" :gap "8px" :alignItems "center"}}
+                        [:input {:type "checkbox"
+                                 :checked (boolean follow?)
+                                 :on-change (fn [e]
+                                              (set-follow! (.. e -target -checked)))}]
+                        "Follow"]
+                       [:span {:class "muted"}
+                        (str "t=" (util/fmt-sec current-time-s))]])
+
+                    (if karaoke-enabled?
+                      [final-transcript-karaoke {:messages final-msgs
+                                                :audio-ref audio-ref
+                                                :current-time-s current-time-s
+                                                :follow? follow?}]
+                      [transcript-view {:messages final-msgs
+                                        :empty-title "Final transcript"
+                                        :empty-hint (if final-record "(no segments)" "No final transcript stored")}])]
             :refined [transcript-view {:messages refined-msgs
                                        :empty-title "Refined real-time"
                                        :empty-hint "No refined transcript available"}]
-            [transcript-view {:messages realtime-msgs
-                              :empty-title "Real-time transcript"
-                              :empty-hint "No realtime transcript available"}])])])))
+             [transcript-view {:messages realtime-msgs
+                               :empty-title "Real-time transcript"
+                               :empty-hint "No realtime transcript available"}])])])))
 
 (defn right-panel
   "Right-side panel for Live Recording.

@@ -35,10 +35,10 @@ Upstream context:
 ### Phase 3 — Karaoke highlighting
 
 - [x] Add shared pure helpers (CLJC) for karaoke indexing + binary search.
-- [ ] Render final transcript as word spans when `words[]` present.
-- [ ] Highlight active word based on audio `currentTime`.
-- [ ] Click word to seek.
-- [ ] (Optional) Auto-scroll active word into view (“follow”).
+- [x] Render final transcript as word spans when `words[]` present.
+- [x] Highlight active word based on audio `currentTime`.
+- [x] Click word to seek.
+- [x] (Optional) Auto-scroll active word into view (“follow”).
 
 ### Phase 4 — Tests + documentation
 
