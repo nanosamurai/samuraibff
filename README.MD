@@ -273,10 +273,10 @@ in S3 and persisted in Postgres.
   - `sample` (WAV file)
 - `DELETE /api/speakers/:speaker_id` – delete speaker (S3 + DB)
 
-### S3 layout
+### S3 layout (enrollments)
 
 ```
-s3://<bucket>/<enrollment-prefix>/<tenant_id>/speakers/<speaker_id>/
+s3://<enrollments-bucket>/<enrollment-prefix>/<tenant_id>/speakers/<speaker_id>/
   speaker.json
   samples/<sample_id>.wav
 ```
@@ -285,27 +285,34 @@ The `speaker.json` is a per-speaker manifest containing the label and sample URL
 
 ### Configuration
 
-Add S3 config in `resources/system.edn` (or env overrides):
+Add S3 / object-store config in `resources/system.edn` (or env overrides):
 
 ```edn
-:s3 {:bucket "xamurai-enrollment"
-     :enrollment-prefix "enrollment"
-     :region ""
-     :endpoint ""          ;; localstack/minio
-     :access-key ""
-     :secret-key ""
-     :force-path-style? true}
+:s3 {:region ""
+     :endpoint ""          ;; localstack/minio/ceph
+     :access-key ""        ;; optional; when blank, AWS default credentials chain is used (IAM/IRSA)
+     :secret-key ""        ;; optional
+     :force-path-style? true
+     :buckets {:enrollments {:bucket "xamurai-enrollment"
+                             :prefix "enrollment"}
+               :recordings  {:bucket "xamurai-recordings"
+                             :prefix "recordings"}}}
 ```
 
 Environment variables:
 
-- `SAMURAIBFF_S3_BUCKET`
-- `SAMURAIBFF_S3_ENROLLMENT_PREFIX`
 - `SAMURAIBFF_S3_REGION`
 - `SAMURAIBFF_S3_ENDPOINT`
 - `SAMURAIBFF_S3_ACCESS_KEY`
 - `SAMURAIBFF_S3_SECRET_KEY`
 - `SAMURAIBFF_S3_FORCE_PATH_STYLE`
+
+Buckets:
+
+- `SAMURAIBFF_S3_ENROLLMENTS_BUCKET`
+- `SAMURAIBFF_S3_ENROLLMENTS_PREFIX`
+- `SAMURAIBFF_S3_RECORDINGS_BUCKET`
+- `SAMURAIBFF_S3_RECORDINGS_PREFIX`
 
 ### Tests (LocalStack)
 
