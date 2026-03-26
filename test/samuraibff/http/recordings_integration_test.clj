@@ -99,6 +99,8 @@
 
         (is (= 200 (:status detail-resp-a)))
         (is (= (str session-a) (get-in detail-body-a [:session :id])))
+        (is (false? (get-in detail-body-a [:session :has_recording])))
+        (is (true? (get-in detail-body-a [:session :has_final_transcript])))
         (is (= 1 (count (get-in detail-body-a [:transcripts :refined]))))
         (is (= 1 (count (get-in detail-body-a [:transcripts :final]))))
 
