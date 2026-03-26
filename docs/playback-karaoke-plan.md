@@ -35,16 +35,63 @@ Upstream context:
 ### Phase 3 — Karaoke highlighting
 
 - [x] Add shared pure helpers (CLJC) for karaoke indexing + binary search.
-- [ ] Render final transcript as word spans when `words[]` present.
-- [ ] Highlight active word based on audio `currentTime`.
-- [ ] Click word to seek.
-- [ ] (Optional) Auto-scroll active word into view (“follow”).
+- [x] Render final transcript as word spans when `words[]` present.
+- [x] Highlight active word based on audio `currentTime`.
+- [x] Click word to seek.
+- [x] (Optional) Auto-scroll active word into view (“follow”).
 
 ### Phase 4 — Tests + documentation
 
 - [x] Unit tests for karaoke pure functions.
-- [ ] Update README.MD (new endpoint + config + karaoke feature).
-- [ ] Run full test suite (`clojure -X:test`).
+- [x] Update README.MD (new endpoint + config + karaoke feature).
+- [x] Run full test suite (`clojure -X:test`).
+
+## PR summary — karaoke highlighting in UI
+
+This PR completes Phase 3 (“karaoke highlighting”) by rendering word-level timing in the UI and syncing it with audio playback.
+
+### Data model / timing
+
+- Final transcript segments from DB may include `words[]`:
+  - each word: `{start_s,end_s,text}`
+- All timestamps are **absolute within the session recording**.
+- `<audio>` playback time (`audio.currentTime`) is also relative to recording start, so we can compare directly.
+
+### How highlighting is implemented
+
+Files:
+- UI renderer: `src/cljs/samuraibff/ui/components.cljs`
+- Pure helpers: `src/shared/samuraibff/ui/karaoke.cljc`
+
+Algorithm:
+1) Build a flattened, sorted “word index” from transcript messages using `karaoke/build-word-index`.
+   - Each entry includes `:msg-idx` and `:word-idx` so we can map back to a specific word span.
+2) On every audio time update, find the active word via `karaoke/active-word-idx-normalized`.
+   - This uses a binary search over the flattened index (fast enough for long recordings).
+3) Render the final transcript bubble text as a sequence of `<span class="word">` elements.
+   - The currently active word span receives the additional class `active`.
+
+### Sync with playback (`<audio>`) and UI state
+
+No new global UI atoms were introduced; everything is local to the Recording detail page.
+
+Local React state added in `recording-detail-page`:
+- `audio-ref` (`react/useRef`): reference to the `<audio>` element.
+- `current-time-s` (`react/useState`): updated from `<audio>` events.
+- `follow?` (`react/useState`): whether to auto-scroll the active word into view.
+
+How `current-time-s` is updated:
+- `final-audio-player` accepts `:on-time` and wires it to `on-time-update` + `on-seeked`.
+- `on-time->current-time-s` reads `e.target.currentTime` and normalizes to `double`.
+
+### Interaction
+
+- Click a word: seeks the `<audio>` element to that word’s `start_s` and attempts autoplay.
+- Follow mode: when enabled, the active word span is scrolled into view via `scrollIntoView`.
+
+### Styling
+
+CSS for `.karaoke .word` + `.karaoke .word.active` lives in `resources/public/index.html`.
 
 ## Implementation notes / constraints
 

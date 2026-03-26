@@ -256,7 +256,10 @@
    [:status [:maybe :string]]
    [:started_at [:maybe :string]]
    [:ended_at [:maybe :string]]
-   [:created_at [:maybe :string]]])
+   [:created_at [:maybe :string]]
+   ;; Flags for UI convenience (used for audio playback gating).
+   [:has_recording :boolean]
+   [:has_final_transcript :boolean]])
 
 (def TranscriptRecord
   "Transcript record element returned by `GET /api/recordings/{session_id}`.

@@ -384,6 +384,16 @@ Two endpoints power the Recordings UI and are also part of the customer-facing A
   - supports HTTP Range requests (`Range: bytes=start-end`) so the browser can seek
   - does **not** expose internal `recording_url` values (`file://`, `s3://`) to the browser
 
+### Karaoke-style word highlighting (UI)
+
+If a final transcript segment includes `words[]` timing data (`{start_s,end_s,text}`), the UI Recording detail page
+renders the final transcript in “karaoke” mode:
+
+- words are rendered as clickable spans
+- the currently spoken word is highlighted based on the playback `<audio>` current time
+- clicking a word seeks the audio to that word (best-effort autoplay)
+- optional “Follow” mode auto-scrolls the active word into view
+
 It intentionally excludes:
 - UI/SPA routes (e.g. `/`, `/recordings`, `/live`)
 - internal callbacks (e.g. `/internal/*`)

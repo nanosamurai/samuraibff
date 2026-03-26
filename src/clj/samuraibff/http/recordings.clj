@@ -565,8 +565,11 @@
               session (db.recordings/find-session-by-id ds tenant-uuid session-uuid)]
           (if-not session
             (json-response 404 {:ok false :message "not-found"})
-            (let [refined (db.recordings/list-transcript-records ds tenant-uuid session-uuid {:type "refined" :limit 2000})
+            (let [recording (db.recordings/find-latest-recording ds tenant-uuid session-uuid)
+                  refined (db.recordings/list-transcript-records ds tenant-uuid session-uuid {:type "refined" :limit 2000})
                   final (db.recordings/list-transcript-records ds tenant-uuid session-uuid {:type "final" :limit 20})
+                  has-recording? (boolean recording)
+                  has-final? (boolean (seq final))
                   ;; Normalize keys for UI JSON.
                   normalize-record
                   (fn [r]
@@ -593,7 +596,9 @@
                                   :status (:status session)
                                   :started_at (some-> (:started_at session) str)
                                   :ended_at (some-> (:ended_at session) str)
-                                  :created_at (some-> (:created_at session) str)}
+                                  :created_at (some-> (:created_at session) str)
+                                  :has_recording has-recording?
+                                  :has_final_transcript has-final?}
                         :transcripts {:refined (mapv normalize-record refined)
                                       :final (mapv normalize-record final)}}]
               (when (#{:dev :test} (:env config))
