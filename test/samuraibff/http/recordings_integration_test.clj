@@ -187,7 +187,7 @@
                   :config {:env :test
                            :recordings {:local-root (.getPath root-file)}
                            ;; allowlist irrelevant for file://
-                           :s3 {:bucket "x"}}}
+                           :s3 {:buckets {:recordings {:bucket "x"}}}}}
 
             handler (http.recordings/get-recording-audio-handler deps)
             ;; Request bytes 10-19.

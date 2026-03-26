@@ -18,7 +18,7 @@
     [clojure.string :as str]
     [org.corfield.logging4j2 :as log]
     [samuraibff.db.recordings :as db.recordings]
-    [samuraibff.s3.enrollment :as s3.enrollment]
+    [samuraibff.s3.client :as s3.client]
     [samuraibff.schemas :as schemas])
   (:import
     (java.io File FileInputStream FilterInputStream InputStream)
@@ -364,16 +364,13 @@
   "Return the configured allowlist bucket for recording playback.
 
   Precedence:
-  1) config [:recordings :s3-bucket]
-  2) config [:s3 :bucket] (legacy default)
+  1) config [:s3 :buckets :recordings :bucket]
 
   Returns:
   - string? (blank => nil)." 
   [config]
-  (let [b0 (some-> (get-in config [:recordings :s3-bucket]) str str/trim)
-        b1 (some-> (get-in config [:s3 :bucket]) str str/trim)
-        b (if (seq b0) b0 (when (seq b1) b1))]
-    (when (seq b) b)))
+  (let [b0 (some-> (get-in config [:s3 :buckets :recordings :bucket]) str str/trim)]
+    (when (seq b0) b0)))
 
 (defn get-recording-audio-handler
   "Handler for `GET /api/recordings/:session_id/audio`.
@@ -387,7 +384,7 @@
   Security:
   - Tenant-scoped (session must belong to tenant)
   - For `file://`, access is restricted to `[:recordings :local-root]`.
-  - For `s3://`, bucket is allowlisted (see `[:recordings :s3-bucket]`).
+  - For `s3://`, bucket is allowlisted (see `[:s3 :buckets :recordings :bucket]`).
 
   Range:
   - Supports `Range: bytes=start-end` (single range) for seeking.
@@ -439,7 +436,7 @@
                                 {:type :samuraibff.http/recording-bucket-not-allowed
                                  :bucket bucket
                                  :allowed allow-bucket})))
-              (with-open [^S3Client s3 (s3.enrollment/build-s3-client config)]
+              (with-open [^S3Client s3 (s3.client/build-s3-client config)]
                 (-> (ring-stream-s3 s3 bucket key range)
                     (assoc-in [:headers "Cache-Control"] "no-store"))))
 
