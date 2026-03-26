@@ -96,9 +96,20 @@
         active-word-idx (:word-idx active-word)
         active-el-ref (react/useRef nil)]
 
+    ;; When there is no active word (timing gaps), clear the active element ref.
+    ;; Otherwise Follow may keep scrolling to a stale word and cause flicker.
     (react/useEffect
      (fn []
-       (when (and (true? follow?) (some? (.-current active-el-ref)))
+       (when (nil? active-flat-idx)
+         (set! (.-current active-el-ref) nil))
+       js/undefined)
+     #js [active-flat-idx])
+
+    (react/useEffect
+     (fn []
+       (when (and (true? follow?)
+                  (some? active-flat-idx)
+                  (some? (.-current active-el-ref)))
          (try
            (.scrollIntoView (.-current active-el-ref)
                             #js {:block "nearest" :inline "nearest"})
@@ -143,7 +154,7 @@
                                 word-spans))))))
            (range (count msgs))
            msgs)]
-      [#'transcript-view
+      [transcript-view
        {:messages rendered-msgs
         ;; Final transcript playback should not behave like a live chat.
         ;; Default to top and let karaoke "Follow" be the only source of scrolling.
