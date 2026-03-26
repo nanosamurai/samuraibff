@@ -145,8 +145,12 @@
            msgs)]
       [#'transcript-view
        {:messages rendered-msgs
+        ;; Final transcript playback should not behave like a live chat.
+        ;; Default to top and let karaoke "Follow" be the only source of scrolling.
+        :auto-scroll? false
+        :initial-scroll :top
         :empty-title "Final transcript"
-        :empty-hint "No final transcript stored"}])))
+        :empty-hint "No final transcript stored"}]))
 
 (defn- final-segments->messages
   "Convert final transcript segments (from DB json) into transcript messages."
@@ -301,35 +305,49 @@
   Note:
   - We no longer merge refined segments into realtime ASR in the UI.
   - Each tab renders its own message stream."
-  [{:keys [messages empty-title empty-hint]}]
+  [{:keys [messages empty-title empty-hint auto-scroll? initial-scroll]}]
   (let [msgs (->> (or messages [])
                   transcript/coalesce-asr-finals
                   vec)
         container-ref (react/useRef nil)
         ;; Auto-scroll unless the user scrolled up.
-        auto-scroll?* (react/useRef true)]
+        ;; NOTE: for some views (e.g. final transcript playback) we disable this.
+        auto-scroll? (if (some? auto-scroll?) (boolean auto-scroll?) true)
+        initial-scroll (or initial-scroll :bottom)
+        auto-scroll?* (react/useRef true)
+        initial-scrolled?* (react/useRef false)]
 
     (react/useEffect
      (fn []
        (when-let [el (.-current container-ref)]
-         (when (true? (.-current auto-scroll?*))
-           (set! (.-scrollTop el) (.-scrollHeight el))))
+         (when (and auto-scroll? (true? (.-current auto-scroll?*)))
+           (set! (.-scrollTop el) (.-scrollHeight el)))
+
+         ;; One-time initial positioning for non-auto-scrolling views.
+         (when (and (not auto-scroll?) (false? (.-current initial-scrolled?*)))
+           (case initial-scroll
+             :top (set! (.-scrollTop el) 0)
+             :bottom (set! (.-scrollTop el) (.-scrollHeight el))
+             nil)
+           (set! (.-current initial-scrolled?*) true)))
        js/undefined)
-     #js [(count msgs)])
+     #js [(count msgs) auto-scroll? initial-scroll])
 
     [:div {:class "transcript"}
      (if (empty? msgs)
        [:div {:class "empty"}
         [:div {:class "empty-title"} (or empty-title "Transcript")]
         [:div {:class "muted"} (or empty-hint "No events yet…")]]
-       [:div {:class "transcript-feed"
-              :ref container-ref
-              :on-scroll (fn [e]
-                           (let [el (.-target e)
-                                 dist (- (.-scrollHeight el)
-                                         (.-scrollTop el)
-                                         (.-clientHeight el))]
-                             (set! (.-current auto-scroll?*) (<= dist 48))))}
+       [:div (cond-> {:class "transcript-feed"
+                      :ref container-ref}
+              auto-scroll?
+              (assoc :on-scroll
+                     (fn [e]
+                       (let [el (.-target e)
+                             dist (- (.-scrollHeight el)
+                                     (.-scrollTop el)
+                                     (.-clientHeight el))]
+                         (set! (.-current auto-scroll?*) (<= dist 48))))))
         (for [[idx msg] (map-indexed vector msgs)]
           (let [k (message-key idx msg)
                 speaker (:speaker msg)
@@ -716,7 +734,8 @@
         current-time* (react/useState 0.0)
         current-time-s (aget current-time* 0)
         set-current-time! (aget current-time* 1)
-        follow?* (react/useState true)
+        ;; Default to no auto-follow; otherwise the UI feels like it fights the user.
+        follow?* (react/useState false)
         follow? (aget follow?* 0)
         set-follow! (aget follow?* 1)
         show-log?* (react/useState true)
@@ -877,6 +896,8 @@
                                                  :current-time-s current-time-s
                                                  :follow? follow?}]
                        [transcript-view {:messages final-msgs
+                                        :auto-scroll? false
+                                        :initial-scroll :top
                                          :empty-title "Final transcript"
                                          :empty-hint (if final-record "(no segments)" "No final transcript stored")}])]
              :refined [transcript-view {:messages refined-msgs
@@ -925,6 +946,8 @@
                                                 :current-time-s current-time-s
                                                 :follow? follow?}]
                       [transcript-view {:messages final-msgs
+                                        :auto-scroll? false
+                                        :initial-scroll :top
                                         :empty-title "Final transcript"
                                         :empty-hint (if final-record "(no segments)" "No final transcript stored")}])]
             :refined [transcript-view {:messages refined-msgs
