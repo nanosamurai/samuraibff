@@ -36,8 +36,9 @@
   Security notes:
   - Cookies are set as HttpOnly and SameSite=Lax.
   - `Secure` flag is enabled automatically when request is https.
-  - In production behind TLS termination, you may want to rely on
-    `x-forwarded-proto` handling (not implemented yet)."
+  - In production behind TLS termination, we rely on `X-Forwarded-Proto` /
+    `X-Forwarded-Host` to compute browser-facing OIDC redirect URIs and cookie
+    security flags."
   (:require
     [clojure.string :as str]
     [jsonista.core :as json]
@@ -88,22 +89,88 @@
   (or (some-> req :scheme name)
       "http"))
 
+(defn- forwarded-scheme
+  "Return scheme derived from reverse proxy headers (best-effort).
+
+  Supports:
+  - X-Forwarded-Proto: https
+  - Forwarded: proto=https;host=...
+
+  Returns: http | https | nil" 
+  [req]
+  (let [h (:headers req)
+        xfp (some-> (or (get h "x-forwarded-proto") (get h "X-Forwarded-Proto"))
+                      str/trim str/lower-case not-empty)
+        forwarded (some-> (or (get h "forwarded") (get h "Forwarded"))
+                          str/trim not-empty)]
+    (cond
+      (some? xfp)
+      (case xfp
+        "https" "https"
+        "http" "http"
+        nil)
+
+      (some? forwarded)
+      (let [proto (some-> (re-find #"(?i)proto=([^;,]+)" forwarded)
+                          second
+                          str/trim
+                          (str/replace #"^\"|\"$" "")
+                          str/lower-case)]
+        (case proto
+          "https" "https"
+          "http" "http"
+          nil))
+
+      :else nil)))
+
 (defn- request-host
   "Return host header (best effort)." 
   [req]
   (or (get-in req [:headers "host"])
       (get-in req [:headers "Host"])))
 
+(defn- forwarded-host
+  "Return host derived from reverse proxy headers (best-effort).
+
+  Supports:
+  - X-Forwarded-Host
+  - Forwarded: host=...
+
+  Returns: string or nil" 
+  [req]
+  (let [h (:headers req)
+        xfh (some-> (or (get h "x-forwarded-host") (get h "X-Forwarded-Host"))
+                      str/trim not-empty)
+        forwarded (some-> (or (get h "forwarded") (get h "Forwarded"))
+                          str/trim not-empty)]
+    (cond
+      (some? xfh) xfh
+
+      (some? forwarded)
+      (some-> (re-find #"(?i)host=([^;,]+)" forwarded)
+              second
+              str/trim
+              (str/replace #"^\"|\"$" "")
+              not-empty)
+
+      :else nil)))
+
 (defn- request-origin
   "Determine external origin for redirects.
 
   Precedence:
-  1) config [:bff :origin-uri]
-  2) request-derived {scheme}://{host}
+  1) config [:bff :public-origin-uri] (browser-facing; recommended behind a load balancer)
+  2) proxy-derived {scheme}://{host} via X-Forwarded-* / Forwarded
+  3) config [:bff :origin-uri] (may be pod-IP for inter-BFF callbacks)
+  4) request-derived {scheme}://{host}
 
   Returns: string" 
   [config req]
-  (or (get-in config [:bff :origin-uri])
+  (or (get-in config [:bff :public-origin-uri])
+      (when-let [host (forwarded-host req)]
+        (let [scheme (or (forwarded-scheme req) (request-scheme req))]
+          (str scheme "://" host)))
+      (get-in config [:bff :origin-uri])
       (let [scheme (request-scheme req)
             host (request-host req)]
         (when host
@@ -145,7 +212,7 @@
 
 (defn- cookie-secure?
   [req]
-  (= "https" (request-scheme req)))
+  (= "https" (or (forwarded-scheme req) (request-scheme req))))
 
 (defn- set-cookie
   "Set a cookie on a Ring response (using ring.util.response).

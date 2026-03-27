@@ -508,13 +508,18 @@ The container reads configuration from `resources/system.edn` (or
 - `SAMURAIBFF_GRPC_RTSERVICE_ADDR`
 
 #### BFF instance identity (important for multi-replica refined routing)
-- `SAMURAIBFF_ORIGIN_URI` – the externally reachable base URL of this BFF
-  (also used to compute the OIDC `redirect_uri`).
+- `SAMURAIBFF_ORIGIN_URI` – the **instance-routable** base URL of this BFF.
+  In Kubernetes this is often set to a **Pod IP** so other BFF instances can
+  call back directly (avoids bouncing internal callbacks through the public ALB).
+- `SAMURAIBFF_PUBLIC_ORIGIN_URI` – the **browser-facing** public base URL used
+  to compute the OIDC `redirect_uri` (e.g. `https://platform.nanosamur.ai`).
+  If unset, the server tries to derive it from `X-Forwarded-Proto` /
+  `X-Forwarded-Host` headers.
 - `SAMURAIBFF_CALLBACK_PATH` (default `/internal/refined`)
 
 > Kubernetes note: for multiple replicas, `SAMURAIBFF_ORIGIN_URI` must be a
-> routable address other instances can reach (typically a stable service DNS
-> name, or an internal ingress).
+> routable address other instances can reach (Pod IP is ideal). For OIDC login,
+> ensure Keycloak allows redirects to `SAMURAIBFF_PUBLIC_ORIGIN_URI`.
 
 ## Health & readiness (HA behavior)
 
