@@ -96,7 +96,7 @@
   - X-Forwarded-Proto: https
   - Forwarded: proto=https;host=...
 
-  Returns: "http" | "https" | nil" 
+  Returns: http | https | nil" 
   [req]
   (let [h (:headers req)
         xfp (some-> (or (get h "x-forwarded-proto") (get h "X-Forwarded-Proto"))
