@@ -178,6 +178,9 @@
                                   :prefix (s "SAMURAIBFF_S3_RECORDINGS_PREFIX")}}}
 
       :bff {:origin-uri (s "SAMURAIBFF_ORIGIN_URI")
+            ;; Public browser origin used for OIDC redirect_uri computation.
+            ;; Keep this separate from origin-uri (which may be a pod-IP for inter-BFF callbacks).
+            :public-origin-uri (s "SAMURAIBFF_PUBLIC_ORIGIN_URI")
             :callback-path (s "SAMURAIBFF_CALLBACK_PATH")}}}))
 
 (defn- apply-env-overrides
