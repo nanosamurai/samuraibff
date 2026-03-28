@@ -27,6 +27,8 @@
    [samuraibff.http.internal :as http.internal]
    [samuraibff.http.speakers :as http.speakers]
    [samuraibff.http.ui :as http.ui]
+   [samuraibff.http.middleware.observability :as http.obs]
+   [samuraibff.observability.metrics :as metrics]
    [samuraibff.schemas :as schemas]
    [reitit.ring.coercion :as rrc]
    [reitit.coercion.malli]
@@ -447,6 +449,9 @@
            ;; Internal callbacks (between BFF instances)
            ["/internal" {:tags ["internal"]
                          :no-doc true}
+            ["/metrics" {:get {:summary "Prometheus metrics"
+                               :description "Prometheus scrape endpoint (in-cluster only)."
+                               :handler metrics/metrics-handler}}]
             ["/refined" {:post {:summary "BFF-to-BFF refined callback (protobuf)"
                                 :handler (http.internal/refined-callback-handler deps)}}]]
 
@@ -464,6 +469,8 @@
                   :middleware [parameters/parameters-middleware ; decoding query & form params
                                wrap-cookies
                                wrap-authenticate
+                               http.obs/wrap-auth-mdc
+                               http.obs/wrap-observability
                                openapi/openapi-feature
                                muuntaja/format-middleware       ; content negotiation
                                exception/exception-middleware   ; converting exceptions to HTTP responses

@@ -47,6 +47,11 @@
   io.opentelemetry/opentelemetry-api     {:mvn/version "1.59.0"}
   io.opentelemetry/opentelemetry-context {:mvn/version "1.59.0"}
 
+  ;; --- Metrics (Prometheus scrape) ---
+  ;; Used for `/internal/metrics` exposition endpoint.
+  io.prometheus/simpleclient        {:mvn/version "0.16.0"}
+  io.prometheus/simpleclient_common {:mvn/version "0.16.0"}
+
   ;; --- Auth / OIDC (Keycloak) ---
   ;; NOTE: keycloak-clojure is kept for now (may still be useful for admin APIs),
   ;; but our JWT verification uses Nimbus directly for transparency and control.
