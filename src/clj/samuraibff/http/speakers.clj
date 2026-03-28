@@ -177,6 +177,12 @@
               (json-response 400 {:ok false :message "empty-sample"})
               (let [s3 (s3.enrollment/build-s3-client config)]
                 (try
+                  (log/info "Creating speaker" {:tenant_id (str tenant-id)
+                                                :user_id (some-> req :auth/user :sub str)
+                                                :speaker_id (str speaker-id)
+                                                :sample_id (str sample-id)
+                                                :label label
+                                                :sample_bytes (alength ^bytes sample-bytes)})
                   (let [{:keys [sample-url manifest-url]} (s3.enrollment/put-speaker!
                                                             s3 config tenant-id speaker-id label sample-id sample-bytes)
                         _ (when ds
@@ -187,6 +193,13 @@
                                :user-id user-uuid
                                :label label
                                :audio-url manifest-url}))]
+                    (log/info "Speaker created" {:tenant_id (str tenant-id)
+                                                 :user_id (some-> req :auth/user :sub str)
+                                                 :speaker_id (str speaker-id)
+                                                 :sample_id (str sample-id)
+                                                 :label label
+                                                 :sample_url sample-url
+                                                 :manifest_url manifest-url})
                     (json-response 200 {:ok true
                                         :speaker_id (str speaker-id)
                                         :tenant_id (str tenant-id)
@@ -228,12 +241,20 @@
           (json-response 400 {:ok false :message "invalid-speaker-id"})
           (let [s3 (s3.enrollment/build-s3-client config)]
             (try
-              (let [_ (s3.enrollment/delete-speaker-prefix! s3 config tenant-id speaker-uuid)
+              (log/info "Deleting speaker" {:tenant_id (str tenant-id)
+                                            :user_id (some-> req :auth/user :sub str)
+                                            :speaker_id (str speaker-uuid)})
+              (let [deleted-objects (s3.enrollment/delete-speaker-prefix! s3 config tenant-id speaker-uuid)
                     ds (:ds db)
                     deleted (when ds (db.speakers/delete-speaker! ds tenant-id speaker-uuid))]
                 (if (and ds (zero? (or deleted 0)))
                   (json-response 404 {:ok false :message "speaker-not-found"})
-                  (json-response 200 {:ok true :speaker_id speaker-id})))
+                  (do
+                    (log/info "Speaker deleted" {:tenant_id (str tenant-id)
+                                                 :user_id (some-> req :auth/user :sub str)
+                                                 :speaker_id speaker-id
+                                                 :s3_deleted_objects (long (or deleted-objects 0))})
+                    (json-response 200 {:ok true :speaker_id speaker-id}))))
               (finally
                 (.close s3))))))
       (catch clojure.lang.ExceptionInfo e

@@ -153,6 +153,9 @@
               session-id (str session-uuid)
               session-key session-id
               ds (get db :ds)]
+          (log/info "Creating session" {:tenant_id (str tenant-id-uuid)
+                                        :user_id (some-> req :auth/user :sub str)
+                                        :session_id session-id})
           (when-not ds
             (log/warn "DB datasource missing; creating session without persistence" {:uri (:uri req)}))
           (when ds
@@ -171,6 +174,10 @@
           ;; IMPORTANT: even when auth is disabled, we bind the in-memory session
           ;; under the same tenant UUID that we persisted into Postgres.
           (ws.registry/ensure-session! ws-registry (str tenant-id-uuid) session-id {})
+
+          (log/info "Session created" {:tenant_id (str tenant-id-uuid)
+                                       :user_id (some-> req :auth/user :sub str)
+                                       :session_id session-id})
 
           (json-response 200 {:session_id session-id}))
         (catch clojure.lang.ExceptionInfo e

@@ -146,7 +146,12 @@
           sample-url (s3-url bucket sample-key)
           manifest-url (s3-url bucket manifest-key)
           payload (manifest-payload (str speaker-id) (str label) sample-url (str sample-id))]
-      (log/info "Uploading speaker sample" {:bucket bucket :key sample-key})
+      (log/info "Uploading speaker sample" {:bucket bucket
+                                             :key sample-key
+                                             :tenant_id (str tenant-id)
+                                             :speaker_id (str speaker-id)
+                                             :sample_id (str sample-id)
+                                             :bytes (alength ^bytes sample-bytes)})
       (.putObject s3
                   (-> (PutObjectRequest/builder)
                       (.bucket bucket)
@@ -154,7 +159,11 @@
                       (.contentType "audio/wav")
                       (.build))
                   (RequestBody/fromBytes ^bytes sample-bytes))
-      (log/info "Uploading speaker manifest" {:bucket bucket :key manifest-key})
+      (log/info "Uploading speaker manifest" {:bucket bucket
+                                               :key manifest-key
+                                               :tenant_id (str tenant-id)
+                                               :speaker_id (str speaker-id)
+                                               :sample_id (str sample-id)})
       (.putObject s3
                   (-> (PutObjectRequest/builder)
                       (.bucket bucket)
