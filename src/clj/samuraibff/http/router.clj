@@ -469,7 +469,6 @@
                   :middleware [parameters/parameters-middleware ; decoding query & form params
                                wrap-cookies
                                wrap-authenticate
-                               http.obs/wrap-auth-mdc
                                http.obs/wrap-observability
                                openapi/openapi-feature
                                muuntaja/format-middleware       ; content negotiation

@@ -106,20 +106,14 @@
   nil)
 
 (defn wrap-auth-mdc
-  "Middleware that copies auth context into MDC.
+  "DEPRECATED: kept only for backward compatibility.
 
-  Expected to run after `samuraibff.http.auth/wrap-authenticate`.
+  New code should not use this. Auth MDC binding is performed inside
+  `wrap-observability` to ensure keys are always removed on request exit.
 
   Returns wrapped handler." 
   [handler]
-  (fn [req]
-    (let [tenant-id (or (:auth/tenant-id req) (get-in req [:auth :tenant-id]))
-          user-sub (get-in req [:auth/user :sub])]
-      ;; Do NOT remove these keys here; they should live for the lifetime of
-      ;; the request. The outer observability middleware will clean them up.
-      (when tenant-id (mdc/put! :tenant_id tenant-id))
-      (when user-sub (mdc/put! :user_id user-sub))
-      (handler req))))
+  handler)
 
 (defn wrap-observability
   "Top-level HTTP observability middleware.
@@ -139,10 +133,14 @@
           session-trace-id (some-> session-id trace/trace-id-for-session)
           ctx (trace/trace-context)
           trace-id (or session-trace-id (:trace-id ctx))
-          span-id (:span-id ctx)]
+          span-id (:span-id ctx)
+          tenant-id (or (:auth/tenant-id req) (get-in req [:auth :tenant-id]))
+          user-sub (get-in req [:auth/user :sub])]
       (mdc/with-mdc {:trace_id trace-id
                      :span_id span-id
                      :session_id session-id
+                     :tenant_id (some-> tenant-id str)
+                     :user_id (some-> user-sub str)
                      :http_route route}
         (try
           (let [resp (handler req)
