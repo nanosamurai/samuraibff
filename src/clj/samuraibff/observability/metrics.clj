@@ -39,31 +39,31 @@
         (log/warn e "Failed to initialize Prometheus DefaultExports" {}))))
   nil)
 
+
 (defonce ^Counter http-requests-total
-  (doto
-    (Counter/build)
-    (.name "samuraibff_http_requests_total")
-    (.help "Total HTTP requests.")
-    (.labelNames (into-array String ["method" "route" "status"]))
-    (.register)))
+  (-> (Counter/build)
+      (.name "samuraibff_http_requests_total")
+      (.help "Total HTTP requests.")
+      (.labelNames (into-array String ["method" "route" "status"]))
+      (.register)))
+
 
 (defonce ^Histogram http-request-duration-seconds
-  (doto
-    (Histogram/build)
-    (.name "samuraibff_http_request_duration_seconds")
-    (.help "HTTP request duration in seconds.")
-    (.labelNames (into-array String ["method" "route" "status"]))
-    ;; A reasonable default set of buckets for typical BFF latencies.
-    (.buckets (double-array [0.005 0.01 0.025 0.05 0.1 0.25 0.5 1.0 2.5 5.0 10.0]))
-    (.register)))
+  (-> (Histogram/build)
+      (.name "samuraibff_http_request_duration_seconds")
+      (.help "HTTP request duration in seconds.")
+      (.labelNames (into-array String ["method" "route" "status"]))
+      ;; A reasonable default set of buckets for typical BFF latencies.
+      (.buckets (double-array [0.005 0.01 0.025 0.05 0.1 0.25 0.5 1.0 2.5 5.0 10.0]))
+      (.register)))
+
 
 (defonce ^Counter http-exceptions-total
-  (doto
-    (Counter/build)
-    (.name "samuraibff_http_exceptions_total")
-    (.help "Total exceptions thrown while handling HTTP requests.")
-    (.labelNames (into-array String ["method" "route" "exception"]))
-    (.register)))
+  (-> (Counter/build)
+      (.name "samuraibff_http_exceptions_total")
+      (.help "Total exceptions thrown while handling HTTP requests.")
+      (.labelNames (into-array String ["method" "route" "exception"]))
+      (.register)))
 
 (defn observe-http!
   "Observe an HTTP request.
