@@ -749,4 +749,48 @@ Notes:
 
 
 ## Observability
-The BFF supports OTEL integration and tracing - for more information see https://github.com/mikub/xamurai/blob/master/docs/local-k8s-observability.md (locally usually `%USERPROFILE%\PycharmProjects\xamurai\docs\local-k8s-observability.md`)
+
+### Logs ↔ traces correlation
+
+SamuraiBFF writes structured logs using log4j2 and includes correlation fields
+in **MDC** (rendered in logs via `%X` in `resources/log4j2.properties`).
+
+Key fields:
+
+- `trace_id` – Tempo trace id (32 hex). For session-scoped flows we use:
+  `trace_id == session_id without dashes`.
+- `span_id` – current span id (best-effort).
+- `session_id` – UUID string when present.
+- `tenant_id` – tenant UUID string when present.
+- `user_id` – Keycloak subject (`sub`) when present.
+- `http_route` – low-cardinality Reitit route template (used for metrics).
+
+This enables Grafana “trace → logs” navigation when Loki derived fields are
+configured to map `trace_id` to Tempo.
+
+### Metrics (Prometheus)
+
+The BFF exposes a Prometheus scrape endpoint:
+
+- `GET /internal/metrics`
+
+Important:
+- This is intended for **in-cluster scraping only**.
+- The public ALB/Ingress must **not** expose `/internal/metrics`.
+
+Currently exported metrics include:
+
+- `samuraibff_http_requests_total{method,route,status}`
+- `samuraibff_http_request_duration_seconds{method,route,status}`
+- `samuraibff_http_exceptions_total{method,route,exception}`
+
+### Tracing (OpenTelemetry)
+
+The BFF supports OTEL integration and tracing. For local k8s / EKS setup see:
+
+- `nanodeploy/docs/local-k8s-observability.md`
+- `nanodeploy/docs/eks-dev-observability.md`
+
+Session tracing model (local dev):
+- a stable trace context is derived from `session_id` and propagated via Kafka
+  header `traceparent`.
