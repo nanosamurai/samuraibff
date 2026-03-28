@@ -51,6 +51,7 @@
   ;; Used for `/internal/metrics` exposition endpoint.
   io.prometheus/simpleclient        {:mvn/version "0.16.0"}
   io.prometheus/simpleclient_common {:mvn/version "0.16.0"}
+  io.prometheus/simpleclient_hotspot {:mvn/version "0.16.0"}
 
   ;; --- Auth / OIDC (Keycloak) ---
   ;; NOTE: keycloak-clojure is kept for now (may still be useful for admin APIs),
