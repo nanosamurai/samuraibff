@@ -131,8 +131,8 @@
          (if (and (string? region)
                   (= 2 (count region))
                   (re-matches #"[A-Z]{2}" region))
-           (let [a (.-codePointAt region 0)
-                 b (.-codePointAt region 1)
+           (let [a (.codePointAt region 0)
+                 b (.codePointAt region 1)
                  base 127397]
              (str (js/String.fromCodePoint (+ base a))
                   (js/String.fromCodePoint (+ base b))))

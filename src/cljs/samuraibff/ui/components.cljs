@@ -60,7 +60,7 @@
         search-ref (react/useRef nil)
 
         value (str (or value ""))
-        placeholder (or placeholder "Select…")
+        placeholder (or placeholder "Select...")
 
         opts (vec (or options []))
         selected (or (first (filter (fn [o] (= (str (:value o)) value)) opts))
@@ -72,9 +72,7 @@
                        opts
                        (->> opts
                             (filter (fn [o]
-                                      (str/includes?
-                                        (lang-option->search-haystack o)
-                                        q)))
+                                      (str/includes? (lang-option->search-haystack o) q)))
                             vec))]
 
     ;; Close on outside click.
@@ -89,7 +87,8 @@
                              (set-open! false)
                              (set-query! "")))))]
          (.addEventListener js/document "mousedown" handler)
-         (fn [] (.removeEventListener js/document "mousedown" handler))))
+         (fn []
+           (.removeEventListener js/document "mousedown" handler))))
      #js [open?])
 
     ;; Focus search when opening.
@@ -102,46 +101,49 @@
        js/undefined)
      #js [open?])
 
-    [:div {:class (str "dropdown" (when open? " open"))
-           :ref root-ref}
-     [:button {:type "button"
-               :class "dropdown-trigger"
-               :on-click (fn [_]
-                           (set-open! (not open?)))}
-      [:span {:class "dropdown-flag"} (or (:flag selected) "")]
-      [:span {:class "dropdown-label"}
-       (or (:label selected) placeholder)]
-      [:span {:class "dropdown-caret"} "▾"]]
+    (let [trigger
+          [:button {:type "button"
+                    :class "dropdown-trigger"
+                    :on-click (fn [_]
+                                (set-open! (not open?)))}
+           [:span {:class "dropdown-flag"} (or (:flag selected) "")]
+           [:span {:class "dropdown-label"} (or (:label selected) placeholder)]
+           [:span {:class "dropdown-caret"} "v"]]
 
-     (when open?
-       [:div {:class "dropdown-menu"
-              :on-key-down (fn [e]
-                             (when (= "Escape" (.-key e))
-                               (set-open! false)
-                               (set-query! "")))}
-        [:div {:class "dropdown-search"}
-         [:input {:ref search-ref
-                  :value query
-                  :placeholder "Search…"
-                  :on-change (fn [e]
-                               (set-query! (.. e -target -value)))}]]
+          menu
+          (when open?
+            [:div {:class "dropdown-menu"
+                   :on-key-down (fn [e]
+                                  (when (= "Escape" (.-key e))
+                                    (set-open! false)
+                                    (set-query! "")))}
+             [:div {:class "dropdown-search"}
+              [:input {:ref search-ref
+                       :value query
+                       :placeholder "Search..."
+                       :on-change (fn [e]
+                                    (set-query! (.. e -target -value)))}]]
+             [:div {:class "dropdown-items"}
+              (if (empty? visible-opts)
+                [:div {:class "dropdown-empty muted"} "No matches"]
+                (for [{:keys [value label flag]} visible-opts]
+                  [:button {:type "button"
+                            :key (str "opt-" value)
+                            :class (str "dropdown-item"
+                                        (when (= (str value) (str (:value selected))) " active"))
+                            :on-click (fn [_]
+                                        (when (fn? on-change)
+                                          (on-change (str value)))
+                                        (set-open! false)
+                                        (set-query! ""))}
+                   [:span {:class "dropdown-flag"} (or flag "")]
+                   [:span {:class "dropdown-item-label"} (or label (str value))]
+                   [:span {:class "dropdown-item-code muted"} (or value "")]]))]])]
 
-        [:div {:class "dropdown-items"}
-         (if (empty? visible-opts)
-           [:div {:class "dropdown-empty muted"} "No matches"]
-           (for [{:keys [value label flag] :as opt} visible-opts]
-             (let [active? (= (str value) (str (:value selected)))]
-               [:button {:type "button"
-                         :key (str "opt-" value)
-                         :class (str "dropdown-item" (when active? " active"))
-                         :on-click (fn [_]
-                                     (when (fn? on-change)
-                                       (on-change (str value)))
-                                     (set-open! false)
-                                     (set-query! ""))}
-                [:span {:class "dropdown-flag"} (or flag "")]
-                [:span {:class "dropdown-item-label"} (or label (str value))]
-                [:span {:class "dropdown-item-code muted"} (or value "")]])))]]])]))
+      [:div {:class (str "dropdown" (when open? " open"))
+             :ref root-ref}
+       trigger
+       menu])))
 
 (defn- iso->local
   "Best-effort formatting of an ISO timestamp into a local date/time string."
