@@ -615,6 +615,10 @@ The UI will:
 - open `/ws/events?session_id=<uuid>` and display realtime transcript events
 - capture microphone audio (PCM16LE) and stream it to `/ws/audio?session_id=<uuid>&lang=en&sample_rate=16000`
 
+`lang` semantics:
+- `lang` is an ISO-639-1 language code (e.g. `en`, `cs`, `de`, ...)
+- empty string means **auto-detect** (recommended if you don't know the language)
+
 Optional per-session rtservice overrides (passed as gRPC metadata headers):
 - `rt_window_sec` / `window_sec`
 - `rt_overlap_sec` / `overlap_sec`

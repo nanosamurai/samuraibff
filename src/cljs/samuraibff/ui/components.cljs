@@ -10,6 +10,7 @@
   (:require
    [io.factorhouse.hsx.core :as hsx]
    [clojure.string :as str]
+   [samuraibff.ui.langs :as langs]
    [samuraibff.ui.api :as api]
    [samuraibff.ui.audio :as audio]
    [samuraibff.ui.auth :as auth]
@@ -22,6 +23,127 @@
    [samuraibff.ui.util :as util]
    [samuraibff.ui.ws :as ws]
    ["react" :as react]))
+
+(defn- lang-option->search-haystack
+  "Build a lowercase search string for a language option.
+
+  Inputs:
+  - opt: {:value string :label string :flag string}
+
+  Returns: string." 
+  [{:keys [value label]}]
+  (-> (str (or value "") " " (or label ""))
+      str/lower-case))
+
+(defn searchable-dropdown
+  "A lightweight searchable dropdown.
+
+  This is used for language selection on Live Recording.
+
+  Inputs:
+  - value: currently selected option value (string)
+  - options: vector of options {:value string :label string :flag string}
+  - placeholder: string shown when no matching option is found
+  - on-change: (fn [new-value] ...)
+
+  Returns: hiccup." 
+  [{:keys [value options placeholder on-change]}]
+  (let [open?* (react/useState false)
+        open? (aget open?* 0)
+        set-open! (aget open?* 1)
+
+        query* (react/useState "")
+        query (aget query* 0)
+        set-query! (aget query* 1)
+
+        root-ref (react/useRef nil)
+        search-ref (react/useRef nil)
+
+        value (str (or value ""))
+        placeholder (or placeholder "Select...")
+
+        opts (vec (or options []))
+        selected (or (first (filter (fn [o] (= (str (:value o)) value)) opts))
+                     (first opts)
+                     {:value value :label value :flag "🏳"})
+
+        q (-> (str (or query "")) str/trim str/lower-case)
+        visible-opts (if (str/blank? q)
+                       opts
+                       (->> opts
+                            (filter (fn [o]
+                                      (str/includes? (lang-option->search-haystack o) q)))
+                            vec))]
+
+    ;; Close on outside click.
+    (react/useEffect
+     (fn []
+       (let [handler (fn [e]
+                       (when (and (true? open?)
+                                  (some? (.-current root-ref)))
+                         (let [root (.-current root-ref)
+                               target (.-target e)]
+                           (when (and root (not (.contains root target)))
+                             (set-open! false)
+                             (set-query! "")))))]
+         (.addEventListener js/document "mousedown" handler)
+         (fn []
+           (.removeEventListener js/document "mousedown" handler))))
+     #js [open?])
+
+    ;; Focus search when opening.
+    (react/useEffect
+     (fn []
+       (when (and (true? open?) (some? (.-current search-ref)))
+         (try
+           (.focus (.-current search-ref))
+           (catch :default _ nil)))
+       js/undefined)
+     #js [open?])
+
+    (let [trigger
+          [:button {:type "button"
+                    :class "dropdown-trigger"
+                    :on-click (fn [_]
+                                (set-open! (not open?)))}
+           [:span {:class "dropdown-flag"} (or (:flag selected) "")]
+           [:span {:class "dropdown-label"} (or (:label selected) placeholder)]
+           [:span {:class "dropdown-caret"} "v"]]
+
+          menu
+          (when open?
+            [:div {:class "dropdown-menu"
+                   :on-key-down (fn [e]
+                                  (when (= "Escape" (.-key e))
+                                    (set-open! false)
+                                    (set-query! "")))}
+             [:div {:class "dropdown-search"}
+              [:input {:ref search-ref
+                       :value query
+                       :placeholder "Search..."
+                       :on-change (fn [e]
+                                    (set-query! (.. e -target -value)))}]]
+             [:div {:class "dropdown-items"}
+              (if (empty? visible-opts)
+                [:div {:class "dropdown-empty muted"} "No matches"]
+                (for [{:keys [value label flag]} visible-opts]
+                  [:button {:type "button"
+                            :key (str "opt-" value)
+                            :class (str "dropdown-item"
+                                        (when (= (str value) (str (:value selected))) " active"))
+                            :on-click (fn [_]
+                                        (when (fn? on-change)
+                                          (on-change (str value)))
+                                        (set-open! false)
+                                        (set-query! ""))}
+                   [:span {:class "dropdown-flag"} (or flag "")]
+                   [:span {:class "dropdown-item-label"} (or label (str value))]
+                   [:span {:class "dropdown-item-code muted"} (or value "")]]))]])]
+
+      [:div {:class (str "dropdown" (when open? " open"))
+             :ref root-ref}
+       trigger
+       menu])))
 
 (defn- iso->local
   "Best-effort formatting of an ISO timestamp into a local date/time string."
@@ -237,12 +359,12 @@
 
       [:div {:class "field"}
        [:div {:class "label"} "Language"]
-       [:select {:value (or lang "")
-                 :on-change (fn [e]
-                              (store/set-lang! (.. e -target -value)))}
-        [:option {:value "cs"} "cs"]
-        [:option {:value "en"} "en"]
-        [:option {:value ""} "auto"]]]
+       [searchable-dropdown
+        {:value (or lang "")
+         :options (langs/language-options)
+         :placeholder "Auto"
+         :on-change (fn [new-val]
+                      (store/set-lang! new-val))}]]
 
       [:div {:class "spacer"}]
 
