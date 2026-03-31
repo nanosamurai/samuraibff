@@ -400,10 +400,7 @@
 
       [:button {:class "btn ghost"
                 :on-click (fn [_] (store/clear-log!))}
-       "Clear log"]]
-
-     [:div {:class "hint"}
-      "Tip: run backend on port 8000, then start shadow watch so /js/main.js exists."]]))
+       "Clear log"]]]))
 
 (defn- message-key
   [idx msg]
