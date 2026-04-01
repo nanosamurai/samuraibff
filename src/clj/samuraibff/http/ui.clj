@@ -222,10 +222,10 @@
 
   Returns:
   - 200 {:ok true :session_id <uuid> :title <string?>}
-  - 404 {:ok false :message "not-found"}
-  - 400 {:ok false :message "invalid-session-id"}
-  - 403 {:ok false :message "missing-tenant-id"}
-  - 503 {:ok false :message "db-unavailable"}"
+  - 404 {:ok false :message not-found}
+  - 400 {:ok false :message invalid-session-id}
+  - 403 {:ok false :message missing-tenant-id}
+  - 503 {:ok false :message db-unavailable}"
   [{:keys [config db]}]
   (fn [req]
     (let [tenant-id (:auth/tenant-id req)
