@@ -339,23 +339,27 @@
       [:button {:class "btn"
                 :on-click (fn [_]
                             (store/append-log! "[ui] creating session...")
-                            (-> (api/create-session!)
-                                (.then (fn [sid]
-                                         (store/set-session-id! sid)
-                                         (store/add-recording! {:session_id sid
+                            (-> (api/create-session! {:title (get @store/session* :title "")})
+                                (.then (fn [{:keys [session_id title]}]
+                                         (store/set-session-id! session_id)
+                                         (store/set-session-title! (or title ""))
+                                         (store/add-recording! {:session_id session_id
                                                                 :created_at_ms (util/now-ms)
                                                                 :status :ready})
-                                         (store/append-log! (str "[ui] new session " sid))))
+                                         (store/append-log! (str "[ui] new session " session_id))))
                                 (.catch (fn [e]
                                           (store/append-log! (str "[ui] failed creating session: " e))))))}
        "New session"]
 
       [:div {:class "field"}
-       [:div {:class "label"} "Session"]
-       [:input {:value (or id "")
-                :placeholder "uuid"
+       [:div {:class "label"} "Session name"]
+       [:input {:value (or (get @store/session* :title) "")
+                :placeholder "Untitled session"
                 :on-change (fn [e]
-                             (store/set-session-id! (.. e -target -value)))}]]
+                             (store/set-session-title! (.. e -target -value)))}]
+       (when (seq (str id))
+         [:div {:class "hint"}
+          [:span {:class "mono"} id]])]
 
       [:div {:class "field"}
        [:div {:class "label"} "Language"]
@@ -623,11 +627,15 @@
   - rec: a map from /api/recordings
 
   Returns: hiccup <tr>"
-  [{:keys [session_id started_at created_at] :as rec}]
+  [{:keys [session_id title started_at created_at] :as rec}]
   (let [{:keys [label badge-class title]
          icon-glyph :icon} (rec->display-status rec)]
     [:tr
-     [:td {:class "mono"} session_id]
+     [:td
+      [:div {:style {:display "flex" :flexDirection "column" :gap "2px"}}
+       [:div (or title session_id)]
+       [:div {:class "hint"}
+        [:span {:class "mono"} session_id]]]]
      [:td {:class "muted"} (or (iso->local created_at) "")]
      [:td {:class "muted"} (or (iso->local started_at) "")]
      [:td
@@ -726,7 +734,7 @@
      [:div {:class "page-header"}
       [:div
        [:div {:class "page-title"} "Recordings"]
-       [:div {:class "muted"} "Sessions from database (tenant-scoped)."]]
+       [:div {:class "muted"} "All sessions and recordings."]]
       [:div {:class "row"}
        [:button {:class "btn"
                  :disabled loading?
@@ -735,14 +743,15 @@
        [:button {:class "btn primary"
                  :on-click (fn [_]
                              (store/append-log! "[ui] creating session...")
-                             (-> (api/create-session!)
-                                 (.then (fn [sid]
-                                          (store/set-session-id! sid)
-                                          (store/add-recording! {:session_id sid
+                             (-> (api/create-session! {:title (get @store/session* :title "")})
+                                 (.then (fn [{:keys [session_id title]}]
+                                          (store/set-session-id! session_id)
+                                          (store/set-session-title! (or title ""))
+                                          (store/add-recording! {:session_id session_id
                                                                  :created_at_ms (util/now-ms)
                                                                  :status :ready})
                                           (router/navigate! {:page :live :params {}})
-                                          (store/append-log! (str "[ui] new session " sid))))
+                                          (store/append-log! (str "[ui] new session " session_id))))
                                  (.catch (fn [e]
                                            (store/append-log! (str "[ui] failed creating session: " e))))))}
         "New live session"]]]
@@ -1122,7 +1131,7 @@
      [:div {:class "page-header"}
       [:div
        [:div {:class "page-title"} "Live Recording"]
-       [:div {:class "muted"} "Realtime transcript via /ws/events + /ws/audio."]]
+       [:div {:class "muted"} "Capture audio and view the live transcript."]]
       [:div {:class "row"}
        [router/link {:route {:page :recordings :params {}}
                      :class "btn"}
@@ -1200,7 +1209,7 @@
   [route]
   (let [{:keys [status detail]} (hooks/use-atom store/auth*)
         user (get detail :user)
-        tenant-id (get detail :tenant_id)]
+        tenant-name (get detail :tenant_name)]
     [:header {:class "topbar"}
      [:div {:class "brand"}
       [:img {:class "logo" :src "/img/nonosamurai_art.jpg" :alt "nanosamur.ai"}]
@@ -1213,23 +1222,23 @@
 
         (= status :authenticated)
         [:div {:class "row"}
+         (when (seq (str tenant-name))
+           [:span {:class "badge muted"} (str tenant-name)])
          [:span {:class "badge ok"}
           (or (:preferred_username user) (:email user) (:sub user) "user")]
-         (when tenant-id
-           [:span {:class "badge muted"} (str "tenant " tenant-id)])
          [:button {:class "btn"
                    :on-click (fn [_]
                                (-> (auth/logout!)
-                                   (.then (fn [_] (auth/fetch-me!)))))}
+                                   (.then (fn [_] (auth/fetch-me!))))) }
           "Logout"]]
-
         :else
         [:div {:class "row"}
          [:span {:class "badge muted"} "anonymous"]
          [:button {:class "btn primary"
                    :on-click (fn [_]
-                               (auth/login! (router/route->href route)))}
+                               (auth/login! (router/route->href route))) }
           "Login"]])]]))
+
 
 (defn- safe-http-error
   "Return a safe string to show/log for fetch errors.
@@ -1419,7 +1428,7 @@
       [:div
        [:div {:class "page-title"} "API Credentials"]
        [:div {:class "muted"}
-        "Tenant-scoped machine-to-machine credentials (Keycloak service accounts)."]
+        "Machine-to-machine credentials for API access."]
        (when (seq error)
          [:div {:class "badge bad" :style {:marginTop "10px"}} error])]
       [:div {:class "row"}
@@ -1439,7 +1448,7 @@
                  :on-click (fn [_] (create!))}
         "Create"]]
       [:div {:class "hint"}
-       "The client secret will be shown exactly once. It is never stored by the BFF."]]
+       "The client secret will be shown exactly once."]]
 
      [:div {:class "card"}
       [:div {:class "row" :style {:alignItems "center"}}

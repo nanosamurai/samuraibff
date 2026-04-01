@@ -23,6 +23,7 @@
 
 (defonce session*
   (atom {:id ""
+         :title ""
          :lang "cs"}))
 
 (defonce ws-status*
@@ -206,6 +207,17 @@
     (reset! transcript-zero-s* nil)
     (reset! log* [])
     nil))
+
+(defn set-session-title!
+  "Set the current session title (string).
+
+  Inputs:
+  - title: string
+
+  Returns: nil." 
+  [title]
+  (swap! session* assoc :title (or title ""))
+  nil)
 
 (defn set-lang!
   "Set current language code (string; empty allowed for auto)."
