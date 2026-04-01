@@ -14,11 +14,13 @@
   Note: for MVP, sessions are stored only in memory (ws registry)."
   (:require
     [clojure.java.io :as io]
+    [clojure.string :as str]
     [jsonista.core :as json]
     [org.corfield.logging4j2 :as log]
     [ring.util.response :as resp]
     [samuraibff.auth.oidc :as oidc]
     [samuraibff.db.sessions :as db.sessions]
+    [samuraibff.schemas :as schemas]
     [samuraibff.util.uuid :as uuid]
     [samuraibff.ws.registry :as ws.registry])
   (:import
@@ -148,7 +150,18 @@
   (fn [req]
     (let [tenant-id (:auth/tenant-id req)]
       (try
-        (let [tenant-id-uuid (tenant-uuid config tenant-id)
+        (let [body (or (:body-params req) (:body req) {})
+              ;; Request body is optional for backward compatibility.
+              {:keys [title]} (try
+                               (schemas/decode-and-validate! schemas/CreateSessionRequest body)
+                               (catch Exception _
+                                 {}))
+              title (some-> title str str/trim)
+              title (when-not (str/blank? (str title)) title)
+              default-title (format "Session %1$tF %1$tR" (java.time.ZonedDateTime/now))
+              title' (or title default-title)
+
+              tenant-id-uuid (tenant-uuid config tenant-id)
               session-uuid (uuid/uuid7)
               session-id (str session-uuid)
               session-key session-id
@@ -166,6 +179,7 @@
                  :tenant-id tenant-id-uuid
                  :user-id user-id
                  :session-key session-key
+                 :title title'
                  :status "created"})))
 
           ;; Create/bind session in registry immediately so WS endpoints can be
@@ -179,7 +193,8 @@
                                        :user_id (some-> req :auth/user :sub str)
                                        :session_id session-id})
 
-          (json-response 200 {:session_id session-id}))
+          (json-response 200 {:session_id session-id
+                              :title title'}))
         (catch clojure.lang.ExceptionInfo e
           (if (= :samuraibff.http/missing-tenant-id (:type (ex-data e)))
             (do
@@ -191,3 +206,62 @@
         (catch Exception e
           (log/error e "DB error while creating session" {:uri (:uri req)})
           (json-response 500 {:ok false :message "db-error"}))))))
+
+(defn rename-session-handler
+  "Rename a tenant-scoped session.
+
+  Endpoint:
+  - PATCH /api/sessions/:session_id
+
+  Dependencies:
+  - :config full config map
+  - :db {:ds DataSource}
+
+  Request body:
+  - schemas/UpdateSessionTitleRequest ({:title string?})
+
+  Returns:
+  - 200 {:ok true :session_id <uuid> :title <string?>}
+  - 404 {:ok false :message "not-found"}
+  - 400 {:ok false :message "invalid-session-id"}
+  - 403 {:ok false :message "missing-tenant-id"}
+  - 503 {:ok false :message "db-unavailable"}"
+  [{:keys [config db]}]
+  (fn [req]
+    (let [tenant-id (:auth/tenant-id req)
+          ds (:ds db)
+          sid-str (or (get-in req [:path-params :session_id])
+                      (get-in req [:path-params "session_id"]))
+          body (or (:body-params req) (:body req) {})]
+      (try
+        (when-not ds
+          (throw (ex-info "missing-datasource" {:type :samuraibff.http/missing-datasource})))
+
+        (let [tenant-id-uuid (tenant-uuid config tenant-id)
+              session-uuid (try
+                             (UUID/fromString (str sid-str))
+                             (catch Exception _
+                               (throw (ex-info "invalid-session-id"
+                                               {:type :samuraibff.http/invalid-session-id
+                                                :session-id sid-str}))))
+              {:keys [title]} (schemas/decode-and-validate! schemas/UpdateSessionTitleRequest body)
+              title (some-> title str str/trim)
+              title (when-not (str/blank? (str title)) title)
+              {:keys [updated?]} (db.sessions/update-session-title! ds tenant-id-uuid session-uuid title)]
+          (if updated?
+            (json-response 200 {:ok true :session_id (str session-uuid) :title title})
+            (json-response 404 {:ok false :message "not-found"})))
+
+        (catch clojure.lang.ExceptionInfo e
+          (let [{:keys [type]} (ex-data e)]
+            (case type
+              :samuraibff.http/missing-tenant-id (json-response 403 {:ok false :message "missing-tenant-id"})
+              :samuraibff.http/invalid-session-id (json-response 400 {:ok false :message "invalid-session-id"})
+              :samuraibff.http/missing-datasource (json-response 503 {:ok false :message "db-unavailable"})
+              (do
+                (log/error e "Failed to rename session" {:uri (:uri req)})
+                (json-response 500 {:ok false :message "internal-error"})))))
+
+        (catch Exception e
+          (log/error e "Unexpected error renaming session" {:uri (:uri req)})
+          (json-response 500 {:ok false :message "internal-error"}))))))

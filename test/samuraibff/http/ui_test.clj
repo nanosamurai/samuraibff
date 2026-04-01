@@ -2,6 +2,7 @@
   "Unit + integration tests for UI-related HTTP handlers." 
   (:require
     [cheshire.core :as cheshire]
+    [clojure.string :as str]
     [clojure.test :refer :all]
     [next.jdbc :as jdbc]
     [next.jdbc.result-set :as rs]
@@ -36,7 +37,9 @@
           sid (:session_id body)]
       (is (= 200 (:status resp)))
       (is (string? sid))
-      (is (re-matches uuid-regex sid)))))
+      (is (re-matches uuid-regex sid))
+      (is (string? (:title body)))
+      (is (not (str/blank? (:title body)))))))
 
 (deftest create-session-handler-persisted-integration-test
   (testing "POST /api/sessions persists a session row (postgres testcontainer)"
@@ -63,12 +66,56 @@
             sid (:session_id body)
             row (jdbc/execute-one!
                   ds
-                  ["SELECT id, tenant_id, session_key, status FROM sessions WHERE id = ?" (UUID/fromString sid)]
+                  ["SELECT id, tenant_id, session_key, status, title FROM sessions WHERE id = ?" (UUID/fromString sid)]
                   {:builder-fn rs/as-unqualified-lower-maps})]
         (is (= 200 (:status resp)))
         (is (string? sid))
         (is (re-matches uuid-regex sid))
+        (is (string? (:title body)))
+        (is (not (str/blank? (:title body))))
         (is (= sid (str (:id row))))
         (is (= tenant-id (str (:tenant_id row))))
         (is (= sid (str (:session_key row))))
+        (is (= (:title body) (:title row)))
         (is (= "created" (:status row)))))))
+
+(deftest rename-session-handler-integration-test
+  (testing "PATCH /api/sessions/:session_id updates title (tenant-scoped)"
+    (tc.pg/with-postgres [pg]
+      (let [jdbc-url (tc.pg/jdbc-url pg)
+            ds (tc.pg/datasource jdbc-url "drsynth" "drsynth")
+            _ (tc.pg/apply-schema! ds)
+
+            tenant-a (UUID/randomUUID)
+            tenant-b (UUID/randomUUID)
+            _ (jdbc/execute! ds ["INSERT INTO tenants (id, name) VALUES (?, ?), (?, ?)"
+                                tenant-a "Tenant A" tenant-b "Tenant B"])
+
+            session-id (UUID/randomUUID)
+            _ (jdbc/execute! ds ["INSERT INTO sessions (id, tenant_id, session_key, title, status) VALUES (?, ?, ?, ?, ?)"
+                                session-id tenant-a (str session-id) "Old" "created"])
+
+            handler (http.ui/rename-session-handler {:config {:auth {:required? true}} :db {:ds ds}})
+
+            ok-resp (handler {:auth/tenant-id (str tenant-a)
+                              :path-params {:session_id (str session-id)}
+                              :body-params {:title "New title"}})
+            ok-body (parse-json-body ok-resp)
+
+            cross-resp (handler {:auth/tenant-id (str tenant-b)
+                                 :path-params {:session_id (str session-id)}
+                                 :body-params {:title "Hacked"}})
+            cross-body (parse-json-body cross-resp)
+
+            row (jdbc/execute-one!
+                  ds
+                  ["SELECT title FROM sessions WHERE id = ?" session-id]
+                  {:builder-fn rs/as-unqualified-lower-maps})]
+        (is (= 200 (:status ok-resp)))
+        (is (= true (:ok ok-body)))
+        (is (= "New title" (:title ok-body)))
+        (is (= "New title" (:title row)))
+
+        (is (= 404 (:status cross-resp)))
+        (is (= false (:ok cross-body)))
+        (is (= "not-found" (:message cross-body)))))))

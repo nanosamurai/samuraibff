@@ -525,6 +525,7 @@
               items (mapv (fn [r]
                             {:session_id (str (:id r))
                              :session_key (:session_key r)
+                             :title (:title r)
                              :status (:status r)
                              :started_at (some-> (:started_at r) str)
                              :ended_at (some-> (:ended_at r) str)

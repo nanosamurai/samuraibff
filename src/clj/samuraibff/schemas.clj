@@ -194,9 +194,23 @@
   "Response body for POST /api/sessions.
 
   Shape:
-  - {:session_id <uuid>}" 
+  - {:session_id <uuid>
+     :title <string?>}"
   [:map
-   [:session_id Uuid]])
+   [:session_id Uuid]
+   [:title {:optional true} [:maybe :string]]])
+
+(def CreateSessionRequest
+  "Request body for POST /api/sessions.
+
+  Shape:
+  - {:title <string?>}
+
+  Notes:
+  - Title is optional and may be nil/blank (server will generate a default)."
+  [:map
+   [:title {:optional true}
+    [:maybe [:and :string [:fn (fn [s] (<= (count s) 200))]]]]])
 
 (def ApiMeResponse
   "Response body for GET /api/me.
@@ -210,6 +224,7 @@
    [:ok :boolean]
    [:authenticated :boolean]
    [:tenant_id {:optional true} Uuid]
+   [:tenant_name {:optional true} :string]
    [:user {:optional true}
     [:map
      [:sub {:optional true} :string]
@@ -227,6 +242,7 @@
   [:map
    [:session_id Uuid]
    [:session_key [:maybe :string]]
+   [:title {:optional true} [:maybe :string]]
    [:status [:maybe :string]]
    [:started_at [:maybe :string]]
    [:ended_at [:maybe :string]]
@@ -309,6 +325,25 @@
   [:map
    [:ok :boolean]
    [:deleted {:optional true} :boolean]
+   [:message {:optional true} :string]])
+
+(def UpdateSessionTitleRequest
+  "Request body for PATCH /api/sessions/{session_id}.
+
+  Shape:
+  - {:title <string?>}
+
+  Notes:
+  - Title may be nil/blank (server normalizes blank to nil)."
+  [:map
+   [:title {:optional true} [:maybe :string]]])
+
+(def UpdateSessionTitleResponse
+  "Response body for PATCH /api/sessions/{session_id}." 
+  [:map
+   [:ok :boolean]
+   [:session_id Uuid]
+   [:title {:optional true} [:maybe :string]]
    [:message {:optional true} :string]])
 
 (def ApiCredentialsListResponse

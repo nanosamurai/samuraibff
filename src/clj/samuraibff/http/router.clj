@@ -221,6 +221,7 @@
   Returns a Ring handler function." 
   [deps]
   (let [config (:config deps)
+        deps* deps
         wrap-authenticate (fn [handler]
                             (http.auth/wrap-authenticate handler config))
         wrap-require-auth (fn [handler]
@@ -368,10 +369,24 @@
                      :handler (http.recordings/get-recording-audio-handler deps)}}]]
             ["/sessions" {:post {:summary "Create session"
                                  :description "Creates a new session identifier for WebSocket streaming."
+                                 :parameters {:body schemas/CreateSessionRequest}
                                  :responses {200 {:body schemas/CreateSessionResponse}
                                              403 {:body schemas/ApiErrorResponse}
                                              500 {:body schemas/ApiErrorResponse}}
                                  :handler (http.ui/create-session-handler deps)}}]
+
+            ["/sessions/:session_id"
+             {:patch {:summary "Rename session"
+                      :description "Updates the session title."
+                      :parameters {:path [:map [:session_id :string]]
+                                   :body schemas/UpdateSessionTitleRequest}
+                      :responses {200 {:body schemas/UpdateSessionTitleResponse}
+                                  400 {:body schemas/ApiErrorResponse}
+                                  403 {:body schemas/ApiErrorResponse}
+                                  404 {:body schemas/ApiErrorResponse}
+                                  503 {:body schemas/ApiErrorResponse}
+                                  500 {:body schemas/ApiErrorResponse}}
+                      :handler (http.ui/rename-session-handler deps)}}]
 
             ["/speakers"
              {:get {:summary "List enrolled speakers"
@@ -468,6 +483,9 @@
                   :swagger {:id ::api}
                   :middleware [parameters/parameters-middleware ; decoding query & form params
                                wrap-cookies
+                               (fn [handler]
+                                 (fn [req]
+                                   (handler (assoc req :samuraibff/deps deps*))))
                                wrap-authenticate
                                http.obs/wrap-observability
                                openapi/openapi-feature
