@@ -8,12 +8,12 @@
   This file intentionally contains only UI rendering logic; side effects
   (ws/audio/fetch) should remain in their dedicated namespaces."
   (:require
-   [io.factorhouse.hsx.core :as hsx]
    [clojure.string :as str]
    [samuraibff.ui.langs :as langs]
    [samuraibff.ui.api :as api]
    [samuraibff.ui.audio :as audio]
    [samuraibff.ui.auth :as auth]
+   [samuraibff.ui.components.shared :as shared]
    [samuraibff.ui.hooks :as hooks]
    [samuraibff.ui.karaoke :as karaoke]
    [samuraibff.ui.router :as router]
@@ -363,7 +363,7 @@
 
       [:div {:class "field"}
        [:div {:class "label"} "Language"]
-       [searchable-dropdown
+       [shared/searchable-dropdown
         {:value (or lang "")
          :options (langs/language-options)
          :placeholder "Auto"
@@ -1508,4 +1508,4 @@
 (defn memo-clear!
   "Clear HSX memoization cache (used by core reload hook)."
   []
-  (hsx/memo-clear!))
+  (shared/memo-clear!))
