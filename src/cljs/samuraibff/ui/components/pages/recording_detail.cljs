@@ -220,10 +220,11 @@
   "Recording detail page.
 
   Inputs:
-  - session-id: string
+  - props: map with keys:
+      - :session-id string
 
   Returns: hiccup."
-  [session-id]
+  [{:keys [session-id]}]
   (let [tab* (react/useState :realtime)
         tab (aget tab* 0)
         set-tab! (aget tab* 1)

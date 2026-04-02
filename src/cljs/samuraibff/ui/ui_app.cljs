@@ -43,7 +43,7 @@
          :recordings [pages.recordings/recordings-page]
          :live [pages.live/live-recording-page]
          :recording [pages.recording-detail/recording-detail-page
-                     (get-in route [:params :session_id])]
+                     {:session-id (get-in route [:params :session_id])}]
          :speakers [pages.speakers/speakers-page]
          :api-credentials [pages.api-credentials/api-credentials-page]
          [pages.recordings/recordings-page])]]]))
