@@ -153,13 +153,13 @@ curl -s -X POST http://localhost:.../api/sessions \
 
 ## Gaps / next steps
 
-1) **Language flag in recordings table** is still missing.
-   - The recordings API already includes recording lang (`items[].recording.lang`).
-   - Next agent can map `lang -> flag` using `samuraibff.ui.langs`.
-
-2) Add UI for renaming existing sessions (if desired beyond the live session creation flow).
+1) Add UI for renaming existing sessions (if desired beyond the live session creation flow).
    - Backend `PATCH /api/sessions/:id` is in place.
    - UI could add an “Edit title” action in recordings row or detail page.
+
+2) UI refactor follow-ups:
+   - `src/cljs/samuraibff/ui/components.cljs` is now a tiny compatibility façade.
+   - Main UI code lives in `src/cljs/samuraibff/ui/components/**` and `src/cljs/samuraibff/ui/ui_app.cljs`.
 
 ## Files changed (high level)
 
@@ -173,7 +173,9 @@ curl -s -X POST http://localhost:.../api/sessions \
   - tests: `test/samuraibff/http/ui_test.clj`
 
 - Frontend:
-  - `src/cljs/samuraibff/ui/components.cljs`
+  - `src/cljs/samuraibff/ui/components.cljs` (façade)
+  - `src/cljs/samuraibff/ui/ui_app.cljs` (root app wiring)
+  - `src/cljs/samuraibff/ui/components/**`
   - `src/cljs/samuraibff/ui/api.cljs`
   - `src/cljs/samuraibff/ui/store.cljs`
   - `src/cljs/samuraibff/ui/auth.cljs`
