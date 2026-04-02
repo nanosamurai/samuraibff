@@ -16,6 +16,7 @@
    [samuraibff.ui.components.shared :as shared]
    [samuraibff.ui.components.layout :as components.layout]
    [samuraibff.ui.components.pages.live :as components.pages.live]
+   [samuraibff.ui.components.pages.recording-detail :as components.pages.recording-detail]
    [samuraibff.ui.components.pages.recordings :as components.pages.recordings]
    [samuraibff.ui.components.pages.speakers :as components.pages.speakers]
    [samuraibff.ui.components.pages.api-credentials :as components.pages.api-credentials]
@@ -1425,7 +1426,8 @@
        (case (:page route)
          :recordings [components.pages.recordings/recordings-page]
          :live [components.pages.live/live-recording-page]
-         :recording [recording-detail-page (get-in route [:params :session_id])]
+         :recording [components.pages.recording-detail/recording-detail-page
+                     (get-in route [:params :session_id])]
          :speakers [components.pages.speakers/speakers-page]
          :api-credentials [components.pages.api-credentials/api-credentials-page]
          [components.pages.recordings/recordings-page])]]]))
