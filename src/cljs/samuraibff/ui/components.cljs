@@ -17,6 +17,7 @@
    [samuraibff.ui.components.layout :as components.layout]
    [samuraibff.ui.components.pages.recordings :as components.pages.recordings]
    [samuraibff.ui.components.pages.speakers :as components.pages.speakers]
+   [samuraibff.ui.components.pages.api-credentials :as components.pages.api-credentials]
    [samuraibff.ui.components.transcript :as components.transcript]
    [samuraibff.ui.hooks :as hooks]
    [samuraibff.ui.karaoke :as karaoke]
@@ -1425,7 +1426,7 @@
          :live [live-recording-page]
          :recording [recording-detail-page (get-in route [:params :session_id])]
          :speakers [components.pages.speakers/speakers-page]
-         :api-credentials [api-credentials-page]
+         :api-credentials [components.pages.api-credentials/api-credentials-page]
          [components.pages.recordings/recordings-page])]]]))
 
 (defn memo-clear!
