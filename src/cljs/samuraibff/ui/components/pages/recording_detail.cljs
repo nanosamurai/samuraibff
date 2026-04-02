@@ -392,10 +392,10 @@
               "Real-time")]
            (case tab
              :final final-body
-             :refined [components.transcript/transcript-view]
-             {:messages refined-msgs
-              :empty-title "Refined real-time"
-              :empty-hint "No refined transcript available"}
+             :refined [components.transcript/transcript-view
+                      {:messages refined-msgs
+                       :empty-title "Refined real-time"
+                       :empty-hint "No refined transcript available"}]
              [components.transcript/transcript-view
               {:messages realtime-msgs
                :empty-title "Real-time transcript"
@@ -417,10 +417,10 @@
              "Real-time")]
           (case tab
             :final final-body
-            :refined [components.transcript/transcript-view]
-            {:messages refined-msgs
-             :empty-title "Refined real-time"
-             :empty-hint "No refined transcript available"}
+            :refined [components.transcript/transcript-view
+                     {:messages refined-msgs
+                      :empty-title "Refined real-time"
+                      :empty-hint "No refined transcript available"}]
             [components.transcript/transcript-view
              {:messages realtime-msgs
               :empty-title "Real-time transcript"
