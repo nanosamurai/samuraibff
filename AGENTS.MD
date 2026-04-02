@@ -21,6 +21,41 @@ For the data model, please look at proto at resources/proto/stream.proto and als
 - **IMPORTANT:** If you encounter unbalanced parentheses, brackets, or braces in any `.clj`, `.cljs`, `.cljc`, `.cljd`, or EDN-like file: Do NOT try to manually repair them by repeated editing. Run `clj-paren-repair <path>` on the affected file. After repair, re-read the file and continue.
 - DO NOT create huge namespaces. If a namespace has 1000 LoC, you are doing something wrong and are likely to run into issues. Break dow the namespace into smaller logical namespaces instead.
 
+## Clojure / ClojureScript editing rules
+
+When editing `.clj`, `.cljs`, `.cljc`, or Hiccup/Reagent code:
+
+1. Never perform large freehand string replacements inside nested Hiccup vectors.
+2. Prefer structural tools (MCP / refactor / form-aware tools) over textual patching.
+3. For UI changes, rewrite the entire smallest enclosing form (usually the whole `let` binding, helper fn, or entire `[:div ...]` block), not an inline fragment.
+4. Before writing code, restate the exact target tree:
+    - parent form being changed
+    - new siblings to insert
+    - whether an existing node is replaced or preserved
+5. After edits, always run:
+    - clj-kondo on the changed file
+    - project formatter if available
+    - compile or tests for the touched namespace
+6. If lint/compile fails, do not continue feature work. First try `clj-paren-repair` and if that fails try to restore balanced, compiling code.
+7. In Hiccup, never insert a sibling form into:
+    - a props map
+    - a component invocation vector
+    - a keyword/value pair sequence
+8. When unsure, output the full enclosing form and verify delimiters before applying.
+
+### Before editing Hiccup, first describe:
+- which enclosing vector/form will be rewritten
+- which new child vectors will be added
+- which existing child vectors stay unchanged
+- whether any string title/display node is replaced
+
+### Hiccup safety rules
+- A Hiccup vector is either an element, a component invocation, or data. Determine which before editing.
+- Never insert `if`, `when`, or `for` forms inside a props map.
+- Never place sibling UI nodes inside keyword/value pairs.
+- If adding conditional UI, insert it as a child of the parent container vector.
+- If changing header/title UI, rewrite the full parent header vector.
+
 # Clojure Parenthesis Repair
 The command `clj-paren-repair` is currently installed on your path.
 
