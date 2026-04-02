@@ -14,6 +14,8 @@
    [samuraibff.ui.audio :as audio]
    [samuraibff.ui.auth :as auth]
    [samuraibff.ui.components.shared :as shared]
+   [samuraibff.ui.components.layout :as components.layout]
+   [samuraibff.ui.components.pages.recordings :as components.pages.recordings]
    [samuraibff.ui.components.transcript :as components.transcript]
    [samuraibff.ui.hooks :as hooks]
    [samuraibff.ui.karaoke :as karaoke]
@@ -1413,17 +1415,17 @@
        js/undefined)
      #js [status auth-required? (:page route) (get-in route [:params :session_id])])
     [:div {:class "app"}
-     [topbar route]
+     [components.layout/topbar route]
      [:div {:class "body"}
-      [sidebar route]
+      [components.layout/sidebar route]
       [:main {:class "main"}
        (case (:page route)
-         :recordings [recordings-page]
+         :recordings [components.pages.recordings/recordings-page]
          :live [live-recording-page]
          :recording [recording-detail-page (get-in route [:params :session_id])]
          :speakers [speakers-page]
          :api-credentials [api-credentials-page]
-         [recordings-page])]]]))
+         [components.pages.recordings/recordings-page])]]]))
 
 (defn memo-clear!
   "Clear HSX memoization cache (used by core reload hook)."
