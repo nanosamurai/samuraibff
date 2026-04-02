@@ -14,6 +14,7 @@
    [samuraibff.ui.audio :as audio]
    [samuraibff.ui.auth :as auth]
    [samuraibff.ui.components.shared :as shared]
+   [samuraibff.ui.components.transcript :as components.transcript]
    [samuraibff.ui.hooks :as hooks]
    [samuraibff.ui.karaoke :as karaoke]
    [samuraibff.ui.router :as router]
@@ -195,95 +196,7 @@
   (let [t (some-> e .-target .-currentTime)]
     (max 0.0 (double (or t 0.0)))))
 
-;; `final-transcript-karaoke` is defined before `transcript-view` in this file,
-;; so we declare it to avoid CLJS compile-time unresolved var errors.
-(declare transcript-view)
 
-(defn- final-transcript-karaoke
-  "Render final transcript with word-level karaoke highlighting.
-
-  Inputs:
-  - messages: vector of final transcript messages (each may contain :words)
-  - audio-ref: React ref to the <audio> element
-  - current-time-s: double
-  - follow?* : React useState tuple for follow toggle
-
-  Returns: hiccup." 
-  [{:keys [messages audio-ref current-time-s follow?]}]
-  (let [msgs (vec (or messages []))
-        word-index (react/useMemo (fn [] (karaoke/build-word-index msgs)) #js [msgs])
-        active-flat-idx (karaoke/active-word-idx-normalized word-index current-time-s)
-        active-word (when (some? active-flat-idx) (nth word-index active-flat-idx))
-        active-msg-idx (:msg-idx active-word)
-        active-word-idx (:word-idx active-word)
-        active-el-ref (react/useRef nil)]
-
-    ;; When there is no active word (timing gaps), clear the active element ref.
-    ;; Otherwise Follow may keep scrolling to a stale word and cause flicker.
-    (react/useEffect
-     (fn []
-       (when (nil? active-flat-idx)
-         (set! (.-current active-el-ref) nil))
-       js/undefined)
-     #js [active-flat-idx])
-
-    (react/useEffect
-     (fn []
-       (when (and (true? follow?)
-                  (some? active-flat-idx)
-                  (some? (.-current active-el-ref)))
-         (try
-           (.scrollIntoView (.-current active-el-ref)
-                            #js {:block "nearest" :inline "nearest"})
-           (catch :default _
-             nil)))
-       js/undefined)
-     #js [follow? active-flat-idx])
-
-    ;; Inline word rendering inside transcript-view bubbles.
-    (let [rendered-msgs
-          (mapv
-           (fn [msg-idx m]
-             (let [words (vec (or (:words m) []))]
-               (if (empty? words)
-                 m
-                 (let [word-spans
-                       (map-indexed
-                        (fn [widx w]
-                          (let [txt (karaoke/word-text w)
-                                active? (and (= msg-idx active-msg-idx)
-                                             (= widx active-word-idx))]
-                            [:span
-                             {:key (str "w-" msg-idx "-" widx "-" (double (or (:start_s w) 0.0)))
-                              :class (str "word" (when active? " active"))
-                              :ref (when active?
-                                     (fn [el]
-                                       (set! (.-current active-el-ref) el)))
-                              :on-click (fn [_]
-                                          (when-let [audio (.-current audio-ref)]
-                                            (try
-                                              (set! (.-currentTime audio) (double (or (:start_s w) 0.0)))
-                                              ;; Autoplay requested.
-                                              (-> (.play audio)
-                                                  (.catch (fn [_] nil)))
-                                              (catch :default _
-                                                nil))))}
-                             (if (seq txt) txt "")
-                             " "]))
-                        words)]
-                   (assoc m :text
-                          (into [:span {:class "karaoke"}]
-                                word-spans))))))
-           (range (count msgs))
-           msgs)]
-      [transcript-view
-       {:messages rendered-msgs
-        ;; Final transcript playback should not behave like a live chat.
-        ;; Default to top and let karaoke "Follow" be the only source of scrolling.
-        :auto-scroll? false
-        :initial-scroll :top
-        :empty-title "Final transcript"
-        :empty-hint "No final transcript stored"}])))
 
 (defn- final-segments->messages
   "Convert final transcript segments (from DB json) into transcript messages."
@@ -528,16 +441,18 @@
 (defn live-transcript
   "Transcript component bound to the live session store."
   []
-  [transcript-view {:messages (hooks/use-atom store/asr-segments*)
-                    :empty-title "Real-time transcript"
-                    :empty-hint "No ASR events yet…"}])
+  [components.transcript/transcript-view
+   {:messages (hooks/use-atom store/asr-segments*)
+    :empty-title "Real-time transcript"
+    :empty-hint "No ASR events yet…"}])
 
 (defn refined-live-transcript
   "Refined realtime transcript component bound to the live session store."
   []
-  [transcript-view {:messages (hooks/use-atom store/refined-segments*)
-                    :empty-title "Refined real-time"
-                    :empty-hint "No refined events yet…"}])
+  [components.transcript/transcript-view
+   {:messages (hooks/use-atom store/refined-segments*)
+    :empty-title "Refined real-time"
+    :empty-hint "No refined events yet…"}])
 
 (defn log-view
   "Debug log view."
@@ -1030,21 +945,25 @@
                          (str "t=" (util/fmt-sec current-time-s))]])
 
                      (if karaoke-enabled?
-                       [final-transcript-karaoke {:messages final-msgs
-                                                 :audio-ref audio-ref
-                                                 :current-time-s current-time-s
-                                                 :follow? follow?}]
-                       [transcript-view {:messages final-msgs
-                                        :auto-scroll? false
-                                        :initial-scroll :top
-                                         :empty-title "Final transcript"
-                                         :empty-hint (if final-record "(no segments)" "No final transcript stored")}])]
-             :refined [transcript-view {:messages refined-msgs
-                                        :empty-title "Refined real-time"
-                                        :empty-hint "No refined transcript available"}]
-             [transcript-view {:messages realtime-msgs
-                               :empty-title "Real-time transcript"
-                               :empty-hint "No realtime transcript available"}])]
+                       [components.transcript/final-transcript-karaoke
+                        {:messages final-msgs
+                         :audio-ref audio-ref
+                         :current-time-s current-time-s
+                         :follow? follow?}]
+                       [components.transcript/transcript-view
+                        {:messages final-msgs
+                         :auto-scroll? false
+                         :initial-scroll :top
+                         :empty-title "Final transcript"
+                         :empty-hint (if final-record "(no segments)" "No final transcript stored")}])]
+             :refined [components.transcript/transcript-view
+                      {:messages refined-msgs
+                       :empty-title "Refined real-time"
+                       :empty-hint "No refined transcript available"}]
+             [components.transcript/transcript-view
+              {:messages realtime-msgs
+               :empty-title "Real-time transcript"
+               :empty-hint "No realtime transcript available"}])]
 
           [:div {:class "card"}
            [:div {:class "card-title"} "Log"]
@@ -1076,22 +995,26 @@
                                  :on-change (fn [e]
                                               (set-follow! (.. e -target -checked)))}]
                         "Follow"]
-                       [:span {:class "muted"}
-                        (str "t=" (util/fmt-sec current-time-s))]])
-
                     (if karaoke-enabled?
-                      [final-transcript-karaoke {:messages final-msgs
-                                                :audio-ref audio-ref
-                                                :current-time-s current-time-s
-                                                :follow? follow?}]
-                      [transcript-view {:messages final-msgs
-                                        :auto-scroll? false
-                                        :initial-scroll :top
-                                        :empty-title "Final transcript"
-                                        :empty-hint (if final-record "(no segments)" "No final transcript stored")}])]
-            :refined [transcript-view {:messages refined-msgs
-                                       :empty-title "Refined real-time"
-                                       :empty-hint "No refined transcript available"}]
+                      [components.transcript/final-transcript-karaoke
+                       {:messages final-msgs
+                        :audio-ref audio-ref
+                        :current-time-s current-time-s
+                        :follow? follow?}]
+                      [components.transcript/transcript-view
+                       {:messages final-msgs
+                        :auto-scroll? false
+                        :initial-scroll :top
+                        :empty-title "Final transcript"
+                        :empty-hint (if final-record "(no segments)" "No final transcript stored")}])]
+            :refined [components.transcript/transcript-view
+                     {:messages refined-msgs
+                      :empty-title "Refined real-time"
+                      :empty-hint "No refined transcript available"}]
+             [components.transcript/transcript-view
+              {:messages realtime-msgs
+               :empty-title "Real-time transcript"
+               :empty-hint "No realtime transcript available"}])])]))
              [transcript-view {:messages realtime-msgs
                                :empty-title "Real-time transcript"
                                :empty-hint "No realtime transcript available"}])])])))
