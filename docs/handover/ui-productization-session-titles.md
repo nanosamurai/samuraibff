@@ -153,9 +153,10 @@ curl -s -X POST http://localhost:.../api/sessions \
 
 ## Gaps / next steps
 
-1) Add UI for renaming existing sessions (if desired beyond the live session creation flow).
-   - Backend `PATCH /api/sessions/:id` is in place.
-   - UI could add an “Edit title” action in recordings row or detail page.
+1) Add UI for renaming existing sessions
+   - Implemented on Recording detail page (inline "Edit title" action).
+   - Uses backend `PATCH /api/sessions/:id`.
+   - Updates both recording detail header title and the recordings list cached in UI store.
 
 2) UI refactor follow-ups:
    - `src/cljs/samuraibff/ui/components.cljs` is now a tiny compatibility façade.

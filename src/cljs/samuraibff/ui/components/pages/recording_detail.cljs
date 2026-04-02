@@ -4,15 +4,95 @@
   Shows cached realtime ASR (from local store), refined segments (from DB + cached WS),
   and final transcript (from DB) with optional audio playback + karaoke highlighting."
   (:require
+   [clojure.string :as str]
    [samuraibff.ui.api :as api]
-   [samuraibff.ui.components.shared :as shared]
    [samuraibff.ui.components.transcript :as components.transcript]
-   [samuraibff.ui.hooks :as hooks]
    [samuraibff.ui.router :as router]
    [samuraibff.ui.store :as store]
    [samuraibff.ui.transcript :as transcript]
    [samuraibff.ui.util :as util]
    ["react" :as react]))
+
+(defn- title-editor
+  "Inline session title editor.
+
+  Inputs:
+  - session-id: string
+  - current-title: string?
+  - on-saved: (fn [new-title] ...) (optional)
+
+  Behavior:
+  - Calls `api/rename-session!`
+  - Updates recordings list state via `store/update-recording-db-title!`
+  - Updates live session form title via `store/set-session-title!` when editing the active live session
+
+  Returns: hiccup."
+  [{:keys [session-id current-title on-saved]}]
+  (let [editing?* (react/useState false)
+        editing? (aget editing?* 0)
+        set-editing! (aget editing?* 1)
+
+        draft* (react/useState (str (or current-title "")))
+        draft (aget draft* 0)
+        set-draft! (aget draft* 1)
+
+        saving?* (react/useState false)
+        saving? (aget saving?* 0)
+        set-saving! (aget saving?* 1)
+
+        error* (react/useState nil)
+        error (aget error* 0)
+        set-error! (aget error* 1)
+
+        start-edit! (fn []
+                      (set-error! nil)
+                      (set-draft! (str (or current-title "")))
+                      (set-editing! true))
+
+        cancel! (fn []
+                  (set-error! nil)
+                  (set-editing! false))
+
+        save! (fn []
+                (set-saving! true)
+                (set-error! nil)
+                (-> (api/rename-session! session-id draft)
+                    (.then (fn [{:keys [title]}]
+                             (store/update-recording-db-title! session-id title)
+                             (when (= (or session-id "") (or (get @store/session* :id) ""))
+                               (store/set-session-title! (or title "")))
+                             (when (fn? on-saved)
+                               (on-saved title))
+                             (set-editing! false)))
+                    (.catch (fn [e]
+                              (store/append-log! (str "[ui] failed renaming session: " e))
+                              (set-error! (or (some-> e .-message str)
+                                              "Failed renaming session"))))
+                    (.finally (fn []
+                                (set-saving! false)))))]
+
+    [:div {:style {:display "flex" :flexDirection "column" :gap "8px"}}
+     (if editing?
+       [:div {:class "row"}
+        [:input {:value draft
+                 :placeholder "Session name"
+                 :disabled saving?
+                 :on-change (fn [e]
+                              (set-draft! (.. e -target -value)))}]
+        [:button {:class "btn primary"
+                  :disabled saving?
+                  :on-click (fn [_] (save!))}
+         (if saving? "Saving…" "Save")]
+        [:button {:class "btn"
+                  :disabled saving?
+                  :on-click (fn [_] (cancel!))}
+         "Cancel"]]
+       [:button {:class "btn"
+                 :on-click (fn [_] (start-edit!))}
+        "Edit title"])
+
+     (when (seq (str error))
+       [:div {:class "badge bad"} (str error)])]))
 
 (defn- refined-events->messages
   "Convert refined events (with start/end/text) into transcript messages.
@@ -183,7 +263,15 @@
 
         db-refined (get-in detail [:transcripts :refined])
         db-final (get-in detail [:transcripts :final])
-        refined-events (db-refined-records->events db-refined)]
+        refined-events (db-refined-records->events db-refined)
+
+        current-title (get-in detail [:session :title])
+        title-display (let [t (str/trim (str (or current-title "")))]
+                        (when (seq t) t))
+
+        on-title-saved (fn [new-title]
+                         (set-detail! (fn [prev]
+                                        (assoc-in (or prev {}) [:session :title] new-title))))]
 
     (react/useEffect
      (fn []
@@ -256,10 +344,11 @@
       [:div {:class "page"}
        [:div {:class "page-header"}
         [:div
-         [:div {:class "page-title"} "Recording"]
+         [:div {:class "page-title"} (or title-display "Recording")]
          [:div {:class "mono muted"} session-id]
          (when loading?
            [:div {:class "muted"} "Loading…"])]
+
         [:div {:class "row"}
          [router/link {:route {:page :recordings :params {}}
                        :class "btn"}
@@ -268,6 +357,11 @@
                        :class "btn ghost"
                        :on-click (fn [_] (store/set-session-id! session-id))}
           "Open in Live Recording"]
+
+         [title-editor {:session-id session-id
+                        :current-title current-title
+                        :on-saved on-title-saved}]
+
          [:button {:class "btn"
                    :on-click (fn [_] (refresh!))}
           "Refresh"]]]
