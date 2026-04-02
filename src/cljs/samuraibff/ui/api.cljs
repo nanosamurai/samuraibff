@@ -36,14 +36,42 @@
   "Create a new session via backend.
 
   Returns:
-  - Promise resolving to session-id string."
-  []
-  (-> (js/fetch "/api/sessions" #js {:method "POST"})
+  - Promise resolving to {:session_id <string> :title <string>}" 
+  ([]
+   (create-session! {}))
+  ([{:keys [title]}]
+   (-> (js/fetch "/api/sessions"
+                 #js {:method "POST"
+                      :headers #js {"content-type" "application/json"}
+                      :body (.stringify js/JSON #js {:title (or title "")})})
       (.then ensure-ok!)
       (.then (fn [res] (.json res)))
       (.then (fn [body]
-               (or (aget body "session_id")
-                   (throw (js/Error. "Missing session_id in response")))))))
+               (let [sid (aget body "session_id")
+                     t (aget body "title")]
+                 (when-not sid
+                   (throw (js/Error. "Missing session_id in response")))
+                 {:session_id sid
+                  :title t}))))))
+
+(defn rename-session!
+  "Rename a session title.
+
+  Inputs:
+  - session-id: string
+  - title: string
+
+  Returns:
+  - Promise resolving to response map {:ok boolean :session_id ... :title ...}" 
+  [session-id title]
+  (-> (js/fetch (str "/api/sessions/" (js/encodeURIComponent (or session-id "")))
+                #js {:method "PATCH"
+                     :headers #js {"content-type" "application/json"}
+                     :body (.stringify js/JSON #js {:title (or title "")})})
+      (.then ensure-ok!)
+      (.then (fn [res] (.json res)))
+      (.then (fn [body]
+               (js->clj body :keywordize-keys true)))))
 
 (defn list-recordings!
   "List sessions/recordings for the authenticated tenant.

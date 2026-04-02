@@ -68,7 +68,7 @@
           "  ORDER BY session_id, created_at DESC\n"
           ")\n"
           "SELECT\n"
-          "  s.id, s.session_key, s.status, s.started_at, s.ended_at, s.created_at,\n"
+          "  s.id, s.session_key, s.title, s.status, s.started_at, s.ended_at, s.created_at,\n"
           "  lr.recording_created_at, lr.duration_s, lr.sample_rate, lr.lang,\n"
           "  (lr.session_id IS NOT NULL) AS has_recording,\n"
           "  EXISTS (SELECT 1 FROM session_transcripts st\n"

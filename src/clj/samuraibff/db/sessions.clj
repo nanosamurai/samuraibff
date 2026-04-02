@@ -55,11 +55,12 @@
 
   Inputs:
   - ds: javax.sql.DataSource
-  - {:keys [id tenant-id user-id session-key status]}
+  - {:keys [id tenant-id user-id session-key status title]}
       id          => java.util.UUID
       tenant-id   => java.util.UUID
       user-id     => java.util.UUID or nil
       session-key => string
+      title       => string or nil
       status      => string (defaults to active)
 
   Side effects:
@@ -68,7 +69,7 @@
   Returns:
   - map with inserted identifiers:
       {:id <uuid> :session-key <string>}" 
-  [^DataSource ds {:keys [id tenant-id user-id session-key status]
+  [^DataSource ds {:keys [id tenant-id user-id session-key status title]
                    :or {status "active"}}]
   (when-not (and ds (instance? UUID id) (instance? UUID tenant-id) (seq (str session-key)))
     (throw (ex-info "insert-session! missing required params"
@@ -78,11 +79,40 @@
                         :session_key (str session-key)
                         :status (str status)}
                  (some? user-id) (assoc :user_id user-id))
+        values (cond-> values
+                 (some? title) (assoc :title (str title)))
         q (-> (h/insert-into :sessions)
               (h/values [values]))
         sqlvec (sql/format q)]
     (jdbc/execute-one! ds sqlvec)
     {:id id :session-key (str session-key)}))
+
+(defn update-session-title!
+  "Update the session title for a tenant-scoped session.
+
+  Inputs:
+  - ds: DataSource
+  - tenant-id: UUID
+  - session-id: UUID
+  - title: string or nil
+
+  Returns:
+  - {:updated? boolean}
+
+  Notes:
+  - Title may be nil (clears the title).
+  - Scopes by tenant-id (prevents cross-tenant writes)."
+  [^DataSource ds ^UUID tenant-id ^UUID session-id title]
+  (when-not (and ds (instance? UUID tenant-id) (instance? UUID session-id))
+    (throw (ex-info "update-session-title! missing required params"
+                    {:tenant-id tenant-id :session-id session-id})))
+  (let [q (-> (h/update :sessions)
+              (h/set {:title title})
+              (h/where [:= :tenant_id tenant-id]
+                       [:= :id session-id]))
+        sqlvec (sql/format q)
+        res (jdbc/execute-one! ds sqlvec)]
+    {:updated? (pos? (long (or (:next.jdbc/update-count res) 0)))}))
 
 (defn update-session-status!
   "Update a session status for a tenant-scoped session.

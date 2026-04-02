@@ -23,6 +23,7 @@
 
 (defonce session*
   (atom {:id ""
+         :title ""
          :lang "cs"}))
 
 (defonce ws-status*
@@ -88,6 +89,25 @@
 
 (defonce recordings-db*
   (atom []))
+
+(defn update-recording-db-title!
+  "Update the session title in the DB-backed recordings list.
+
+  Inputs:
+  - session-id: string
+  - title: string? (nil allowed)
+
+  Returns: nil." 
+  [session-id title]
+  (let [sid (or session-id "")]
+    (swap! recordings-db*
+           (fn [xs]
+             (mapv (fn [r]
+                     (if (= sid (or (:session_id r) ""))
+                       (assoc r :title title)
+                       r))
+                   (vec (or xs []))))))
+  nil)
 
 (defn set-recordings-db!
   "Replace the DB-backed recordings list.
@@ -206,6 +226,17 @@
     (reset! transcript-zero-s* nil)
     (reset! log* [])
     nil))
+
+(defn set-session-title!
+  "Set the current session title (string).
+
+  Inputs:
+  - title: string
+
+  Returns: nil." 
+  [title]
+  (swap! session* assoc :title (or title ""))
+  nil)
 
 (defn set-lang!
   "Set current language code (string; empty allowed for auto)."

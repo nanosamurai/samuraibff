@@ -31,7 +31,8 @@
                (let [authed? (boolean (aget body "authenticated"))]
                  (if authed?
                    (store/set-auth-status! :authenticated {:user (js->clj (aget body "user") :keywordize-keys true)
-                                                           :tenant_id (aget body "tenant_id")})
+                                                           :tenant_id (aget body "tenant_id")
+                                                           :tenant_name (aget body "tenant_name")})
                    (store/set-auth-status! :anonymous nil))
                  body)))
       (.catch (fn [e]

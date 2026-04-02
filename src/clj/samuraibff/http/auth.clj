@@ -45,7 +45,8 @@
     [org.corfield.logging4j2 :as log]
     [ring.util.codec :as codec]
     [ring.util.response :as resp]
-    [samuraibff.auth.oidc :as oidc])
+    [samuraibff.auth.oidc :as oidc]
+    [samuraibff.db.tenants :as db.tenants])
   (:import
     (java.net URI)
     (java.net.http HttpClient HttpClient$Redirect HttpRequest HttpRequest$BodyPublishers HttpResponse$BodyHandlers)
@@ -469,10 +470,18 @@
   [config]
   (fn [req]
     (if-let [user (:auth/user req)]
-      (json-response 200 {:ok true
-                          :authenticated true
-                          :tenant_id (:auth/tenant-id req)
-                          :user (select-keys user [:sub :preferred_username :email])})
+      (let [tenant-id-str (:auth/tenant-id req)
+            tenant-uuid (try
+                          (some-> tenant-id-str str java.util.UUID/fromString)
+                          (catch Exception _ nil))
+            ds (get-in req [:samuraibff/deps :db :ds])
+            tenant-name (when (and ds tenant-uuid)
+                          (db.tenants/find-tenant-name ds tenant-uuid))]
+        (json-response 200 {:ok true
+                            :authenticated true
+                            :tenant_id tenant-id-str
+                            :tenant_name tenant-name
+                            :user (select-keys user [:sub :preferred_username :email])}))
       (if (oidc/auth-required? config)
         (json-response 401 {:ok false :authenticated false :message "not-authenticated"})
         (json-response 200 {:ok true :authenticated false})))))
