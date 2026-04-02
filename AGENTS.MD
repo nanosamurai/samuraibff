@@ -18,7 +18,20 @@ For the data model, please look at proto at resources/proto/stream.proto and als
 - before you claim any task is complete, run full set of test/integration tests
 - DO NOT EVER attempt to read or fetch the compiled js code (usually at resources/public/js/main.js ) - it is too big and your cotext will rot into oblivion
 - DO NOT EVER run `clojure -Spath` or similar command to list entire classpath, you would burn too many tokens and rot your context without any significant benefit
-- Remember that if you have issues formatting clojure, you should use the clojure mcp server running locally to validate any expression, test new functions etc. - or you can run clojure tool locally and execute also any code to see how it fares.
+- **IMPORTANT:** If you encounter unbalanced parentheses, brackets, or braces in any `.clj`, `.cljs`, `.cljc`, `.cljd`, or EDN-like file: Do NOT try to manually repair them by repeated editing. Run `clj-paren-repair <path>` on the affected file. After repair, re-read the file and continue.
+- DO NOT create huge namespaces. If a namespace has 1000 LoC, you are doing something wrong and are likely to run into issues. Break dow the namespace into smaller logical namespaces instead.
+
+# Clojure Parenthesis Repair
+The command `clj-paren-repair` is currently installed on your path.
+
+**IMPORTANT:** You SHOULD NOT try to manually repair parenthesis errors. If you encounter a file with unbalanced parentheses or delimiters, run the `clj-paren-repair` tool on that file instead of attempting to fix the delimiters yourself. IF the tool doesn't work report to the user that they need to fix the delimiter error.
+
+### `clj-paren-repair` Tool Behavior
+
+The `clj-paren-repair` tool exhibits the following behavior:
+
+*   **Delimiter Repair:** It successfully identifies and fixes common delimiter errors, such as unbalanced parentheses.
+*   **Code Formatting (`cljfmt`):** The tool automatically formats files using `cljfmt` whenever it processes them, regardless of whether a delimiter error was fixed or not.
 
 # About Nanosamur.ai
 Nanosamurai solution currently consists of
