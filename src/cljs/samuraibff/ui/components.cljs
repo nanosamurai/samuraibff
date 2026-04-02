@@ -31,7 +31,7 @@
   Inputs:
   - opt: {:value string :label string :flag string}
 
-  Returns: string." 
+  Returns: string."
   [{:keys [value label]}]
   (-> (str (or value "") " " (or label ""))
       str/lower-case))
@@ -47,7 +47,7 @@
   - placeholder: string shown when no matching option is found
   - on-change: (fn [new-value] ...)
 
-  Returns: hiccup." 
+  Returns: hiccup."
   [{:keys [value options placeholder on-change]}]
   (let [open?* (react/useState false)
         open? (aget open?* 0)
@@ -173,7 +173,7 @@
   - key-fn: (fn [x] k)
   - xs: seq
 
-  Returns: vector." 
+  Returns: vector."
   ([key-fn]
    (fn [xs] (dedupe-by key-fn xs)))
   ([key-fn xs]
@@ -191,12 +191,10 @@
   Inputs:
   - e: React synthetic event emitted by <audio>
 
-  Returns: double (>=0)." 
+  Returns: double (>=0)."
   [e]
   (let [t (some-> e .-target .-currentTime)]
     (max 0.0 (double (or t 0.0)))))
-
-
 
 (defn- final-segments->messages
   "Convert final transcript segments (from DB json) into transcript messages."
@@ -387,14 +385,14 @@
         [:div {:class "muted"} (or empty-hint "No events yet…")]]
        [:div (cond-> {:class "transcript-feed"
                       :ref container-ref}
-              auto-scroll?
-              (assoc :on-scroll
-                     (fn [e]
-                       (let [el (.-target e)
-                             dist (- (.-scrollHeight el)
-                                     (.-scrollTop el)
-                                     (.-clientHeight el))]
-                         (set! (.-current auto-scroll?*) (<= dist 48))))))
+               auto-scroll?
+               (assoc :on-scroll
+                      (fn [e]
+                        (let [el (.-target e)
+                              dist (- (.-scrollHeight el)
+                                      (.-scrollTop el)
+                                      (.-clientHeight el))]
+                          (set! (.-current auto-scroll?*) (<= dist 48))))))
         (for [[idx msg] (map-indexed vector msgs)]
           (let [k (message-key idx msg)
                 speaker (:speaker msg)
@@ -419,7 +417,7 @@
   - session-id: string
   - enabled?: boolean
 
-  Returns: hiccup" 
+  Returns: hiccup"
   [{:keys [session-id enabled? audio-ref on-time]}]
   (let [url (api/recording-audio-url session-id)
         on-time (or on-time (fn [_] nil))]
@@ -873,11 +871,11 @@
           ;; - a recording stored
           ;; - a final transcript stored
           playback-enabled? (boolean (and final-record
-                                         (true? (get-in detail [:session :has_recording]))))
+                                          (true? (get-in detail [:session :has_recording]))))
 
           karaoke-enabled? (boolean (and playback-enabled?
-                                        (seq final-msgs)
-                                        (some (fn [m] (seq (:words m))) final-msgs)))
+                                         (seq final-msgs)
+                                         (some (fn [m] (seq (:words m))) final-msgs)))
 
           on-audio-time
           (fn [e]
@@ -956,10 +954,10 @@
                          :initial-scroll :top
                          :empty-title "Final transcript"
                          :empty-hint (if final-record "(no segments)" "No final transcript stored")}])]
-             :refined [components.transcript/transcript-view
-                      {:messages refined-msgs
-                       :empty-title "Refined real-time"
-                       :empty-hint "No refined transcript available"}]
+             :refined [components.transcript/transcript-view]
+             {:messages refined-msgs
+              :empty-title "Refined real-time"
+              :empty-hint "No refined transcript available"}
              [components.transcript/transcript-view
               {:messages realtime-msgs
                :empty-title "Real-time transcript"
@@ -994,7 +992,7 @@
                                  :checked (boolean follow?)
                                  :on-change (fn [e]
                                               (set-follow! (.. e -target -checked)))}]
-                        "Follow"]
+                        "Follow"]])
                     (if karaoke-enabled?
                       [components.transcript/final-transcript-karaoke
                        {:messages final-msgs
@@ -1007,17 +1005,17 @@
                         :initial-scroll :top
                         :empty-title "Final transcript"
                         :empty-hint (if final-record "(no segments)" "No final transcript stored")}])]
-            :refined [components.transcript/transcript-view
-                     {:messages refined-msgs
-                      :empty-title "Refined real-time"
-                      :empty-hint "No refined transcript available"}]
-             [components.transcript/transcript-view
-              {:messages realtime-msgs
-               :empty-title "Real-time transcript"
-               :empty-hint "No realtime transcript available"}])])]))
-             [transcript-view {:messages realtime-msgs
-                               :empty-title "Real-time transcript"
-                               :empty-hint "No realtime transcript available"}])])])))
+            :refined [components.transcript/transcript-view]
+            {:messages refined-msgs
+             :empty-title "Refined real-time"
+             :empty-hint "No refined transcript available"}
+            [components.transcript/transcript-view
+             {:messages realtime-msgs
+              :empty-title "Real-time transcript"
+              :empty-hint "No realtime transcript available"}]
+            [transcript-view {:messages realtime-msgs
+                              :empty-title "Real-time transcript"
+                              :empty-hint "No realtime transcript available"}])])])))
 
 (defn right-panel
   "Right-side panel for Live Recording.
@@ -1152,16 +1150,15 @@
          [:button {:class "btn"
                    :on-click (fn [_]
                                (-> (auth/logout!)
-                                   (.then (fn [_] (auth/fetch-me!))))) }
+                                   (.then (fn [_] (auth/fetch-me!)))))}
           "Logout"]]
         :else
         [:div {:class "row"}
          [:span {:class "badge muted"} "anonymous"]
          [:button {:class "btn primary"
                    :on-click (fn [_]
-                               (auth/login! (router/route->href route))) }
+                               (auth/login! (router/route->href route)))}
           "Login"]])]]))
-
 
 (defn- safe-http-error
   "Return a safe string to show/log for fetch errors.
