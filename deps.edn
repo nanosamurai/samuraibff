@@ -96,7 +96,9 @@
   :cljs
   {:extra-paths ["src/cljs" "resources"]
    :extra-deps  {thheller/shadow-cljs {:mvn/version "3.3.4"}
-                 io.factorhouse/hsx   {:mvn/version "0.1.24"}}
+                 io.factorhouse/hsx   {:mvn/version "0.1.24"}
+                 ;; Linting (used in agent workflow + CI sanity checks)
+                 clj-kondo/clj-kondo  {:mvn/version "RELEASE"}}
    :main-opts   ["-m" "shadow.cljs.devtools.cli"]}
 
   ;; Unit + integration tests
