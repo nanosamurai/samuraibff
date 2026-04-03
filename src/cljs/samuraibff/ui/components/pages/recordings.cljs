@@ -22,7 +22,7 @@
       :has_final_transcript (boolean)
 
   Returns:
-  - {:label string :badge-class string :icon string :title string}" 
+  - {:label string :badge-class string :icon string :tooltip string}"
   [{:keys [status has_recording has_final_transcript]}]
   (let [status (some-> status str)
         has-recording? (true? has_recording)
@@ -32,31 +32,31 @@
       {:label "Created"
        :badge-class "muted"
        :icon "○"
-       :title "Session created but recording never started"}
+       :tooltip "Session created but recording never started"}
 
       (= status "failed")
       {:label "Failed"
        :badge-class "bad"
        :icon "✗"
-       :title "Session failed"}
+       :tooltip "Session failed"}
 
       has-final?
       {:label "Finalized"
        :badge-class "ok"
        :icon "✓"
-       :title "Final transcript is available"}
+       :tooltip "Final transcript is available"}
 
       (= status "active")
       {:label "Recording"
        :badge-class "warn"
        :icon "●"
-       :title "Recording in progress"}
+       :tooltip "Recording in progress"}
 
       :else
       {:label "Processing"
        :badge-class "muted"
        :icon "…"
-       :title "Recording stopped; final transcript not available yet"})))
+       :tooltip "Recording stopped; final transcript not available yet"})))
 
 (defn- recordings-row
   "Render a single recordings table row.
@@ -66,8 +66,10 @@
 
   Returns: hiccup <tr>" 
   [{:keys [session_id title started_at created_at] :as rec}]
-  (let [{:keys [label badge-class title]
+  (let [{:keys [label badge-class tooltip]
          icon-glyph :icon} (rec->display-status rec)
+        session-title (let [t (str/trim (str (or title "")))]
+                        (when (seq t) t))
         lang (get-in rec [:recording :lang])]
     [:tr
      [:td
@@ -76,15 +78,15 @@
         ;; Language flag hint (best-effort). Blank => omit.
         (when (seq (str lang))
           [shared/lang-flag lang])
-        [:span (or title session_id)]]
+        [:span (or session-title session_id)]]
        [:div {:class "hint"}
         [:span {:class "mono"} session_id]]]]
      [:td {:class "muted"} (or (shared/iso->local created_at) "")]
      [:td {:class "muted"} (or (shared/iso->local started_at) "")]
      [:td
       [:span {:class (str "badge " badge-class)
-              :title title}
-       (shared/icon icon-glyph {:title title})
+              :title tooltip}
+       (shared/icon icon-glyph {:title tooltip})
        [:span {:style {:marginLeft "8px"}} label]]]
      [:td {:style {:textAlign "right"}}
       [:div {:class "row"}
