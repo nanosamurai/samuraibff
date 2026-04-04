@@ -56,7 +56,7 @@ When editing `.clj`, `.cljs`, `.cljc`, or Hiccup/Reagent code:
 - If adding conditional UI, insert it as a child of the parent container vector.
 - If changing header/title UI, rewrite the full parent header vector.
 
-# Clojure Parenthesis Repair
+### Clojure Parenthesis Repair
 The command `clj-paren-repair` is currently installed on your path.
 
 **IMPORTANT:** You SHOULD NOT try to manually repair parenthesis errors. If you encounter a file with unbalanced parentheses or delimiters, run the `clj-paren-repair` tool on that file instead of attempting to fix the delimiters yourself. IF the tool doesn't work report to the user that they need to fix the delimiter error.
@@ -67,6 +67,11 @@ The `clj-paren-repair` tool exhibits the following behavior:
 
 *   **Delimiter Repair:** It successfully identifies and fixes common delimiter errors, such as unbalanced parentheses.
 *   **Code Formatting (`cljfmt`):** The tool automatically formats files using `cljfmt` whenever it processes them, regardless of whether a delimiter error was fixed or not.
+
+## Using clj-kondo (clojure/clojurescript linter)
+
+- Remember that you can run kondo even for clojurescript via `shadow-cljs run clj-kondo.main/main --lint src/cljs`
+- For clj linting, you can run it via clojure tools/deps like this: `clj -Sdeps '{:deps {clj-kondo/clj-kondo {:mvn/version "RELEASE"}}}' -M -m clj-kondo.main --lint src/clj`
 
 # About Nanosamur.ai
 Nanosamurai solution currently consists of
