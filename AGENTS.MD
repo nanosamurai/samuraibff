@@ -70,7 +70,7 @@ The `clj-paren-repair` tool exhibits the following behavior:
 
 ## Using clj-kondo (clojure/clojurescript linter)
 
-- Remebmer that you can run kondo even for clojurescript via `shadow-cljs run clj-kondo.main/main --lint src/cljs`
+- Remember that you can run kondo even for clojurescript via `shadow-cljs run clj-kondo.main/main --lint src/cljs`
 - For clj linting, you can run it via clojure tools/deps like this: `clj -Sdeps '{:deps {clj-kondo/clj-kondo {:mvn/version "RELEASE"}}}' -M -m clj-kondo.main --lint src/clj`
 
 # About Nanosamur.ai
