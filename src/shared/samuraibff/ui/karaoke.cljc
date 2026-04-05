@@ -21,6 +21,20 @@
   "Small epsilon used for inclusive end comparisons."
   1.0e-9)
 
+(def ^:private end-grace-s
+  "Small grace window added to `end_s` when determining the active word.
+
+  Rationale:
+  - Even if upstream timings are correct, the browser's `audio.currentTime`
+    may advance in >10ms jumps due to decoding/buffering.
+  - Very short words (e.g. 50–100ms) may otherwise be missed if the sampled
+    time lands just after `end_s`.
+
+  We keep this small to avoid highlighting the previous word for too long.
+
+  Unit: seconds."
+  0.03)
+
 (defn normalize-word
   "Normalize a word map.
 
@@ -72,9 +86,11 @@
           (let [idx best]
             (when (<= 0 idx)
               (let [{:keys [start_s end_s]} (nth ws idx)
-                    ;; inclusive end with epsilon so we don't "blink" at exact boundaries
+                    ;; Inclusive end with epsilon so we don't "blink" at exact boundaries.
+                    ;; We also add a small grace window to make highlighting
+                    ;; robust against coarse time sampling.
                     active? (and (<= start_s t)
-                                (<= t (+ end_s epsilon))
+                                (<= t (+ end_s end-grace-s epsilon))
                                 (>= end_s start_s))]
                 (when active? idx))))
           (let [mid (quot (+ lo hi) 2)
