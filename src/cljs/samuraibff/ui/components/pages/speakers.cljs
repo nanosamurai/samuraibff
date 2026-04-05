@@ -7,6 +7,12 @@
    [samuraibff.ui.store :as store]
    ["react" :as react]))
 
+(def ^:private mobile-breakpoint-query
+  "CSS media query used as the threshold for mobile layout.
+
+  Must match the @media rule in `resources/public/index.html`."
+  "(max-width: 768px)")
+
 (defn- speaker-row
   [{:keys [id label created_at created_at_ms]} on-delete]
   [:tr
@@ -22,10 +28,36 @@
                           (on-delete id))}
      "Delete"]]])
 
+(defn- speaker-card
+  "Render a speaker row as a stacked card (mobile layout).
+
+  Inputs:
+  - speaker: {:id string :label string :created_at? string :created_at_ms? number}
+  - on-delete: (fn [speaker-id])
+
+  Returns: hiccup." 
+  [{:keys [id label created_at created_at_ms]} on-delete]
+  (let [created (or created_at
+                    (when created_at_ms (.toLocaleString (js/Date. created_at_ms)))
+                    "")]
+    [:div {:class "list-item"}
+     [:div {:style {:display "flex" :gap "10px" :alignItems "flex-start"}}
+      [:div {:style {:flex "1" :minWidth 0}}
+       [:div {:class "list-item-title"} (or label "")]
+       [:div {:class "list-item-sub mono"} (or id "")]
+       [:div {:class "list-item-meta"}
+        [:span (str "Created: " (if (seq created) created "—"))]]]
+      [:div {:class "list-item-actions"}
+       [:button {:class "btn ghost"
+                 :on-click (fn [_]
+                             (on-delete id))}
+        "Delete"]]]]))
+
 (defn speakers-page
   "Enrolled speakers management page." 
   []
   (let [items (hooks/use-atom store/speakers*)
+        mobile? (hooks/use-media-query mobile-breakpoint-query)
         label* (react/useState "")
         file* (react/useState nil)
         label (aget label* 0)
@@ -98,14 +130,19 @@
       [:div {:class "card-title"} "Enrolled speakers"]
       (if (empty? items)
         [:div {:class "muted"} "No speakers enrolled yet."]
-        [:table {:class "table"}
-         [:thead
-          [:tr
-           [:th "Id"]
-           [:th "Label"]
-           [:th "Created"]
-           [:th {:style {:textAlign "right"}} "Actions"]]]
-         [:tbody
-          (for [item items]
-            ^{:key (str "speaker-" (:id item))}
-            [speaker-row item delete!])]])]]))
+        (if mobile?
+          [:div {:class "list"}
+           (for [item items]
+             ^{:key (str "speaker-card-" (:id item))}
+             [speaker-card item delete!])]
+          [:table {:class "table"}
+           [:thead
+            [:tr
+             [:th "Id"]
+             [:th "Label"]
+             [:th "Created"]
+             [:th {:style {:textAlign "right"}} "Actions"]]]
+           [:tbody
+            (for [item items]
+              ^{:key (str "speaker-" (:id item))}
+              [speaker-row item delete!])]]))]]))

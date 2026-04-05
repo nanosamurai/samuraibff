@@ -9,6 +9,12 @@
    [samuraibff.ui.store :as store]
    ["react" :as react]))
 
+(def ^:private mobile-breakpoint-query
+  "CSS media query used as the threshold for mobile layout.
+
+  Must match the @media rule in `resources/public/index.html`."
+  "(max-width: 768px)")
+
 (defn api-credentials-secret-modal
   "Modal that shows `client_secret` exactly once.
 
@@ -104,10 +110,75 @@
                                                (store/api-credentials-set-loading! false))))))}
         "Revoke"]]]]))
 
+(defn- api-credentials-card
+  "Render a credential as a stacked card (mobile layout).
+
+  Inputs:
+  - cred: credential map
+  - refresh!: (fn [])
+
+  Returns: hiccup." 
+  [{:keys [id name keycloak_client_id created_at last_used_at revoked_at] :as cred} refresh!]
+  (let [revoked? (some? revoked_at)
+        id (or id "")
+        client-id (or keycloak_client_id "")
+        status-node (if revoked?
+                      [:span {:class "badge muted"} "Revoked"]
+                      [:span {:class "badge ok"} "Active"])]
+    [:div {:class "list-item"}
+     [:div {:style {:display "flex" :gap "10px" :alignItems "flex-start"}}
+      [:div {:style {:flex "1" :minWidth 0}}
+       [:div {:class "list-item-title"} (or name "")]
+       [:div {:class "list-item-sub"}
+        [:span {:class "mono" :style {:wordBreak "break-all"}} client-id]]
+       [:div {:class "list-item-meta"}
+        [:span (str "Created: " (or (shared/iso->local created_at) "—"))]
+        [:span (str "Last used: " (or (shared/iso->local last_used_at) "—"))]]]
+      [:div status-node]]
+
+     [:div {:class "list-item-actions"}
+      [:button {:class "btn"
+                :disabled revoked?
+                :title "Rotate secret"
+                :on-click (fn [_]
+                            (when (js/confirm (str "Rotate secret for " name "?\n\nThe old secret will stop working."))
+                              (store/api-credentials-set-loading! true)
+                              (store/api-credentials-set-error! nil)
+                              (-> (api/rotate-api-credential! id)
+                                  (.then (fn [resp]
+                                           (store/api-credentials-open-secret!
+                                            {:credential-id (:credential_id resp)
+                                             :client-id (:client_id resp)
+                                             :client-secret (:client_secret resp)})
+                                           (refresh!)))
+                                  (.catch (fn [e]
+                                            (store/api-credentials-set-error! (shared/safe-http-error e))))
+                                  (.finally (fn []
+                                              (store/api-credentials-set-loading! false))))))}
+        "Rotate"]
+
+      [:button {:class "btn ghost"
+                :disabled revoked?
+                :title "Revoke credential"
+                :on-click (fn [_]
+                            (when (js/confirm (str "Revoke credential " name "?\n\nThis will disable the Keycloak client."))
+                              (store/api-credentials-set-loading! true)
+                              (store/api-credentials-set-error! nil)
+                              (-> (api/revoke-api-credential! id)
+                                  (.then (fn [_]
+                                           (store/api-credentials-mark-revoked! id)
+                                           (refresh!)))
+                                  (.catch (fn [e]
+                                            (store/api-credentials-set-error! (shared/safe-http-error e))))
+                                  (.finally (fn []
+                                              (store/api-credentials-set-loading! false))))))}
+        "Revoke"]]]))
+
 (defn api-credentials-page
   "API credentials management page (tenant-scoped)."
   []
   (let [st (hooks/use-atom store/api-credentials*)
+        mobile? (hooks/use-media-query mobile-breakpoint-query)
         items (api-creds.store/visible-items st)
         loading? (:loading? st)
         error (:error st)
@@ -192,18 +263,25 @@
         "Show revoked"]]
       (if (empty? items)
         [:div {:class "muted"} "No API credentials yet."]
-        [:table {:class "table"}
-         [:thead
-          [:tr
-           [:th "Name"]
-           [:th "Client id"]
-           [:th "Created"]
-           [:th "Last used"]
-           [:th "Status"]
-           [:th {:style {:textAlign "right"}} "Actions"]]]
-         [:tbody
-          (for [c (->> items
-                       (sort-by :created_at)
-                       reverse)]
-            ^{:key (str "cred-" (:id c))}
-            [api-credentials-row c refresh!])]])]]))
+        (if mobile?
+          [:div {:class "list"}
+           (for [c (->> items
+                        (sort-by :created_at)
+                        reverse)]
+             ^{:key (str "cred-card-" (:id c))}
+             [api-credentials-card c refresh!])]
+          [:table {:class "table"}
+           [:thead
+            [:tr
+             [:th "Name"]
+             [:th "Client id"]
+             [:th "Created"]
+             [:th "Last used"]
+             [:th "Status"]
+             [:th {:style {:textAlign "right"}} "Actions"]]]
+           [:tbody
+            (for [c (->> items
+                         (sort-by :created_at)
+                         reverse)]
+              ^{:key (str "cred-" (:id c))}
+              [api-credentials-row c refresh!])]]))]]))
