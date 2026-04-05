@@ -118,7 +118,7 @@
   - refresh!: (fn [])
 
   Returns: hiccup." 
-  [{:keys [id name keycloak_client_id created_at last_used_at revoked_at] :as cred} refresh!]
+  [{:keys [id name keycloak_client_id created_at last_used_at revoked_at]} refresh!]
   (let [revoked? (some? revoked_at)
         id (or id "")
         client-id (or keycloak_client_id "")

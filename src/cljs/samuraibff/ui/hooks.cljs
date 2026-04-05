@@ -48,7 +48,7 @@
   into a stacked card list on mobile).
 
   Inputs:
-  - query: string, e.g. "(max-width: 768px)"
+  - query: string, e.g. \"(max-width: 768px)\"
 
   Returns:
   - boolean, true when the query currently matches.
