@@ -168,12 +168,18 @@
   - session-id: string
   - enabled?: boolean
   - audio-ref: React ref
-  - on-time: (fn [event] ...)
+  - on-time: (fn [event] ...) (optional)
+  - on-play: (fn [event] ...) (optional)
+  - on-pause: (fn [event] ...) (optional)
+  - on-ended: (fn [event] ...) (optional)
 
   Returns: hiccup."
-  [{:keys [session-id enabled? audio-ref on-time]}]
+  [{:keys [session-id enabled? audio-ref on-time on-play on-pause on-ended]}]
   (let [url (api/recording-audio-url session-id)
-        on-time (or on-time (fn [_] nil))]
+        on-time (or on-time (fn [_] nil))
+        on-play (or on-play (fn [_] nil))
+        on-pause (or on-pause (fn [_] nil))
+        on-ended (or on-ended (fn [_] nil))]
     [:div {:class "card"}
      [:div {:class "card-title"} "Playback"]
      (if (and (true? enabled?) (seq (str session-id)))
@@ -185,6 +191,11 @@
                 :ref audio-ref
                 :on-time-update on-time
                 :on-seeked on-time
+                :on-play on-play
+                ;; Some browsers dispatch "playing" more reliably than "play".
+                :on-playing on-play
+                :on-pause on-pause
+                :on-ended on-ended
                 :style {:width "100%"}}]
        [:div {:class "muted"}
         "Audio playback not available (no recording or no final transcript)."])]))
@@ -393,9 +404,9 @@
            (case tab
              :final final-body
              :refined [components.transcript/transcript-view
-                      {:messages refined-msgs
-                       :empty-title "Refined real-time"
-                       :empty-hint "No refined transcript available"}]
+                       {:messages refined-msgs
+                        :empty-title "Refined real-time"
+                        :empty-hint "No refined transcript available"}]
              [components.transcript/transcript-view
               {:messages realtime-msgs
                :empty-title "Real-time transcript"
@@ -418,9 +429,9 @@
           (case tab
             :final final-body
             :refined [components.transcript/transcript-view
-                     {:messages refined-msgs
-                      :empty-title "Refined real-time"
-                      :empty-hint "No refined transcript available"}]
+                      {:messages refined-msgs
+                       :empty-title "Refined real-time"
+                       :empty-hint "No refined transcript available"}]
             [components.transcript/transcript-view
              {:messages realtime-msgs
               :empty-title "Real-time transcript"

@@ -18,7 +18,10 @@
       (is (= 1 (karaoke/active-word-idx words 0.5)))
       (is (= 2 (karaoke/active-word-idx words 1.5)))
       (is (= 2 (karaoke/active-word-idx words 2.0)))
-      (is (nil? (karaoke/active-word-idx words 2.01))))))
+      ;; We keep a small grace window after end_s for robustness against
+      ;; coarse audio.currentTime sampling.
+      (is (= 2 (karaoke/active-word-idx words 2.01)))
+      (is (nil? (karaoke/active-word-idx words 2.06))))))
 
 (deftest active-word-idx-normalized-behaves-like-active-word-idx
   (testing "Normalized variant matches the behavior"
