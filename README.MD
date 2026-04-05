@@ -616,6 +616,14 @@ The UI will:
 - open `/ws/events?session_id=<uuid>` and display realtime transcript events
 - capture microphone audio (PCM16LE) and stream it to `/ws/audio?session_id=<uuid>&lang=en&sample_rate=16000`
 
+### Responsive behavior (UI)
+
+The UI is responsive and supports mobile screens.
+
+Under **768px** width:
+- the left sidebar collapses into a **hamburger menu** (off-canvas drawer)
+- table pages (Recordings / Speakers / API Credentials) render as **stacked card lists** instead of wide tables
+
 `lang` semantics:
 - `lang` is an ISO-639-1 language code (e.g. `en`, `cs`, `de`, ...)
 - empty string means **auto-detect** (recommended if you don't know the language)
