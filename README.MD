@@ -398,6 +398,7 @@ renders the final transcript in “karaoke” mode:
 
 - words are rendered as clickable spans
 - the currently spoken word is highlighted based on the playback `<audio>` current time
+- playback time is sampled via `requestAnimationFrame` while audio is playing (to avoid skipping short words)
 - clicking a word seeks the audio to that word (best-effort autoplay)
 - optional “Follow” mode auto-scrolls the active word into view
 

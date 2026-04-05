@@ -108,5 +108,8 @@ CSS for `.karaoke .word` + `.karaoke .word.active` lives in `resources/public/in
 
 ### Performance
 
-- Prefer `timeupdate` events (or a throttled loop) rather than rAF.
+- Do **not** rely solely on the `<audio>` `timeupdate` event for karaoke playback.
+  It is often emitted at a low frequency (~4–10 Hz), which can skip short words.
+- Prefer a `requestAnimationFrame` sampling loop while the audio is playing, optionally
+  throttled (e.g. update state only when the time changed by >= 10ms).
 - Precompute a flattened word index per recording, then use binary search to find active word.
