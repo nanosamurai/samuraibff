@@ -24,7 +24,30 @@
 (defonce session*
   (atom {:id ""
          :title ""
-         :lang "cs"}))
+         :lang "cs"
+         ;; Stream controls (sent at /ws/audio connect).
+         :controls {:realtime true
+                    :refined true
+                    :final true
+                    :store_recording true
+                    :rt_partial_enable true
+                    ;; Optional knobs (nil => omit from query params)
+                    :rt_window_sec nil
+                    :rt_overlap_sec nil
+                    :rt_emit_every_sec nil
+                    :refinement_window_sec nil}}))
+
+(defn set-session-control!
+  "Set a single stream control field under `session*`.
+
+  Inputs:
+  - k: keyword
+  - v: any
+
+  Returns: nil."
+  [k v]
+  (swap! session* assoc-in [:controls k] v)
+  nil)
 
 (defonce ws-status*
   (atom {:events {:status :disconnected :detail nil}
@@ -97,7 +120,7 @@
   - session-id: string
   - title: string? (nil allowed)
 
-  Returns: nil." 
+  Returns: nil."
   [session-id title]
   (let [sid (or session-id "")]
     (swap! recordings-db*
@@ -233,7 +256,7 @@
   Inputs:
   - title: string
 
-  Returns: nil." 
+  Returns: nil."
   [title]
   (swap! session* assoc :title (or title ""))
   nil)

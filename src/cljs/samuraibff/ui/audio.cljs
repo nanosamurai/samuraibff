@@ -8,8 +8,8 @@
   - start-audio!
   - stop-audio!"
   (:require
-    [samuraibff.ui.store :as store]
-    [samuraibff.ui.util :as util]))
+   [samuraibff.ui.store :as store]
+   [samuraibff.ui.util :as util]))
 
 (def ^:private target-sample-rate
   "We always send 16kHz PCM16LE to the backend."
@@ -96,28 +96,28 @@
                                       :echoCancellation false}
                           :video false})
       (.then
-        (fn [stream]
-          (reset! media-stream* stream)
-          (let [ctx (js/AudioContext.)
-                src (.createMediaStreamSource ctx stream)
-                proc (.createScriptProcessor ctx 2048 1 1)]
-            (reset! audio-ctx* ctx)
-            (reset! processor* proc)
+       (fn [stream]
+         (reset! media-stream* stream)
+         (let [ctx (js/AudioContext.)
+               src (.createMediaStreamSource ctx stream)
+               proc (.createScriptProcessor ctx 2048 1 1)]
+           (reset! audio-ctx* ctx)
+           (reset! processor* proc)
 
-            (.connect src proc)
-            (.connect proc (.-destination ctx))
+           (.connect src proc)
+           (.connect proc (.-destination ctx))
 
-            (set! (.-onaudioprocess proc)
-                  (fn [e]
-                    (when (and ws (= 1 (.-readyState ws)))
-                      (let [buf (.-inputBuffer e)
-                            ch0 (.getChannelData buf 0)
-                            ds (downsample ch0 (.-sampleRate ctx))
-                            i16 (float32->pcm16le ds)]
-                        (.send ws (.-buffer i16))))))
+           (set! (.-onaudioprocess proc)
+                 (fn [e]
+                   (when (and ws (= 1 (.-readyState ws)))
+                     (let [buf (.-inputBuffer e)
+                           ch0 (.getChannelData buf 0)
+                           ds (downsample ch0 (.-sampleRate ctx))
+                           i16 (float32->pcm16le ds)]
+                       (.send ws (.-buffer i16))))))
 
-            (store/append-log! "[audio] capture started")
-            true)))
+           (store/append-log! "[audio] capture started")
+           true)))
       (.catch (fn [e]
                 (store/set-ws-status! :audio :error (str e))
                 (store/append-log! (str "[audio] failed to start: " e))
@@ -135,9 +135,26 @@
   - Promise resolving truthy when capture started."
   [session-id lang]
   (stop-audio!)
-  (let [url (util/ws-url "/ws/audio" {:session_id session-id
-                                      :lang (or lang "")
-                                      :sample_rate target-sample-rate})
+  (let [controls (get-in @store/session* [:controls])
+        qp (cond-> {:session_id session-id
+                    :lang (or lang "")
+                    :sample_rate target-sample-rate
+
+                    ;; Output selection + retention
+                    :realtime (if (false? (:realtime controls)) "false" "true")
+                    :refined (if (false? (:refined controls)) "false" "true")
+                    :final (if (false? (:final controls)) "false" "true")
+                    :store_recording (if (false? (:store_recording controls)) "false" "true")
+
+                    ;; Realtime knob
+                    :rt_partial_enable (if (false? (:rt_partial_enable controls)) "false" "true")}
+
+             ;; Optional numeric knobs (omit when nil)
+             (some? (:rt_window_sec controls)) (assoc :rt_window_sec (:rt_window_sec controls))
+             (some? (:rt_overlap_sec controls)) (assoc :rt_overlap_sec (:rt_overlap_sec controls))
+             (some? (:rt_emit_every_sec controls)) (assoc :rt_emit_every_sec (:rt_emit_every_sec controls))
+             (some? (:refinement_window_sec controls)) (assoc :refinement_window_sec (:refinement_window_sec controls)))
+        url (util/ws-url "/ws/audio" qp)
         ws (js/WebSocket. url)]
     (reset! audio-ws* ws)
     (store/set-ws-status! :audio :connecting url)
@@ -145,25 +162,25 @@
     (set! (.-binaryType ws) "arraybuffer")
 
     (js/Promise.
-      (fn [resolve reject]
-        (set! (.-onopen ws)
-              (fn [_]
-                (store/set-ws-status! :audio :connected nil)
-                (store/append-log! (str "[audio] ws connected " url))
-                (-> (start-capture! ws)
-                    (.then (fn [_] (resolve true)))
-                    (.catch (fn [e] (reject e))))))
+     (fn [resolve reject]
+       (set! (.-onopen ws)
+             (fn [_]
+               (store/set-ws-status! :audio :connected nil)
+               (store/append-log! (str "[audio] ws connected " url))
+               (-> (start-capture! ws)
+                   (.then (fn [_] (resolve true)))
+                   (.catch (fn [e] (reject e))))))
 
-        (set! (.-onclose ws)
-              (fn [e]
-                (store/set-ws-status! :audio :disconnected (str "code=" (.-code e)))
-                (store/append-log! (str "[audio] ws closed code=" (.-code e)
-                                        " reason=" (.-reason e)))
-                (reset! audio-ws* nil)
-                (stop-audio!)))
+       (set! (.-onclose ws)
+             (fn [e]
+               (store/set-ws-status! :audio :disconnected (str "code=" (.-code e)))
+               (store/append-log! (str "[audio] ws closed code=" (.-code e)
+                                       " reason=" (.-reason e)))
+               (reset! audio-ws* nil)
+               (stop-audio!)))
 
-        (set! (.-onerror ws)
-              (fn [_]
-                (store/set-ws-status! :audio :error "onerror")
-                (store/append-log! "[audio] websocket error")
-                (reject (js/Error. "audio websocket error"))))))))
+       (set! (.-onerror ws)
+             (fn [_]
+               (store/set-ws-status! :audio :error "onerror")
+               (store/append-log! "[audio] websocket error")
+               (reject (js/Error. "audio websocket error"))))))))
