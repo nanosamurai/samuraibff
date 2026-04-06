@@ -21,14 +21,14 @@
   - Every query is scoped by tenant-id.
   - Callers must supply the authenticated tenant-id."
   (:require
-    [honey.sql :as sql]
-    [honey.sql.helpers :as h]
-    [next.jdbc :as jdbc]
-    [next.jdbc.result-set :as rs]
-    [org.corfield.logging4j2 :as log])
+   [honey.sql :as sql]
+   [honey.sql.helpers :as h]
+   [next.jdbc :as jdbc]
+   [next.jdbc.result-set :as rs]
+   [org.corfield.logging4j2 :as log])
   (:import
-    (java.util UUID)
-    (javax.sql DataSource)))
+   (java.util UUID)
+   (javax.sql DataSource)))
 
 (defn list-sessions-for-tenant
   "List sessions for a tenant, newest first.
@@ -48,9 +48,9 @@
       :offset int (default 0)
 
   Returns:
-  - vector of maps with unqualified lower-case keys." 
+  - vector of maps with unqualified lower-case keys."
   [^DataSource ds ^UUID tenant-id {:keys [limit offset]
-                                  :or {limit 200 offset 0}}]
+                                   :or {limit 200 offset 0}}]
   (when-not (and ds (instance? UUID tenant-id))
     (throw (ex-info "list-sessions-for-tenant missing required params"
                     {:tenant-id tenant-id})))
@@ -61,25 +61,25 @@
   ;; We use DISTINCT ON for latest recording selection.
   (let [sqlstr
         (str
-          "WITH latest_recording AS (\n"
-          "  SELECT DISTINCT ON (session_id)\n"
-          "    session_id, created_at AS recording_created_at, duration_s, sample_rate, lang\n"
-          "  FROM recordings\n"
-          "  ORDER BY session_id, created_at DESC\n"
-          ")\n"
-          "SELECT\n"
-          "  s.id, s.session_key, s.title, s.status, s.started_at, s.ended_at, s.created_at,\n"
-          "  lr.recording_created_at, lr.duration_s, lr.sample_rate, lr.lang,\n"
-          "  (lr.session_id IS NOT NULL) AS has_recording,\n"
-          "  EXISTS (SELECT 1 FROM session_transcripts st\n"
-          "          WHERE st.session_id = s.id\n"
-          "            AND st.tenant_id = s.tenant_id\n"
-          "            AND st.type = 'final') AS has_final_transcript\n"
-          "FROM sessions s\n"
-          "LEFT JOIN latest_recording lr ON lr.session_id = s.id\n"
-          "WHERE s.tenant_id = ?\n"
-          "ORDER BY s.created_at DESC\n"
-          "LIMIT ? OFFSET ?")
+         "WITH latest_recording AS (\n"
+         "  SELECT DISTINCT ON (session_id)\n"
+         "    session_id, created_at AS recording_created_at, duration_s, sample_rate, lang\n"
+         "  FROM recordings\n"
+         "  ORDER BY session_id, created_at DESC\n"
+         ")\n"
+         "SELECT\n"
+         "  s.id, s.session_key, s.title, s.status, s.started_at, s.ended_at, s.created_at,\n"
+         "  lr.recording_created_at, lr.duration_s, lr.sample_rate, lr.lang,\n"
+         "  (lr.session_id IS NOT NULL) AS has_recording,\n"
+         "  EXISTS (SELECT 1 FROM session_transcripts st\n"
+         "          WHERE st.session_id = s.id\n"
+         "            AND st.tenant_id = s.tenant_id\n"
+         "            AND st.type = 'final') AS has_final_transcript\n"
+         "FROM sessions s\n"
+         "LEFT JOIN latest_recording lr ON lr.session_id = s.id\n"
+         "WHERE s.tenant_id = ?\n"
+         "ORDER BY s.created_at DESC\n"
+         "LIMIT ? OFFSET ?")
         sqlvec [sqlstr tenant-id (long limit) (long offset)]]
     (try
       (vec (jdbc/execute! ds sqlvec {:builder-fn rs/as-unqualified-lower-maps}))
@@ -96,16 +96,16 @@
   - session-id: UUID
 
   Returns:
-  - map (unqualified keys) or nil." 
+  - map (unqualified keys) or nil."
   [^DataSource ds ^UUID tenant-id ^UUID session-id]
   (when-not (and ds (instance? UUID tenant-id) (instance? UUID session-id))
     (throw (ex-info "find-session-by-id missing required params"
                     {:tenant-id tenant-id :session-id session-id})))
   (jdbc/execute-one!
-    ds
-    ["SELECT id, session_key, tenant_id, user_id, title, status, started_at, ended_at, created_at\n      FROM sessions\n      WHERE tenant_id=? AND id=?"
-     tenant-id session-id]
-    {:builder-fn rs/as-unqualified-lower-maps}))
+   ds
+   ["SELECT id, session_key, tenant_id, user_id, title, status, started_at, ended_at, stream_controls, created_at\n      FROM sessions\n      WHERE tenant_id=? AND id=?"
+    tenant-id session-id]
+   {:builder-fn rs/as-unqualified-lower-maps}))
 
 (defn find-latest-recording
   "Find the latest recording row for a session, scoped to tenant.
@@ -118,16 +118,16 @@
   Returns:
   - map with keys (unqualified):
       :id :session_id :recording_url :duration_s :sample_rate :lang :created_at
-    or nil when no recording exists." 
+    or nil when no recording exists."
   [^DataSource ds ^UUID tenant-id ^UUID session-id]
   (when-not (and ds (instance? UUID tenant-id) (instance? UUID session-id))
     (throw (ex-info "find-latest-recording missing required params"
                     {:tenant-id tenant-id :session-id session-id})))
   (jdbc/execute-one!
-    ds
-    ["SELECT r.id, r.session_id, r.recording_url, r.duration_s, r.sample_rate, r.lang, r.created_at\n      FROM recordings r\n      JOIN sessions s ON s.id = r.session_id\n      WHERE s.tenant_id = ? AND s.id = ?\n      ORDER BY r.created_at DESC\n      LIMIT 1"
-     tenant-id session-id]
-    {:builder-fn rs/as-unqualified-lower-maps}))
+   ds
+   ["SELECT r.id, r.session_id, r.recording_url, r.duration_s, r.sample_rate, r.lang, r.created_at\n      FROM recordings r\n      JOIN sessions s ON s.id = r.session_id\n      WHERE s.tenant_id = ? AND s.id = ?\n      ORDER BY r.created_at DESC\n      LIMIT 1"
+    tenant-id session-id]
+   {:builder-fn rs/as-unqualified-lower-maps}))
 
 (defn list-transcript-records
   "List transcript records for a session, scoped to tenant.
@@ -141,9 +141,9 @@
       :limit int (default 500)
 
   Returns:
-  - vector of transcript record maps (unqualified keys)." 
+  - vector of transcript record maps (unqualified keys)."
   [^DataSource ds ^UUID tenant-id ^UUID session-id {:keys [type limit]
-                                                   :or {limit 500}}]
+                                                    :or {limit 500}}]
   (when-not (and ds (instance? UUID tenant-id) (instance? UUID session-id))
     (throw (ex-info "list-transcript-records missing required params"
                     {:tenant-id tenant-id :session-id session-id})))
@@ -188,12 +188,12 @@
 
   Notes:
   - Relies on FK ON DELETE CASCADE from recordings/session_transcripts to sessions.
-  - If the session does not exist for tenant, returns {:deleted? false}." 
+  - If the session does not exist for tenant, returns {:deleted? false}."
   [^DataSource ds ^UUID tenant-id ^UUID session-id]
   (when-not (and ds (instance? UUID tenant-id) (instance? UUID session-id))
     (throw (ex-info "delete-session! missing required params"
                     {:tenant-id tenant-id :session-id session-id})))
   (let [res (jdbc/execute-one!
-              ds
-              ["DELETE FROM sessions WHERE tenant_id=? AND id=?" tenant-id session-id])]
+             ds
+             ["DELETE FROM sessions WHERE tenant_id=? AND id=?" tenant-id session-id])]
     {:deleted? (pos? (long (or (:next.jdbc/update-count res) 0)))}))

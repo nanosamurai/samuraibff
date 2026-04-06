@@ -14,13 +14,13 @@
 
   Security / cost:
   - inputs are treated as untrusted and validated/clamped
-  - invalid combinations are rejected before WS upgrade" 
+  - invalid combinations are rejected before WS upgrade"
   (:require
-    [clojure.string :as str]
-    [samuraibff.grpc.metadata :as grpc.metadata]))
+   [clojure.string :as str]
+   [samuraibff.grpc.metadata :as grpc.metadata]))
 
 (def ^:private default-controls
-  "Default stream controls (backwards compatible)." 
+  "Default stream controls (backwards compatible)."
   {:realtime true
    :refined true
    :final true
@@ -35,6 +35,12 @@
 ;; User requirement: emit_every must have minimum 1s due to perf concerns.
 (def ^:private rt-emit-every-min-sec 1.0)
 
+;; How often WhisperX refinement should run (slice window). This is currently
+;; implemented in xamurai as a default env var (WHISPERX_SLICE_SECONDS=60).
+;; We transport it per-stream via Kafka header for future/worker support.
+(def ^:private refinement-window-min-sec 10.0)
+(def ^:private refinement-window-max-sec 600.0)
+
 (defn- parse-bool
   "Parse a boolean from a string-like input.
 
@@ -42,7 +48,7 @@
   - v: any (typically string)
   - default: boolean
 
-  Returns: boolean." 
+  Returns: boolean."
   [v default]
   (let [raw (some-> v str str/trim str/lower-case)]
     (cond
@@ -54,7 +60,7 @@
 (defn- parse-double
   "Parse a finite double from a string-like input.
 
-  Returns double or nil." 
+  Returns double or nil."
   [v]
   (when (some? v)
     (try
@@ -65,7 +71,7 @@
         nil))))
 
 (defn- clamp
-  "Clamp a number x into [minv, maxv]." 
+  "Clamp a number x into [minv, maxv]."
   [x minv maxv]
   (-> x (max minv) (min maxv)))
 
@@ -86,6 +92,9 @@
     - rt_emit_every_sec (double)
     - rt_partial_enable=true|false
 
+  Optional refined/WhisperX knob:
+  - refinement_window_sec (double)
+
   Validation rules:
   - at least one output must be enabled
   - if final=false then store_recording is forced false (no recording needed)
@@ -97,18 +106,19 @@
   Returns: map
   {:realtime boolean :refined boolean :final boolean
    :store_recording boolean
+   :refinement_window_sec double?
    :rt_partial_enable boolean
    :rt_window_sec double? :rt_overlap_sec double? :rt_emit_every_sec double?}
 
   Throws:
-  - ex-info {:type :samuraibff.stream-controls/invalid-controls ...} on invalid." 
+  - ex-info {:type :samuraibff.stream-controls/invalid-controls ...} on invalid."
   [params]
   (let [realtime? (parse-bool (or (get params :realtime) (get params "realtime"))
-                               (:realtime default-controls))
+                              (:realtime default-controls))
         refined? (parse-bool (or (get params :refined) (get params "refined"))
-                              (:refined default-controls))
+                             (:refined default-controls))
         final? (parse-bool (or (get params :final) (get params "final"))
-                            (:final default-controls))
+                           (:final default-controls))
         store-recording? (parse-bool (or (get params :store_recording) (get params "store_recording")
                                          (get params :store-recording) (get params "store-recording"))
                                      (:store_recording default-controls))
@@ -121,6 +131,10 @@
                                      (get params :overlap_sec) (get params "overlap_sec")))
         rt-emit-every (parse-double (or (get params :rt_emit_every_sec) (get params "rt_emit_every_sec")
                                         (get params :emit_every_sec) (get params "emit_every_sec")))
+
+        refinement-window (parse-double (or (get params :refinement_window_sec) (get params "refinement_window_sec")
+                                            (get params :refinement_window) (get params "refinement_window")
+                                            (get params :refined_window_sec) (get params "refined_window_sec")))
 
         want-any? (or realtime? refined? final?)
         _ (when-not want-any?
@@ -137,6 +151,9 @@
         rt-overlap (when (and realtime? (some? rt-overlap))
                      (let [w (or rt-window rt-window-max-sec)]
                        (clamp rt-overlap rt-overlap-min-sec w)))
+
+        refinement-window (when (and refined? (some? refinement-window))
+                            (clamp refinement-window refinement-window-min-sec refinement-window-max-sec))
         rt-emit-every (when (and realtime? (some? rt-emit-every) rt-partial-enable?)
                         (let [w (or rt-window rt-window-max-sec)]
                           (clamp rt-emit-every rt-emit-every-min-sec w)))]
@@ -147,7 +164,9 @@
              :rt_partial_enable rt-partial-enable?}
       (some? rt-window) (assoc :rt_window_sec rt-window)
       (some? rt-overlap) (assoc :rt_overlap_sec rt-overlap)
-      (some? rt-emit-every) (assoc :rt_emit_every_sec rt-emit-every))))
+      (some? rt-emit-every) (assoc :rt_emit_every_sec rt-emit-every)
+
+      (some? refinement-window) (assoc :refinement_window_sec refinement-window))))
 
 (defn outputs-header-value
   "Return the value for Kafka header `x-outputs` based on controls.
@@ -155,7 +174,7 @@
   Inputs:
   - controls: map as returned by `parse-and-validate`
 
-  Returns: string (CSV, tokens ordered realtime,refined,final)." 
+  Returns: string (CSV, tokens ordered realtime,refined,final)."
   [{:keys [realtime refined final]}]
   (->> [(when realtime "realtime")
         (when refined "refined")
@@ -167,15 +186,17 @@
   "Return Kafka header map for audio.raw.
 
   Returns:
-  - {"x-outputs" <bytes> "x-store-recording" <bytes>}" 
+  - {" x-outputs " <bytes> " x-store-recording " <bytes> ...}"
   [controls]
-  {"x-outputs" (.getBytes ^String (outputs-header-value controls) "UTF-8")
-   "x-store-recording" (.getBytes ^String (if (:store_recording controls) "true" "false") "UTF-8")})
+  (cond-> {"x-outputs" (.getBytes ^String (outputs-header-value controls) "UTF-8")
+           "x-store-recording" (.getBytes ^String (if (:store_recording controls) "true" "false") "UTF-8")}
+    (and (true? (:refined controls)) (some? (:refinement_window_sec controls)))
+    (assoc "x-refinement-window-sec" (.getBytes ^String (str (double (:refinement_window_sec controls))) "UTF-8"))))
 
 (defn grpc-metadata
   "Return gRPC metadata map for rtservice based on controls.
 
-  Returns: map string->string." 
+  Returns: map string->string."
   [controls]
   (let [{:keys [rt_window_sec rt_overlap_sec rt_emit_every_sec rt_partial_enable]} controls]
     (cond-> {}

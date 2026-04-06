@@ -36,6 +36,15 @@
   - `:rt-overlap-sec`    double? ; optional rtservice override
   - `:rt-emit-every-sec` double? ; optional rtservice override
 
+  - `:rt-partial-enable?` boolean? ; optional rtservice control
+
+  - `:want-realtime?` boolean ; whether BFF starts rtservice gRPC
+  - `:want-refined?` boolean  ; whether BFF publishes to Kafka for refined pipeline
+  - `:want-final?` boolean    ; whether BFF publishes to Kafka for final pipeline
+  - `:store-recording?` boolean ; forwarded via Kafka header
+
+  - `:kafka-headers` map string->bytes ; precomputed stream headers for audio.raw
+
   - `:seq*`         (atom int) monotonic per-session seq for outbound WS events
   - `:chunk-seq*`   (atom int) monotonic per-session seq for outbound gRPC AudioChunk
 
@@ -71,18 +80,29 @@
   Integrant key:
   - `:samuraibff/ws-registry`"
   (:require
-    [clojure.core.async :as async]
-    [clojure.string :as str]
-    [integrant.core :as ig]
-    [org.corfield.logging4j2 :as log]
-    [samuraibff.session-trace :as session-trace]
-    [samuraibff.grpc.client :as grpc]
-    [samuraibff.grpc.metadata :as grpc.metadata]
-    [samuraibff.kafka.producer :as kafka.producer]
-    [samuraibff.schemas :as schemas])
+   [clojure.core.async :as async]
+   [clojure.string :as str]
+   [integrant.core :as ig]
+   [org.corfield.logging4j2 :as log]
+   [samuraibff.session-trace :as session-trace]
+   [samuraibff.grpc.client :as grpc]
+   [samuraibff.grpc.metadata :as grpc.metadata]
+   [samuraibff.kafka.producer :as kafka.producer]
+   [samuraibff.schemas :as schemas])
   (:import
-    (com.google.protobuf ByteString)
-    (samuraibff.proto AsrType AudioChunk RefinedEvent)))
+   (com.google.protobuf ByteString)
+   (samuraibff.proto AsrType AudioChunk RefinedEvent)))
+
+(defn- ensure-bytes-header-map
+  "Ensure a kafka header map has string keys and byte[] values.
+
+  Returns: map."
+  [m]
+  (into {}
+        (keep (fn [[k v]]
+                (when (and (string? k) (bytes? v))
+                  [k v])))
+        (or m {})))
 
 (def ^:private default-sample-rate
   "Default sample rate for PCM16 audio when not specified by the client."
@@ -111,7 +131,7 @@
 (defn- status-event
   "Build a status WS event map.
 
-  Note: `:detail` is optional and omitted when nil." 
+  Note: `:detail` is optional and omitted when nil."
   [session-id seq* status detail]
   (cond-> {:type "status"
            :session_id session-id
@@ -121,7 +141,7 @@
     (some? detail) (assoc :detail detail)))
 
 (defn- error-event
-  "Build an error WS event map." 
+  "Build an error WS event map."
   [session-id seq* message detail]
   {:type "error"
    :session_id session-id
@@ -200,7 +220,7 @@
   1) `[:bff :origin-uri]` from config (recommended in production)
   2) derived from `[:http :host]` and `[:http :port]` (dev convenience)
 
-  Returns: string or nil." 
+  Returns: string or nil."
   [config]
   (or (get-in config [:bff :origin-uri])
       (let [port (get-in config [:http :port])
@@ -217,7 +237,7 @@
   Debugging note:
   - In protobuf3, missing doubles default to 0.0.
   - If WhisperX worker forgets to populate start/end, the UI will see 0..0.
-    We log that here so it’s obvious on the backend side." 
+    We log that here so it’s obvious on the backend side."
   [seq* ^RefinedEvent ev]
   (let [start (.getStartS ev)
         end (.getEndS ev)]
@@ -254,7 +274,7 @@
   Behavior:
   - requires `RefinedEvent.tenant_id` to be non-blank
 
-  Returns: boolean (true if delivered to a local session, false otherwise)." 
+  Returns: boolean (true if delivered to a local session, false otherwise)."
   [{:keys [sessions] :as ws-registry} ^RefinedEvent ev]
   (let [session-id (.getSessionId ev)
         tenant-id (let [t (.getTenantId ev)]
@@ -284,9 +304,25 @@
       :rt-overlap-sec    double
       :rt-emit-every-sec double
 
+      ; Optional realtime control.
+      :rt-partial-enable? boolean
+
+      ; Output selection snapshot.
+      :want-realtime? boolean
+      :want-refined? boolean
+      :want-final? boolean
+      :store-recording? boolean
+
+      ; Precomputed Kafka headers for this session.
+      :kafka-headers {string bytes}
+
   Returns a session map (see namespace docstring)."
   [tenant-id session-id config {:keys [lang sample-rate
-                                       rt-window-sec rt-overlap-sec rt-emit-every-sec]
+                                       rt-window-sec rt-overlap-sec rt-emit-every-sec
+                                       rt-partial-enable?
+                                       want-realtime? want-refined? want-final?
+                                       store-recording?
+                                       kafka-headers]
                                 :or {lang ""}}]
   (let [audio-buf-size (or (get-in config [:ws :audio-buffer-size])
                            default-audio-buffer-size)
@@ -303,6 +339,15 @@
      :rt-window-sec (when (number? rt-window-sec) (double rt-window-sec))
      :rt-overlap-sec (when (number? rt-overlap-sec) (double rt-overlap-sec))
      :rt-emit-every-sec (when (number? rt-emit-every-sec) (double rt-emit-every-sec))
+
+     :rt-partial-enable? (when (some? rt-partial-enable?) (boolean rt-partial-enable?))
+
+     :want-realtime? (boolean (if (some? want-realtime?) want-realtime? true))
+     :want-refined? (boolean (if (some? want-refined?) want-refined? true))
+     :want-final? (boolean (if (some? want-final?) want-final? true))
+     :store-recording? (boolean (if (some? store-recording?) store-recording? true))
+
+     :kafka-headers (ensure-bytes-header-map kafka-headers)
 
      :events-subs* (atom 0)
      :audio-socks* (atom 0)
@@ -341,20 +386,20 @@
       :lang         string (optional)
       :sample-rate  int (optional; defaults to 16000)
 
-  Returns: the current session state map." 
+  Returns: the current session state map."
   [{:keys [sessions config]} tenant-id session-id opts]
   (let [created?* (atom false)
         session
         (get-in
-          (swap! sessions
-                 (fn [m]
-                   (if (get-in m [tenant-id session-id])
-                     m
-                     (let [s0 (new-session tenant-id session-id config opts)
-                           s (assoc s0 :events-mult (async/mult (:events-ch s0)))]
-                       (reset! created?* true)
-                       (assoc-in m [tenant-id session-id] s)))))
-          [tenant-id session-id])]
+         (swap! sessions
+                (fn [m]
+                  (if (get-in m [tenant-id session-id])
+                    m
+                    (let [s0 (new-session tenant-id session-id config opts)
+                          s (assoc s0 :events-mult (async/mult (:events-ch s0)))]
+                      (reset! created?* true)
+                      (assoc-in m [tenant-id session-id] s)))))
+         [tenant-id session-id])]
     (when @created?*
       (log/info "Created ws session" {:session-id session-id
                                       :tenant-id tenant-id
@@ -382,9 +427,13 @@
       :sample-rate int
 
   Returns:
-  - the (possibly updated) session map, or nil if session not found." 
+  - the (possibly updated) session map, or nil if session not found."
   [{:keys [sessions]} tenant-id session-id {:keys [lang sample-rate
-                                                   rt-window-sec rt-overlap-sec rt-emit-every-sec]}]
+                                                   rt-window-sec rt-overlap-sec rt-emit-every-sec
+                                                   rt-partial-enable?
+                                                   want-realtime? want-refined? want-final?
+                                                   store-recording?
+                                                   kafka-headers]}]
   (let [updated* (atom nil)]
     (swap! sessions
            (fn [m]
@@ -398,7 +447,14 @@
                                   (some? sample-rate) (assoc :sample-rate (int sample-rate))
                                   (some? rt-window-sec) (assoc :rt-window-sec (when (number? rt-window-sec) (double rt-window-sec)))
                                   (some? rt-overlap-sec) (assoc :rt-overlap-sec (when (number? rt-overlap-sec) (double rt-overlap-sec)))
-                                  (some? rt-emit-every-sec) (assoc :rt-emit-every-sec (when (number? rt-emit-every-sec) (double rt-emit-every-sec))))]
+                                  (some? rt-emit-every-sec) (assoc :rt-emit-every-sec (when (number? rt-emit-every-sec) (double rt-emit-every-sec)))
+
+                                  (some? rt-partial-enable?) (assoc :rt-partial-enable? (boolean rt-partial-enable?))
+                                  (some? want-realtime?) (assoc :want-realtime? (boolean want-realtime?))
+                                  (some? want-refined?) (assoc :want-refined? (boolean want-refined?))
+                                  (some? want-final?) (assoc :want-final? (boolean want-final?))
+                                  (some? store-recording?) (assoc :store-recording? (boolean store-recording?))
+                                  (some? kafka-headers) (assoc :kafka-headers (ensure-bytes-header-map kafka-headers)))]
                    (reset! updated* session')
                    (assoc-in m [tenant-id session-id] session')))
                (do
@@ -418,7 +474,7 @@
   - session  session map
   - event    map
 
-  Returns: boolean, true if enqueued, false if dropped or channel closed." 
+  Returns: boolean, true if enqueued, false if dropped or channel closed."
   [{:keys [config]} session event]
   (let [ev (validate-ws-event! config event)]
     (try
@@ -435,7 +491,7 @@
   - session  session map
   - out-ch   core.async channel
 
-  Returns: out-ch." 
+  Returns: out-ch."
   [session out-ch]
   (async/tap (:events-mult session) out-ch)
   out-ch)
@@ -447,13 +503,13 @@
   - session  session map
   - out-ch   core.async channel
 
-  Returns: nil." 
+  Returns: nil."
   [session out-ch]
   (async/untap (:events-mult session) out-ch)
   nil)
 
 (defn- maybe-log-drop!
-  "Increment the drop counter and log every 100th drop." 
+  "Increment the drop counter and log every 100th drop."
   [session]
   (let [n (swap! (:drops* session) inc)]
     (when (zero? (mod n 100))
@@ -500,7 +556,7 @@
   - completes gRPC stream (if running)
   - removes session from registry
 
-  Returns: nil." 
+  Returns: nil."
   [{:keys [sessions]} tenant-id session-id reason]
   (when-let [session (get-in @sessions [tenant-id session-id])]
     (log/info "Closing ws session" {:session-id session-id :tenant-id tenant-id :reason reason})
@@ -515,33 +571,33 @@
   nil)
 
 (defn- maybe-close-if-unused!
-  "Close the session when no WS connections remain." 
+  "Close the session when no WS connections remain."
   [registry session]
   (when (and (zero? @(:events-subs* session))
              (zero? @(:audio-socks* session)))
     (close-session! registry (:tenant-id session) (:session-id session) "no-active-sockets")))
 
 (defn mark-audio-connected!
-  "Increment the count of connected `/ws/audio` sockets for this session." 
+  "Increment the count of connected `/ws/audio` sockets for this session."
   [_registry session]
   (swap! (:audio-socks* session) inc)
   session)
 
 (defn mark-audio-disconnected!
-  "Decrement the count of connected `/ws/audio` sockets and close session if unused." 
+  "Decrement the count of connected `/ws/audio` sockets and close session if unused."
   [registry session]
   (swap! (:audio-socks* session) (fn [n] (max 0 (dec n))))
   (maybe-close-if-unused! registry session)
   nil)
 
 (defn mark-events-connected!
-  "Increment the count of connected `/ws/events` sockets for this session." 
+  "Increment the count of connected `/ws/events` sockets for this session."
   [_registry session]
   (swap! (:events-subs* session) inc)
   session)
 
 (defn mark-events-disconnected!
-  "Decrement the count of connected `/ws/events` sockets and close session if unused." 
+  "Decrement the count of connected `/ws/events` sockets and close session if unused."
   [registry session]
   (swap! (:events-subs* session) (fn [n] (max 0 (dec n))))
   (maybe-close-if-unused! registry session)
@@ -562,65 +618,76 @@
   - starts a go-loop sending AudioChunk for each byte-array read from :audio-ch
   - publishes ASR events into :events-ch
 
-  Returns: session map." 
+  Returns: session map."
   [registry grpc-client session]
   (if (compare-and-set! (:running?* session) false true)
     (do
       (let [session-id (:session-id session)
-            tenant-id (:tenant-id session)
-            metadata (cond-> {}
-                       (some? (:rt-window-sec session))
-                       (assoc "x-rt-window-sec" (grpc.metadata/header-double (:rt-window-sec session)))
-
-                       (some? (:rt-overlap-sec session))
-                       (assoc "x-rt-overlap-sec" (grpc.metadata/header-double (:rt-overlap-sec session)))
-
-                       (some? (:rt-emit-every-sec session))
-                       (assoc "x-rt-emit-every-sec" (grpc.metadata/header-double (:rt-emit-every-sec session))))
-            metadata (into {} (remove (fn [[_k v]] (nil? v)) metadata))]
-        (log/info "Starting realtime gRPC stream" {:session-id session-id :tenant-id tenant-id})
+            tenant-id (:tenant-id session)]
         (publish! registry session (status-event session-id (:seq* session) "started" nil))
 
-        (when (seq metadata)
-          (log/info "Attaching rtservice gRPC metadata" {:session-id session-id
-                                                         :tenant-id tenant-id
-                                                         :metadata (keys metadata)}))
-        (let [stream (try
-                       (grpc/start-stream!
-                         grpc-client
-                         {:on-next (fn [event]
-                                     (publish! registry session (asr-event->map (:seq* session) event)))
-                          :on-error (fn [t]
-                                      (log/error t "gRPC stream error" {:session-id session-id :tenant-id tenant-id})
-                                      (publish! registry session
-                                                (error-event session-id (:seq* session) "grpc-error" (.getMessage t)))
-                                      (close-session! registry tenant-id session-id "grpc-error"))
-                          :on-complete (fn []
-                                         (log/info "gRPC stream completed" {:session-id session-id :tenant-id tenant-id})
+        (when-not (:want-realtime? session)
+          (log/info "Realtime output disabled; not starting gRPC" {:session-id session-id
+                                                                   :tenant-id tenant-id}))
+
+        (let [metadata (cond-> {}
+                         (some? (:rt-window-sec session))
+                         (assoc "x-rt-window-sec" (grpc.metadata/header-double (:rt-window-sec session)))
+
+                         (some? (:rt-overlap-sec session))
+                         (assoc "x-rt-overlap-sec" (grpc.metadata/header-double (:rt-overlap-sec session)))
+
+                         (some? (:rt-emit-every-sec session))
+                         (assoc "x-rt-emit-every-sec" (grpc.metadata/header-double (:rt-emit-every-sec session)))
+
+                         (some? (:rt-partial-enable? session))
+                         (assoc "x-rt-partial-enable" (if (:rt-partial-enable? session) "true" "false")))
+              metadata (into {} (remove (fn [[_k v]] (nil? v)) metadata))
+              stream (when (:want-realtime? session)
+                       (do
+                         (log/info "Starting realtime gRPC stream" {:session-id session-id :tenant-id tenant-id})
+                         (when (seq metadata)
+                           (log/info "Attaching rtservice gRPC metadata" {:session-id session-id
+                                                                          :tenant-id tenant-id
+                                                                          :metadata (keys metadata)}))
+                         (try
+                           (grpc/start-stream!
+                            grpc-client
+                            {:on-next (fn [event]
+                                        (publish! registry session (asr-event->map (:seq* session) event)))
+                             :on-error (fn [t]
+                                         (log/error t "gRPC stream error" {:session-id session-id :tenant-id tenant-id})
                                          (publish! registry session
-                                                   (status-event session-id (:seq* session)
-                                                                  "stopped" "grpc-stream-completed")))
-                          :metadata metadata})
-                       (catch Throwable t
-                         ;; If startup fails, allow retry + make failure obvious.
-                         (reset! (:running?* session) false)
-                         (log/error t "Failed to start realtime gRPC stream" {:session-id session-id :tenant-id tenant-id})
-                         (publish! registry session
-                                   (error-event session-id (:seq* session) "grpc-start-failed" (.getMessage t)))
-                         (throw t)))]
+                                                   (error-event session-id (:seq* session) "grpc-error" (.getMessage t)))
+                                         (close-session! registry tenant-id session-id "grpc-error"))
+                             :on-complete (fn []
+                                            (log/info "gRPC stream completed" {:session-id session-id :tenant-id tenant-id})
+                                            (publish! registry session
+                                                      (status-event session-id (:seq* session)
+                                                                    "stopped" "grpc-stream-completed")))
+                             :metadata metadata})
+                           (catch Throwable t
+                             ;; If startup fails, allow retry + make failure obvious.
+                             (reset! (:running?* session) false)
+                             (log/error t "Failed to start realtime gRPC stream" {:session-id session-id :tenant-id tenant-id})
+                             (publish! registry session
+                                       (error-event session-id (:seq* session) "grpc-start-failed" (.getMessage t)))
+                             (throw t)))))]
           (reset! (:grpc-stream* session) stream)
           (async/go-loop []
             (let [[v ch] (async/alts! [(:stop-ch session) (:audio-ch session)] :priority true)]
               (cond
                 (= ch (:stop-ch session))
                 (do
-                  (log/info "Stopping audio->gRPC loop" {:session-id session-id :tenant-id tenant-id})
-                  (grpc/close! stream))
+                  (log/info "Stopping audio forward loop" {:session-id session-id :tenant-id tenant-id})
+                  (when stream
+                    (grpc/close! stream)))
 
                 (nil? v)
                 (do
                   (log/info "Audio channel closed" {:session-id session-id :tenant-id tenant-id})
-                  (grpc/close! stream))
+                  (when stream
+                    (grpc/close! stream)))
 
                 :else
                 (let [chunk-id (next-seq! (:chunk-seq* session))
@@ -637,21 +704,27 @@
                   ;; is current for both Kafka and gRPC. The OTEL Java agent will
                   ;; inject W3C trace context automatically.
                   (session-trace/with-session-trace session-id
-                    ;; Publish to Kafka for near-realtime refinement workers.
-                    (when-let [kafka-producer (:kafka-producer registry)]
-                      (kafka.producer/send-audio-chunk! kafka-producer session-id audio-chunk
-                                                        {:tenant-id tenant-id}))
+                    ;; Publish to Kafka only when refined/final are requested.
+                    (when (and (or (:want-refined? session) (:want-final? session))
+                               (some? (:kafka-producer registry)))
+                      (kafka.producer/send-audio-chunk!
+                       (:kafka-producer registry)
+                       session-id
+                       audio-chunk
+                       {:tenant-id tenant-id
+                        :headers (:kafka-headers session)}))
 
-                    ;; Forward to realtime gRPC ASR service.
-                    (try
-                      ((:send! stream) audio-chunk)
-                      (catch Exception e
-                        (log/error e "gRPC send failed" {:session-id session-id :tenant-id tenant-id})
-                        (publish! registry session
-                                  (error-event session-id (:seq* session) "grpc-send-failed" (.getMessage e)))
-                        (close-session! registry tenant-id session-id "grpc-send-failed"))))
-                  (recur))))))
-        session))
+                    ;; Forward to realtime gRPC ASR service (when enabled).
+                    (when stream
+                      (try
+                        ((:send! stream) audio-chunk)
+                        (catch Exception e
+                          (log/error e "gRPC send failed" {:session-id session-id :tenant-id tenant-id})
+                          (publish! registry session
+                                    (error-event session-id (:seq* session) "grpc-send-failed" (.getMessage e)))
+                          (close-session! registry tenant-id session-id "grpc-send-failed")))))
+                  (recur)))))
+          session)))
     session))
 
 (defmethod ig/init-key :samuraibff/ws-registry

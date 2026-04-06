@@ -11,23 +11,23 @@
   - Requires `wrap-authenticate` + `wrap-require-auth` in router.
   - Uses `:auth/tenant-id` from request and scopes all DB reads by tenant.
 
-  Returns JSON only (Muuntaja handles content negotiation)." 
+  Returns JSON only (Muuntaja handles content negotiation)."
   (:require
-    [cheshire.core :as cheshire]
-    [clojure.java.io :as io]
-    [clojure.string :as str]
-    [org.corfield.logging4j2 :as log]
-    [samuraibff.db.recordings :as db.recordings]
-    [samuraibff.s3.client :as s3.client]
-    [samuraibff.schemas :as schemas])
+   [cheshire.core :as cheshire]
+   [clojure.java.io :as io]
+   [clojure.string :as str]
+   [org.corfield.logging4j2 :as log]
+   [samuraibff.db.recordings :as db.recordings]
+   [samuraibff.s3.client :as s3.client]
+   [samuraibff.schemas :as schemas])
   (:import
-    (java.io File FileInputStream FilterInputStream InputStream)
-    (java.net URI)
-    (java.util UUID)
-    (javax.sql DataSource)
-    (software.amazon.awssdk.services.s3 S3Client)
-    (software.amazon.awssdk.services.s3.model GetObjectRequest HeadObjectRequest)
-    (software.amazon.awssdk.core ResponseInputStream)))
+   (java.io File FileInputStream FilterInputStream InputStream)
+   (java.net URI)
+   (java.util UUID)
+   (javax.sql DataSource)
+   (software.amazon.awssdk.services.s3 S3Client)
+   (software.amazon.awssdk.services.s3.model GetObjectRequest HeadObjectRequest)
+   (software.amazon.awssdk.core ResponseInputStream)))
 
 (defn- parse-range-header
   "Parse an HTTP Range header of the form `bytes=start-end`.
@@ -40,7 +40,7 @@
   - nil when header is missing/invalid.
 
   Notes:
-  - We support only a single range (no multi-range)." 
+  - We support only a single range (no multi-range)."
   [s]
   (let [s (some-> s str str/trim)
         m (when (seq s) (re-matches #"(?i)bytes=(\d*)-(\d*)" s))]
@@ -68,7 +68,7 @@
   - java.io.File when allowed
 
   Throws:
-  - ex-info on invalid URL or path traversal attempt." 
+  - ex-info on invalid URL or path traversal attempt."
   [root-path file-url]
   (when-not (seq (str root-path))
     (throw (ex-info "recordings-local-root-not-configured"
@@ -105,7 +105,7 @@
   - n: long (>=0)
 
   Returns:
-  - InputStream (FilterInputStream)" 
+  - InputStream (FilterInputStream)"
   ^InputStream
   [^InputStream in n]
   (let [remaining* (atom (max 0 (long n)))]
@@ -144,7 +144,7 @@
   - range: {:start long? :end long?} from Range header
 
   Returns:
-  - Ring response map with :body InputStream." 
+  - Ring response map with :body InputStream."
   [^File f range]
   (let [size (.length f)
         ;; Range semantics:
@@ -194,7 +194,7 @@
   - s: string (s3://bucket/key)
 
   Returns:
-  - {:bucket string :key string} or nil." 
+  - {:bucket string :key string} or nil."
   [s]
   (let [s (some-> s str str/trim)]
     (when (and (seq s) (str/starts-with? s "s3://"))
@@ -213,7 +213,7 @@
   - key: string
   - range: {:start long? :end long?} from Range header
 
-  Returns: Ring response map." 
+  Returns: Ring response map."
   [^S3Client s3 bucket key range]
   (let [head (.headObject s3 (-> (HeadObjectRequest/builder)
                                  (.bucket bucket)
@@ -262,7 +262,7 @@
   - close-fn: (fn [])
 
   Returns:
-  - InputStream (delegating wrapper)." 
+  - InputStream (delegating wrapper)."
   ^InputStream
   [^InputStream in close-fn]
   (proxy [FilterInputStream] [in]
@@ -290,7 +290,7 @@
   - We expect jsonb columns to arrive either as:
       - org.postgresql.util.PGobject (common)
       - already-decoded Clojure map/vector (possible in some setups)
-      - string (rare; but supported)." 
+      - string (rare; but supported)."
   [v]
   (cond
     (nil? v) nil
@@ -306,6 +306,18 @@
 
     :else v))
 
+(defn- stream-controls-jsonb->clj
+  "Decode the `sessions.stream_controls` jsonb column into a map.
+
+  Inputs:
+  - v: jsonb value
+
+  Returns:
+  - map or nil."
+  [v]
+  (let [x (jsonb->clj v)]
+    (when (map? x) x)))
+
 (defn- segments-jsonb->segments
   "Decode the `segments` jsonb column into a vector of segment maps.
 
@@ -313,7 +325,7 @@
   - v: jsonb value
 
   Returns:
-  - vector of segment maps (empty when nil)." 
+  - vector of segment maps (empty when nil)."
   [v]
   (let [x (jsonb->clj v)]
     (vec (or x []))))
@@ -325,7 +337,7 @@
   - status int
   - body map
 
-  Returns Ring response map." 
+  Returns Ring response map."
   [status body]
   ;; NOTE: Return a *data* body (map). Muuntaja JSON-encodes it.
   ;; This keeps Reitit response coercion compatible with Malli schemas.
@@ -342,7 +354,7 @@
   - UUID
 
   Throws:
-  - ex-info if missing/invalid." 
+  - ex-info if missing/invalid."
   [req]
   (let [tid (or (:auth/tenant-id req)
                 (get-in req [:auth :tenant-id]))]
@@ -352,7 +364,7 @@
       (UUID/fromString (str tid))
       (catch Exception e
         (throw (ex-info "invalid-tenant-id" {:type :samuraibff.http/invalid-tenant-id
-                                              :tenant-id tid}
+                                             :tenant-id tid}
                         e))))))
 
 (defn- parse-int
@@ -373,7 +385,7 @@
   - UUID
 
   Throws:
-  - ex-info with :type :samuraibff.http/invalid-session-id" 
+  - ex-info with :type :samuraibff.http/invalid-session-id"
   [req]
   (let [sid-str (or (get-in req [:path-params :session_id])
                     (get-in req [:path-params "session_id"]))]
@@ -391,7 +403,7 @@
   1) config [:s3 :buckets :recordings :bucket]
 
   Returns:
-  - string? (blank => nil)." 
+  - string? (blank => nil)."
   [config]
   (let [b0 (some-> (get-in config [:s3 :buckets :recordings :bucket]) str str/trim)]
     (when (seq b0) b0)))
@@ -418,7 +430,7 @@
 
   Returns:
   - 200/206 with audio stream
-  - JSON error body on failures (e.g. 404 not found, 416 invalid range)." 
+  - JSON error body on failures (e.g. 404 not found, 416 invalid range)."
   [{:keys [db config]}]
   (fn [req]
     (let [^DataSource ds (:ds db)]
@@ -510,7 +522,7 @@
   Dependencies:
   - deps: {:db {:ds DataSource}}
 
-  Returns Ring handler fn." 
+  Returns Ring handler fn."
   [{:keys [db config]}]
   (fn [req]
     (let [^DataSource ds (:ds db)]
@@ -572,7 +584,7 @@
   - refined is append-only; we return all refined records ordered by created_at.
   - final may have multiple entries; UI will pick the latest.
 
-  Returns 404 if the session is not found within tenant." 
+  Returns 404 if the session is not found within tenant."
   [{:keys [db config]}]
   (fn [req]
     (let [^DataSource ds (:ds db)]
@@ -624,6 +636,7 @@
                                   :started_at (some-> (:started_at session) str)
                                   :ended_at (some-> (:ended_at session) str)
                                   :created_at (some-> (:created_at session) str)
+                                  :stream_controls (stream-controls-jsonb->clj (:stream_controls session))
                                   :has_recording has-recording?
                                   :has_final_transcript has-final?}
                         :transcripts {:refined (mapv normalize-record refined)
@@ -655,7 +668,7 @@
   - 404 {:ok false :message \"not-found\"} (within tenant)
   - 400 invalid session id
   - 403 missing tenant id
-  - 503 db unavailable" 
+  - 503 db unavailable"
   [{:keys [db]}]
   (fn [req]
     (let [^DataSource ds (:ds db)]
