@@ -22,14 +22,14 @@
   Public API:
   - `send-audio-chunk!`"
   (:require
-    [integrant.core :as ig]
-    [org.corfield.logging4j2 :as log]
-    [samuraibff.otel.kafka :as otel.kafka]
-    [samuraibff.session-trace :as session-trace])
+   [integrant.core :as ig]
+   [org.corfield.logging4j2 :as log]
+   [samuraibff.otel.kafka :as otel.kafka]
+   [samuraibff.session-trace :as session-trace])
   (:import
-    (java.util Properties)
-    (org.apache.kafka.clients.producer KafkaProducer ProducerRecord)
-    (samuraibff.proto AudioChunk)))
+   (java.util Properties)
+   (org.apache.kafka.clients.producer KafkaProducer ProducerRecord)
+   (samuraibff.proto AudioChunk)))
 
 (defn- props
   "Build Java Properties for KafkaProducer.
@@ -63,6 +63,7 @@
   - chunk: protobuf AudioChunk
   - opts: map with optional keys:
       - :tenant-id string (added as Kafka header `tenant_id`)
+      - :headers map of {header-name string -> header-value bytes}
 
   Observability (local dev):
   - We derive a deterministic W3C `traceparent` from session-id and attach it
@@ -75,10 +76,13 @@
   - sends asynchronously (does not block for ack)
   - logs a warning on callback error
 
-  Returns: nil." 
+  Returns: nil."
   ([producer session-id chunk]
    (send-audio-chunk! producer session-id chunk {}))
-  ([{:keys [^KafkaProducer producer topic-audio-raw]} session-id ^AudioChunk chunk {:keys [tenant-id]}]
+  ([{:keys [^KafkaProducer producer topic-audio-raw]}
+    session-id
+    ^AudioChunk chunk
+    {:keys [tenant-id headers]}]
    (when (and producer topic-audio-raw)
      (session-trace/with-session-trace session-id
        (let [span (otel.kafka/start-audio-raw-produce-span!)
@@ -90,25 +94,28 @@
            (.add hdrs "tenant_id" (.getBytes (str tenant-id) "UTF-8")))
          (when tp
            (.add hdrs "traceparent" (.getBytes ^String tp "UTF-8")))
+         (doseq [[k v] (or headers {})]
+           (when (and (string? k) (bytes? v))
+             (.add hdrs k ^bytes v)))
          (try
            (.send
-             producer
-             record
-             (reify org.apache.kafka.clients.producer.Callback
-               (onCompletion [_ metadata exception]
-                 (otel.kafka/end-produce-span! span metadata exception)
-                 (when exception
-                   (log/warn exception "Kafka send failed" {:topic topic-audio-raw
-                                                            :session-id session-id
-                                                            :partition (when metadata (.partition metadata))
-                                                            :offset (when metadata (.offset metadata))})))))
-           (catch Exception e
-             ;; if send itself throws (rare), end span best-effort
-             (otel.kafka/end-produce-span! span nil e)
-             (throw e))
-           (finally
-             (when scope
-               (try (.close scope) (catch Exception _ nil))))))))
+            producer
+            record
+            (reify org.apache.kafka.clients.producer.Callback
+              (onCompletion [_ metadata exception]
+                (otel.kafka/end-produce-span! span metadata exception)
+                (when exception
+                  (log/warn exception "Kafka send failed" {:topic topic-audio-raw
+                                                           :session-id session-id
+                                                           :partition (when metadata (.partition metadata))
+                                                           :offset (when metadata (.offset metadata))}))))
+            (catch Exception e
+             ;; If send itself throws (rare), end span best-effort.
+              (otel.kafka/end-produce-span! span nil e)
+              (throw e))
+            (finally
+              (when scope
+                (try (.close scope) (catch Exception _ nil)))))))))
    nil))
 
 (defmethod ig/init-key :samuraibff/kafka-producer
