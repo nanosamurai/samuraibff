@@ -9,11 +9,78 @@
    [samuraibff.ui.router :as router]
    [samuraibff.ui.store :as store]))
 
+(def ^:private mobile-breakpoint-query
+  "CSS media query used as the threshold for mobile layout.
+
+  Must match the @media rule in `resources/public/index.html`."
+  "(max-width: 768px)")
+
+(defn- nav-items
+  "Return the navigation items for the sidebar/drawer.
+
+  Inputs:
+  - active-page: keyword
+
+  Returns:
+  - vector of item maps {:label string :route route-map :active? boolean}."
+  [active-page]
+  [{:label "Recordings"
+    :route {:page :recordings :params {}}
+    :active? (= active-page :recordings)}
+   {:label "Live Recording"
+    :route {:page :live :params {}}
+    :active? (= active-page :live)}
+   {:label "Speakers"
+    :route {:page :speakers :params {}}
+    :active? (= active-page :speakers)}
+   {:label "API Credentials"
+    :route {:page :api-credentials :params {}}
+    :active? (= active-page :api-credentials)}])
+
 (defn- sidebar-item
-  [{:keys [active? label route]}]
+  [{:keys [active? label route on-click]}]
   [router/link {:route route
-                :class (str "nav-item" (when active? " active"))}
+                :class (str "nav-item" (when active? " active"))
+                :on-click (when (fn? on-click) on-click)}
    [:span {:class "nav-label"} label]])
+
+(defn mobile-drawer
+  "Off-canvas drawer navigation for small screens.
+
+  Inputs:
+  - route: {:page keyword :params map}
+  - open?: boolean
+  - on-close: (fn [] ...)
+
+  Returns:
+  - hiccup nodes (overlay + drawer) or nil when closed." 
+  [{:keys [route open? on-close]}]
+  (when (true? open?)
+    (let [on-close (or on-close (fn [] nil))
+          page (:page route)
+          items (nav-items page)]
+      [:div
+       [:div {:class "drawer-overlay"
+              :on-click (fn [_] (on-close))}]
+       [:aside {:class "drawer open"
+               :role "dialog"
+               :aria-modal true}
+        [:div {:class "drawer-header"}
+         [:div {:style {:display "flex" :gap "10px" :alignItems "center"}}
+          [:img {:class "logo" :src "/img/nonosamurai_art.jpg" :alt "nanosamur.ai"}]
+          [:div {:class "brand-name"} "nanosamur.ai"]]
+         [:button {:class "btn ghost"
+                   :title "Close"
+                   :on-click (fn [_] (on-close))}
+          "×"]]
+        [:div {:class "sidebar-section"}
+         [:div {:class "sidebar-title"} "Navigation"]
+         (for [{:keys [label route active?]} items]
+           ^{:key (str "drawer-item-" label)}
+           [sidebar-item {:label label
+                          :route route
+                          :active? active?
+                          :on-click (fn [_] (on-close))}])]]])))
 
 (defn sidebar
   "Left navigation sidebar.
@@ -23,22 +90,14 @@
 
   Returns: hiccup." 
   [route]
-  (let [page (:page route)]
+  (let [page (:page route)
+        items (nav-items page)]
     [:aside {:class "sidebar"}
      [:div {:class "sidebar-section"}
       [:div {:class "sidebar-title"} "Navigation"]
-      [sidebar-item {:label "Recordings"
-                     :route {:page :recordings :params {}}
-                     :active? (= page :recordings)}]
-      [sidebar-item {:label "Live Recording"
-                     :route {:page :live :params {}}
-                     :active? (= page :live)}]
-      [sidebar-item {:label "Speakers"
-                     :route {:page :speakers :params {}}
-                     :active? (= page :speakers)}]
-      [sidebar-item {:label "API Credentials"
-                     :route {:page :api-credentials :params {}}
-                     :active? (= page :api-credentials)}]]]))
+      (for [{:keys [label route active?]} items]
+        ^{:key (str "sidebar-item-" label)}
+        [sidebar-item {:label label :route route :active? active?}])]]))
 
 (defn breadcrumbs
   "Breadcrumbs derived from current route.
@@ -74,11 +133,17 @@
   - route: {:page keyword :params map}
 
   Returns: hiccup." 
-  [route]
+  [{:keys [route on-open-menu]}]
   (let [{:keys [status detail]} (hooks/use-atom store/auth*)
         user (get detail :user)
-        tenant-name (get detail :tenant_name)]
+        tenant-name (get detail :tenant_name)
+        mobile? (hooks/use-media-query mobile-breakpoint-query)]
     [:header {:class "topbar"}
+     (when (and mobile? (fn? on-open-menu))
+       [:button {:class "btn ghost menu-btn"
+                 :title "Menu"
+                 :on-click (fn [_] (on-open-menu))}
+        "☰"])
      [:div {:class "brand"}
       [:img {:class "logo" :src "/img/nonosamurai_art.jpg" :alt "nanosamur.ai"}]
       [:div {:class "brand-name"} "nanosamur.ai"]]

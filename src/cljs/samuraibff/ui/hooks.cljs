@@ -40,3 +40,44 @@
   - any (f @a*)"
   [a* f]
   (f (use-atom a*)))
+
+(defn use-media-query
+  "Subscribe to a CSS media query.
+
+  This is used for responsive rendering in components (e.g. switching a table
+  into a stacked card list on mobile).
+
+  Inputs:
+  - query: string, e.g. \"(max-width: 768px)\"
+
+  Returns:
+  - boolean, true when the query currently matches.
+
+  Notes:
+  - Uses `window.matchMedia` and listens to query changes.
+  - Falls back to false when `window` is not available (defensive)."
+  [query]
+  (let [query (str (or query ""))
+        mm (when (and (exists? js/window)
+                      (exists? (.-matchMedia js/window))
+                      (seq query))
+             (.matchMedia js/window query))
+        matches?* (react/useState (boolean (some-> mm .-matches)))
+        matches? (aget matches?* 0)
+        set-matches! (aget matches?* 1)]
+    (react/useEffect
+     (fn []
+       (when mm
+         (let [handler (fn [e]
+                         (set-matches! (boolean (.-matches e))))]
+           ;; Safari < 14 uses addListener/removeListener.
+           (if (exists? (.-addEventListener mm))
+             (do
+               (.addEventListener mm "change" handler)
+               (fn [] (.removeEventListener mm "change" handler)))
+             (do
+               (.addListener mm handler)
+               (fn [] (.removeListener mm handler))))))
+       js/undefined)
+     #js [query])
+    (boolean matches?)))

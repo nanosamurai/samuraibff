@@ -25,7 +25,25 @@
   []
   (let [route (hooks/use-atom store/route*)
         {:keys [status detail]} (hooks/use-atom store/auth*)
-        auth-required? (true? (get detail :auth-required?))]
+        auth-required? (true? (get detail :auth-required?))
+
+        drawer-open?* (react/useState false)
+        drawer-open? (aget drawer-open?* 0)
+        set-drawer-open! (aget drawer-open?* 1)
+        open-drawer! (fn [] (set-drawer-open! true))
+        close-drawer! (fn [] (set-drawer-open! false))]
+
+    ;; Close drawer on Escape.
+    (react/useEffect
+     (fn []
+       (let [handler (fn [e]
+                       (when (and (true? drawer-open?)
+                                  (= "Escape" (.-key e)))
+                         (close-drawer!)))]
+         (.addEventListener js/document "keydown" handler)
+         (fn []
+           (.removeEventListener js/document "keydown" handler))))
+     #js [drawer-open?])
     (react/useEffect
      (fn []
        (when (and (= status :anonymous) auth-required?)
@@ -35,7 +53,11 @@
      #js [status auth-required? (:page route) (get-in route [:params :session_id])])
 
     [:div {:class "app"}
-     [components.layout/topbar route]
+     [components.layout/topbar {:route route
+                               :on-open-menu open-drawer!}]
+     [components.layout/mobile-drawer {:route route
+                                      :open? drawer-open?
+                                      :on-close close-drawer!}]
      [:div {:class "body"}
       [components.layout/sidebar route]
       [:main {:class "main"}

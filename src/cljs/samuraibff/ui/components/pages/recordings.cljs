@@ -12,6 +12,12 @@
    [samuraibff.ui.util :as util]
    ["react" :as react]))
 
+(def ^:private mobile-breakpoint-query
+  "CSS media query used as the threshold for mobile layout.
+
+  Must match the @media rule in `resources/public/index.html`."
+  "(max-width: 768px)")
+
 (defn- rec->display-status
   "Derive a compact UI status descriptor for a DB recording row.
 
@@ -115,12 +121,71 @@
                                               (str "[ui] failed deleting session: " e)))))))}
         (shared/icon "×" {:title "Delete"})]]]]))
 
+(defn- recordings-card
+  "Render a single recording as a stacked card (mobile layout).
+
+  Inputs:
+  - rec: a map from /api/recordings
+
+  Returns: hiccup <div>." 
+  [{:keys [session_id title started_at created_at] :as rec}]
+  (let [{:keys [label badge-class tooltip]
+         icon-glyph :icon} (rec->display-status rec)
+        session-title (let [t (str/trim (str (or title "")))]
+                        (when (seq t) t))
+        lang (get-in rec [:recording :lang])]
+    [:div {:class "list-item"}
+     [:div {:style {:display "flex" :gap "10px" :alignItems "flex-start"}}
+      [:div {:style {:flex "1" :minWidth 0}}
+       [:div {:class "list-item-title"}
+        [:div {:style {:display "flex" :gap "8px" :alignItems "baseline" :flexWrap "wrap"}}
+         (when (seq (str lang))
+           [shared/lang-flag lang])
+         [:span (or session-title session_id)]]]
+       [:div {:class "list-item-sub mono"} session_id]
+       [:div {:class "list-item-meta"}
+        [:span (str "Created: " (or (shared/iso->local created_at) "—"))]
+        [:span (str "Started: " (or (shared/iso->local started_at) "—"))]]]
+
+      [:div
+       [:span {:class (str "badge " badge-class)
+               :title tooltip}
+        (shared/icon icon-glyph {:title tooltip})
+        [:span {:style {:marginLeft "8px"}} label]]]]
+
+     [:div {:class "list-item-actions"}
+      [router/link {:route {:page :recording :params {:session_id session_id}}
+                    :class "btn icon"
+                    :title "Open detail"}
+       (shared/icon "↗" {:title "Open"})]
+
+      [router/link {:route {:page :live :params {}}
+                    :class "btn ghost icon"
+                    :title "Open in Live Recording"
+                    :on-click (fn [_]
+                                (store/set-session-id! session_id))}
+       (shared/icon "●" {:title "Go live"})]
+
+      [:button {:class "btn ghost icon"
+                :title "Delete session"
+                :on-click (fn [_]
+                            (when (js/confirm (str "Delete session " session_id
+                                                   "?\n\nThis will remove recordings and transcripts."))
+                              (-> (api/delete-recording! session_id)
+                                  (.then (fn [_]
+                                           (store/remove-recording-db! session_id)))
+                                  (.catch (fn [e]
+                                            (store/append-log!
+                                             (str "[ui] failed deleting session: " e)))))))}
+       (shared/icon "×" {:title "Delete"})]]]))
+
 (defn recordings-table
   "Table of DB-backed recordings." 
   []
   (let [recs0 (->> (hooks/use-atom store/recordings-db*)
                    (sort-by :created_at)
                    reverse)
+        mobile? (hooks/use-media-query mobile-breakpoint-query)
         show-drafts?* (react/useState false)
         show-drafts? (aget show-drafts?* 0)
         set-show-drafts! (aget show-drafts?* 1)
@@ -141,8 +206,17 @@
                                (set-show-drafts! (.. e -target -checked)))}]
          (str "Show drafts (" drafts-count ")")])]
 
-     (if (empty? recs)
+     (cond
+       (empty? recs)
        [:div {:class "muted"} "No recordings yet."]
+
+       mobile?
+       [:div {:class "list"}
+        (for [{:keys [session_id] :as rec} recs]
+          ^{:key (str "rec-card-" session_id)}
+          [recordings-card rec])]
+
+       :else
        [:table {:class "table"}
         [:thead
          [:tr
