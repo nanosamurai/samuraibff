@@ -14,6 +14,7 @@
   - `update-session-status!`
   - `activate-session-on-audio-start!`
   - `update-session-stream-controls!`
+  - `activate-session-on-audio-start-with-controls!`
 
   All functions accept a next.jdbc datasource, typically provided by the
   Integrant `:samuraibff/db` component as `(:ds db)`.
@@ -204,5 +205,38 @@
         res (jdbc/execute-one!
              ds
              ["UPDATE sessions\n     SET stream_controls = (?::jsonb)\n   WHERE tenant_id=? AND id=?"
+              json tenant-id session-id])]
+    {:updated? (pos? (long (or (:next.jdbc/update-count res) 0)))}))
+
+(defn activate-session-on-audio-start-with-controls!
+  "Mark a session as active, set started_at, and persist stream controls.
+
+  This is meant for `/ws/audio` so we only touch the sessions table once.
+
+  Semantics:
+  - status is set to \"active\"
+  - started_at is set to `now()` if not already set
+  - stream_controls is stored as jsonb (replaces previous value)
+
+  Inputs:
+  - ds: DataSource
+  - tenant-id: UUID
+  - session-id: UUID
+  - controls: map (typically from `samuraibff.stream-controls/parse-and-validate`)
+
+  Returns:
+  - {:updated? boolean}
+
+  Notes:
+  - Uses raw SQL for the jsonb cast; everything is parameterized (no string concat).
+  - Intended for best-effort use; callers typically run it asynchronously."
+  [^DataSource ds ^UUID tenant-id ^UUID session-id controls]
+  (when-not (and ds (instance? UUID tenant-id) (instance? UUID session-id))
+    (throw (ex-info "activate-session-on-audio-start-with-controls! missing required params"
+                    {:tenant-id tenant-id :session-id session-id})))
+  (let [json (cheshire/generate-string (or controls {}))
+        res (jdbc/execute-one!
+             ds
+             ["UPDATE sessions\n     SET status='active',\n         started_at=COALESCE(started_at, now()),\n         stream_controls=(?::jsonb)\n   WHERE tenant_id=? AND id=?"
               json tenant-id session-id])]
     {:updated? (pos? (long (or (:next.jdbc/update-count res) 0)))}))

@@ -145,35 +145,19 @@
                              config ws-registry tenant-id session-id
                              session-opts)]
 
-                ;; Best-effort persistence of stream controls for history replay.
-                (when-let [ds (get db :ds)]
-                  (try
-                    (db.sessions/update-session-stream-controls!
-                     ds
-                     (java.util.UUID/fromString (str tenant-id))
-                     (java.util.UUID/fromString (str session-id))
-                     controls)
-                    (catch Exception e
-                      (log/warn e "Failed to persist session stream_controls" {:session-id session-id
-                                                                               :tenant-id tenant-id}))))
-
-                ;; Update persisted session lifecycle once we know audio actually started.
-                ;; This is best-effort; WS must continue even if DB is unavailable.
-                (when-let [ds (get db :ds)]
-                  (try
-                    (db.sessions/activate-session-on-audio-start!
-                     ds
-                     (java.util.UUID/fromString (str tenant-id))
-                     (java.util.UUID/fromString (str session-id)))
-                    (catch Exception e
-                      (log/warn e "Failed to mark session active" {:session-id session-id
-                                                                   :tenant-id tenant-id}))))
-                ;; Ensure gRPC stream is running once audio is connected.
+                (when-let [ds (:ds db)]
+                  (let [tenant-uuid (java.util.UUID/fromString (str tenant-id))
+                        session-uuid (java.util.UUID/fromString (str session-id))]
+                    (future
+                      (try
+                        (db.sessions/activate-session-on-audio-start-with-controls!
+                         ds tenant-uuid session-uuid controls)
+                        (catch Exception e
+                          (log/warn e "Session DB update failed" {:session-id session-id
+                                                                  :tenant-id tenant-id
+                                                                  :op :activate-with-controls}))))))
                 (ws.registry/start-rt! ws-registry grpc session)
 
-                ;; IMPORTANT: return the AsyncChannel from `http/as-channel`.
-                ;; Returning nil can cause some Ring stacks/middlewares to close the
-                ;; connection immediately even though `as-channel` was called.
                 (http/as-channel
                  request
                  {:on-open (fn [_ch]
@@ -195,7 +179,6 @@
                                   (do
                                     (log/warn "Non-binary frame received on /ws/audio" {:session-id session-id
                                                                                         :received (str (type payload))})
-                                    ;; no close: keep socket open; client bug should be visible via logs
                                     false)))
                   :on-close (fn [_ch status]
                               (log/info "WS /ws/audio closed" {:session-id session-id
