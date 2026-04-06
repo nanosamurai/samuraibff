@@ -57,10 +57,11 @@
       (#{"0" "false" "no" "n" "off"} raw) false
       :else (boolean default))))
 
-(defn- parse-double
+(defn- parse-finite-double
   "Parse a finite double from a string-like input.
 
-  Returns double or nil."
+  Returns:
+  - double, or nil when unparseable / NaN / +/-Infinity."
   [v]
   (when (some? v)
     (try
@@ -125,16 +126,16 @@
         rt-partial-enable? (parse-bool (or (get params :rt_partial_enable) (get params "rt_partial_enable")
                                            (get params :rt-partial-enable) (get params "rt-partial-enable"))
                                        (:rt_partial_enable default-controls))
-        rt-window (parse-double (or (get params :rt_window_sec) (get params "rt_window_sec")
-                                    (get params :window_sec) (get params "window_sec")))
-        rt-overlap (parse-double (or (get params :rt_overlap_sec) (get params "rt_overlap_sec")
-                                     (get params :overlap_sec) (get params "overlap_sec")))
-        rt-emit-every (parse-double (or (get params :rt_emit_every_sec) (get params "rt_emit_every_sec")
-                                        (get params :emit_every_sec) (get params "emit_every_sec")))
+        rt-window (parse-finite-double (or (get params :rt_window_sec) (get params "rt_window_sec")
+                                           (get params :window_sec) (get params "window_sec")))
+        rt-overlap (parse-finite-double (or (get params :rt_overlap_sec) (get params "rt_overlap_sec")
+                                            (get params :overlap_sec) (get params "overlap_sec")))
+        rt-emit-every (parse-finite-double (or (get params :rt_emit_every_sec) (get params "rt_emit_every_sec")
+                                               (get params :emit_every_sec) (get params "emit_every_sec")))
 
-        refinement-window (parse-double (or (get params :refinement_window_sec) (get params "refinement_window_sec")
-                                            (get params :refinement_window) (get params "refinement_window")
-                                            (get params :refined_window_sec) (get params "refined_window_sec")))
+        refinement-window (parse-finite-double (or (get params :refinement_window_sec) (get params "refinement_window_sec")
+                                                   (get params :refinement_window) (get params "refinement_window")
+                                                   (get params :refined_window_sec) (get params "refined_window_sec")))
 
         want-any? (or realtime? refined? final?)
         _ (when-not want-any?
@@ -185,13 +186,24 @@
 (defn kafka-headers
   "Return Kafka header map for audio.raw.
 
+  Inputs:
+  - controls: map as returned by `parse-and-validate`
+
   Returns:
-  - {" x-outputs " <bytes> " x-store-recording " <bytes> ...}"
+  - map of {header-name string -> header-value byte[]}.
+
+  Always included:
+  - `x-outputs` (CSV: realtime,refined,final)
+  - `x-store-recording` (true|false)
+
+  Optionally included:
+  - `x-refinement-window-sec` when refined=true and `:refinement_window_sec` is present."
   [controls]
   (cond-> {"x-outputs" (.getBytes ^String (outputs-header-value controls) "UTF-8")
            "x-store-recording" (.getBytes ^String (if (:store_recording controls) "true" "false") "UTF-8")}
     (and (true? (:refined controls)) (some? (:refinement_window_sec controls)))
-    (assoc "x-refinement-window-sec" (.getBytes ^String (str (double (:refinement_window_sec controls))) "UTF-8"))))
+    (assoc "x-refinement-window-sec"
+           (.getBytes ^String (str (double (:refinement_window_sec controls))) "UTF-8"))))
 
 (defn grpc-metadata
   "Return gRPC metadata map for rtservice based on controls.
