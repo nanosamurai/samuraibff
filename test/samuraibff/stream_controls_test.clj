@@ -17,15 +17,15 @@
     (is (thrown-with-msg?
          clojure.lang.ExceptionInfo
          #"At least one output"
-         (stream-controls/parse-and-validate {:realtime "false"}
-                                             :refined "false"
-                                             :final "false"))))
+         (stream-controls/parse-and-validate {:realtime "false"
+                                              :refined "false"
+                                              :final "false"}))))
 
   (testing "store_recording is forced off when final=false"
     (is (= false
            (:store_recording
-            (stream-controls/parse-and-validate {:final "false"}
-                                                :store_recording "true"))))))
+            (stream-controls/parse-and-validate {:final "false"
+                                                 :store_recording "true"}))))))
 
 (deftest parse-and-validate-clamps-test
   (testing "emit_every has a hard minimum 1s"
@@ -41,8 +41,8 @@
   (testing "overlap clamps to <= window"
     (is (= 5.0
            (:rt_overlap_sec
-            (stream-controls/parse-and-validate {:rt_window_sec "5"}
-                                                :rt_overlap_sec "999")))))
+            (stream-controls/parse-and-validate {:rt_window_sec "5"
+                                                 :rt_overlap_sec "999"})))))
 
   (testing "refinement_window_sec clamps to [10,600] when refined enabled"
     (is (= 10.0
@@ -62,8 +62,8 @@
   (testing "x-refinement-window-sec is included only when refined + window specified"
     (let [h0 (stream-controls/kafka-headers (stream-controls/parse-and-validate {}))
           h1 (stream-controls/kafka-headers (stream-controls/parse-and-validate {:refinement_window_sec "60"}))
-          h2 (stream-controls/kafka-headers (stream-controls/parse-and-validate {:refined "false"}
-                                                                                :refinement_window_sec "60"))]
+          h2 (stream-controls/kafka-headers (stream-controls/parse-and-validate {:refined "false"
+                                                                                 :refinement_window_sec "60"}))]
       (is (not (contains? h0 "x-refinement-window-sec")))
       (is (contains? h1 "x-refinement-window-sec"))
       (is (not (contains? h2 "x-refinement-window-sec"))))))
