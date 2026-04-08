@@ -227,6 +227,43 @@
     .spacer{flex:1}
     .hint{margin-top:10px;font-size:12px;color:var(--muted)}
 
+    .stream-controls{padding-top:10px}
+
+    .stream-controls-header{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+      margin-bottom:10px;
+    }
+
+    .stream-controls-title{display:flex;flex-direction:column;gap:4px;min-width:0}
+    .stream-controls-title-text{font-weight:750;letter-spacing:.15px}
+
+    .stream-controls-body{display:flex;flex-direction:column;gap:10px}
+
+    .sc-divider{height:1px;background:rgba(34,48,70,.6)}
+
+    /* Flex-based "grid" (wraps naturally on smaller widths) */
+    .sc-grid{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start}
+    .sc-cell{flex:1 1 240px;min-width:240px;max-width:420px}
+    .sc-cell.sc-span-2{flex:2 1 520px;max-width:none}
+
+    .checkbox-group{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+
+    .checkbox-row{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      padding:6px 8px;
+      border:1px solid rgba(34,48,70,.45);
+      border-radius:10px;
+      background:rgba(12,18,27,.22);
+    }
+
+    .checkbox-row input{min-width:auto}
+    .checkbox-row label{cursor:pointer;color:var(--txt);font-size:13px}
+
     /* --- Searchable dropdown (language select) --- */
 
     .dropdown{position:relative;min-width:240px}

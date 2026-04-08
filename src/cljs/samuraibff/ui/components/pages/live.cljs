@@ -1,6 +1,7 @@
 (ns samuraibff.ui.components.pages.live
   "Live Recording page."
   (:require
+   [clojure.string :as str]
    [samuraibff.ui.api :as api]
    [samuraibff.ui.audio :as audio]
    [samuraibff.ui.components.shared :as shared]
@@ -131,112 +132,144 @@
   (let [controls (get (hooks/use-atom store/session*) :controls {})
         realtime? (true? (:realtime controls))
         refined? (true? (:refined controls))
-        final? (true? (:final controls))]
-    [:div {:class "controls"}
-     [:div {:class "controls-row"}
-      [:div {:class "field"}
-       [:div {:class "label"} "Transcription outputs"]
-       [:div {:style {:display "flex" :gap "12px" :flexWrap "wrap"}}
-        [:label {:class "muted" :style {:display "inline-flex" :gap "6px" :alignItems "center"}}
-         [:input {:type "checkbox"
-                  :checked (boolean realtime?)
-                  :on-change (fn [e]
-                               (store/set-session-control! :realtime (.. e -target -checked)))}]
-         "Realtime"]
-        [:label {:class "muted" :style {:display "inline-flex" :gap "6px" :alignItems "center"}}
-         [:input {:type "checkbox"
-                  :checked (boolean refined?)
-                  :on-change (fn [e]
-                               (store/set-session-control! :refined (.. e -target -checked)))}]
-         "Refined"]
-        [:label {:class "muted" :style {:display "inline-flex" :gap "6px" :alignItems "center"}}
-         [:input {:type "checkbox"
-                  :checked (boolean final?)
-                  :on-change (fn [e]
-                               (store/set-session-control! :final (.. e -target -checked)))}]
-         "Final"]]]
+        final? (true? (:final controls))
+        open?* (react/useState true)
+        open? (aget open?* 0)
+        set-open! (aget open?* 1)
+        outputs-summary (->> [(when realtime? "Real-time")
+                              (when refined? "Refined")
+                              (when final? "Final")]
+                             (remove nil?)
+                             (str/join ", "))
+        retention-summary (if (and final? (true? (:store_recording controls)))
+                            "Stored"
+                            "Not stored")]
+    (letfn [(checkbox-row [{:keys [id label checked disabled? on-change]}]
+              [:div {:class "checkbox-row"}
+               [:input {:id id
+                        :type "checkbox"
+                        :disabled (boolean disabled?)
+                        :checked (boolean checked)
+                        :on-change (fn [e]
+                                     (when (fn? on-change)
+                                       (on-change (.. e -target -checked))))}]
+               [:label {:htmlFor id} label]])
 
-      (when final?
-        [:div {:class "field"}
-         [:div {:class "label"} "Recording retention"]
-         [:select {:value (if (true? (:store_recording controls)) "store" "delete")
-                   :on-change (fn [e]
-                                (let [v (.. e -target -value)]
-                                  (store/set-session-control! :store_recording (= v "store"))))}
-          [:option {:value "store"} "Store recording"]
-          [:option {:value "delete"} "Delete after transcription"]]])
+            (number-field [{:keys [label disabled? value placeholder min max step on-change hint]}]
+              [:div {:class "field"}
+               [:div {:class "label"} label]
+               [:input (cond-> {:type "number"
+                                :disabled (boolean disabled?)
+                                :placeholder (or placeholder "")
+                                :value (or value "")
+                                :on-change (fn [e]
+                                             (let [raw (.. e -target -value)]
+                                               (when (fn? on-change)
+                                                 (on-change (when (seq raw) (js/parseFloat raw))))))}
+                         (some? min) (assoc :min min)
+                         (some? max) (assoc :max max)
+                         (some? step) (assoc :step step))]
+               (when (seq (str hint))
+                 [:div {:class "hint"} hint])])]
+      [:div {:class "controls stream-controls"}
+       [:div {:class "stream-controls-header"}
+        [:div {:class "stream-controls-title"}
+         [:div {:class "stream-controls-title-text"} "Stream settings"]
+         [:div {:class "muted" :style {:fontSize "12px"}}
+          (str "Outputs: " (if (seq outputs-summary) outputs-summary "None")
+               " • Recording: " retention-summary)]]
+        [:button {:class "btn ghost"
+                  :type "button"
+                  :aria-expanded (boolean open?)
+                  :on-click (fn [_] (set-open! (not open?)))}
+         (if open? "Hide" "Show")]]
 
-      (when refined?
-        [:div {:class "field"}
-         [:div {:class "label"} "Refinement window (sec)"]
-         [:input {:type "number"
-                  :min 10
-                  :max 600
-                  :step 1
-                  :placeholder "(default worker setting)"
-                  :value (or (:refinement_window_sec controls) "")
-                  :on-change (fn [e]
-                               (let [raw (.. e -target -value)]
-                                 (store/set-session-control!
-                                  :refinement_window_sec
-                                  (when (seq raw) (js/parseFloat raw)))))}]
-         [:div {:class "hint"} "If set, sent as Kafka header x-refinement-window-sec (worker must support)."]])]
+       (when open?
+         [:div {:class "stream-controls-body"}
+          [:div {:class "sc-grid"}
+           [:div {:class "sc-cell sc-span-2"}
+            [:div {:class "label"} "Transcription"]
+            [:div {:class "checkbox-group"}
+             [checkbox-row {:id "sc-out-realtime"
+                            :label "Real-time"
+                            :checked realtime?
+                            :on-change (fn [v] (store/set-session-control! :realtime v))}]
+             [checkbox-row {:id "sc-out-refined"
+                            :label "Refined"
+                            :checked refined?
+                            :on-change (fn [v] (store/set-session-control! :refined v))}]
+             [checkbox-row {:id "sc-out-final"
+                            :label "Final"
+                            :checked final?
+                            :on-change (fn [v] (store/set-session-control! :final v))}]]]
 
-     [:div {:class "controls-row"}
-      [:div {:class "field"}
-       [:div {:class "label"} "Realtime settings"]
-       [:label {:class "muted"
-                :style {:display "inline-flex" :gap "6px" :alignItems "center"}}
-        [:input {:type "checkbox"
-                 :disabled (not realtime?)
-                 :checked (boolean (:rt_partial_enable controls))
-                 :on-change (fn [e]
-                              (store/set-session-control! :rt_partial_enable (.. e -target -checked)))}]
-        "Emit partials"]]
+           [:div {:class "sc-cell"}
+            [:div {:class "field"}
+             [:div {:class "label"} "Recording"]
+             [:select {:value (if (true? (:store_recording controls)) "store" "delete")
+                       :disabled (not final?)
+                       :on-change (fn [e]
+                                    (let [v (.. e -target -value)]
+                                      (store/set-session-control! :store_recording (= v "store"))))}
+              [:option {:value "store"} "Store"]
+              [:option {:value "delete"} "Do not store"]]
+             (when-not final?
+               [:div {:class "hint"} "Enable Final to store the full recording."])]]
 
-      [:div {:class "field"}
-       [:div {:class "label"} "Emit every (sec)"]
-       [:input {:type "number"
-                :min 1
-                :step 0.1
-                :disabled (not realtime?)
-                :placeholder "(default)"
-                :value (or (:rt_emit_every_sec controls) "")
-                :on-change (fn [e]
-                             (let [raw (.. e -target -value)]
-                               (store/set-session-control!
-                                :rt_emit_every_sec
-                                (when (seq raw) (js/parseFloat raw)))))}]
-       [:div {:class "hint"} "Min 1s (perf safeguard)."]]
+           [:div {:class "sc-cell"}
+            [number-field {:label "Refinement window (sec)"
+                           :disabled? (not refined?)
+                           :min 10
+                           :max 600
+                           :step 1
+                           :placeholder "Default"
+                           :value (:refinement_window_sec controls)
+                           :on-change (fn [v] (store/set-session-control! :refinement_window_sec v))
+                           :hint (when-not refined?
+                                   "Enable Refined to adjust this setting.")}]]]
 
-      [:div {:class "field"}
-       [:div {:class "label"} "Window (sec)"]
-       [:input {:type "number"
-                :min 1
-                :max 30
-                :step 0.1
-                :disabled (not realtime?)
-                :placeholder "(default)"
-                :value (or (:rt_window_sec controls) "")
-                :on-change (fn [e]
-                             (let [raw (.. e -target -value)]
-                               (store/set-session-control!
-                                :rt_window_sec
-                                (when (seq raw) (js/parseFloat raw)))))}]]
+          [:div {:class "sc-divider"}]
 
-      [:div {:class "field"}
-       [:div {:class "label"} "Overlap (sec)"]
-       [:input {:type "number"
-                :min 0
-                :step 0.1
-                :disabled (not realtime?)
-                :placeholder "(default)"
-                :value (or (:rt_overlap_sec controls) "")
-                :on-change (fn [e]
-                             (let [raw (.. e -target -value)]
-                               (store/set-session-control!
-                                :rt_overlap_sec
-                                (when (seq raw) (js/parseFloat raw)))))}]]]]))
+          [:div {:class "sc-grid"}
+           [:div {:class "sc-cell"}
+            [:div {:class "label"} "Real-time"]
+            [:div {:class "checkbox-group"}
+             [checkbox-row {:id "sc-rt-partials"
+                            :label "Show partial text while speaking"
+                            :checked (true? (:rt_partial_enable controls))
+                            :disabled? (not realtime?)
+                            :on-change (fn [v] (store/set-session-control! :rt_partial_enable v))}]]
+            (when-not realtime?
+              [:div {:class "hint"} "Enable Real-time to adjust these settings."])]
+
+           [:div {:class "sc-cell"}
+            [number-field {:label "Update interval (sec)"
+                           :disabled? (not realtime?)
+                           :min 1
+                           :step 0.1
+                           :placeholder "Default"
+                           :value (:rt_emit_every_sec controls)
+                           :on-change (fn [v] (store/set-session-control! :rt_emit_every_sec v))
+                           :hint "Minimum 1 second."}]]
+
+           [:div {:class "sc-cell"}
+            [number-field {:label "Window (sec)"
+                           :disabled? (not realtime?)
+                           :min 1
+                           :max 30
+                           :step 0.1
+                           :placeholder "Default"
+                           :value (:rt_window_sec controls)
+                           :on-change (fn [v] (store/set-session-control! :rt_window_sec v))}]]
+
+           [:div {:class "sc-cell"}
+            [number-field {:label "Overlap (sec)"
+                           :disabled? (not realtime?)
+                           :min 0
+                           :step 0.1
+                           :placeholder "Default"
+                           :value (:rt_overlap_sec controls)
+                           :on-change (fn [v] (store/set-session-control! :rt_overlap_sec v))}]]]])])))
 
 (defn- log-view
   "Debug log view."
