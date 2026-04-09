@@ -17,6 +17,15 @@
       (is (= (transcript/refined-dedupe-key m1)
              (transcript/refined-dedupe-key m2))))))
 
+(deftest refined-dedupe-key-quantizes-to-centiseconds
+  (testing "Refined dedupe key quantizes timing to centiseconds to match UI rendering"
+    ;; UI shows centiseconds via util/fmt-sec (floored). We therefore de-dupe
+    ;; segments that are visually identical but differ in raw floating values.
+    (let [m1 (transcript/normalize-refined {:seq 1 :ts_ms 1 :start_s 29.071 :end_s 51.689 :text "hello" :speaker "SPEAKER_00" :lang "en"})
+          m2 (transcript/normalize-refined {:seq 2 :ts_ms 2 :start_s 29.079 :end_s 51.6899 :text "hello" :speaker "SPEAKER_00" :lang "en"})]
+      (is (= (transcript/refined-dedupe-key m1)
+             (transcript/refined-dedupe-key m2))))))
+
 (deftest upsert-asr-partial-replaces-last-partial
   (testing "Partial ASR updates replace the partial for the same window"
     (let [msgs []

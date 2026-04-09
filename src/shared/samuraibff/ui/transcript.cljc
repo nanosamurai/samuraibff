@@ -61,13 +61,21 @@
   - Speaker/lang are normalized so that nil/blank are treated as equivalent.
     (WS vs DB sources sometimes differ in representing missing values)."
   [msg]
-  (let [speaker (some-> (:speaker msg) str)
+  (let [quantize-cs (fn [sec]
+                      ;; Quantize to centiseconds (0.01s) to match UI rendering.
+                      ;; This prevents "visually identical" duplicates where WS vs DB
+                      ;; carry slightly different floating timestamps.
+                      (let [x (* 100.0 (+ (double (or sec 0.0)) 1.0e-9))]
+                        (long
+                          #?(:cljs (js/Math.floor x)
+                             :clj (Math/floor x)))))
+        speaker (some-> (:speaker msg) str)
         speaker (when-not (str/blank? speaker) speaker)
         lang (some-> (:lang msg) str)
         lang (when-not (str/blank? lang) lang)]
     ["refined"
-     (double (or (:start_s msg) 0.0))
-     (double (or (:end_s msg) 0.0))
+     (quantize-cs (:start_s msg))
+     (quantize-cs (:end_s msg))
      (-> (str (or (:text msg) "")) str/trim)
      speaker
      lang]))
