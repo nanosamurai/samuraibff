@@ -149,6 +149,8 @@ If you add/modify user-facing behavior, update **README.MD**.
     * Use `let` bindings with meaningful names; avoid “x/y/z” except in tight math code.
     * Never hide side effects: name side-effecting fns with verbs (`start!`, `stop!`, `persist!`, `publish!`, `send!`).
     * Keep logs structured and consistent (include `session-id`, `tenant-id`, `user-id` when applicable).
+    * DO NOT USE ";;" for comments in clojure. Nobody does that. If totally necessary use (comment ""), but you should be able to do just with fn level comments/descriptions and/or proper logging messages (do not be shy to add info level log messages for important points in business workflow etc.
+
 
 
 ### Use of replace_in_file
