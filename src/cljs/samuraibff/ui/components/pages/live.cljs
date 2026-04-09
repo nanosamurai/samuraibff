@@ -1,6 +1,7 @@
 (ns samuraibff.ui.components.pages.live
-  "Live Recording page." 
+  "Live Recording page."
   (:require
+   [clojure.string :as str]
    [samuraibff.ui.api :as api]
    [samuraibff.ui.audio :as audio]
    [samuraibff.ui.components.shared :as shared]
@@ -14,7 +15,7 @@
    ["react" :as react]))
 
 (defn- status-dot-class
-  "Translate websocket status keyword to CSS class name." 
+  "Translate websocket status keyword to CSS class name."
   [status]
   (case status
     :connected "dot ok"
@@ -24,7 +25,7 @@
 (defn ws-indicator
   "Render a small status widget for events/audio websockets.
 
-  Used in the right-side panel (debug)." 
+  Used in the right-side panel (debug)."
   []
   (let [ws-status (hooks/use-atom store/ws-status*)
         events-status (get-in ws-status [:events :status])
@@ -42,7 +43,7 @@
 (defn controls
   "Session controls (create session, set lang, start/stop).
 
-  This is the top strip of the Live Recording page." 
+  This is the top strip of the Live Recording page."
   []
   (let [{:keys [id lang]} (hooks/use-atom store/session*)
         running? (hooks/use-atom store/running?*)]
@@ -97,7 +98,7 @@
                                 (.catch (fn [_]
                                           ;; audio will log; ensure running resets
                                           (store/set-running! false)
-                                          (store/set-recording-status! id :ready))))) }
+                                          (store/set-recording-status! id :ready)))))}
        "Start"]
 
       [:button {:class "btn"
@@ -118,8 +119,160 @@
                 :on-click (fn [_] (store/clear-log!))}
        "Clear log"]]]))
 
+(defn- stream-controls-panel
+  "Render per-stream output + realtime/refined knobs.
+
+  This panel edits `store/session*` fields under `:controls`.
+
+  Notes:
+  - defaults are backwards compatible (all enabled)
+  - when realtime disabled, realtime knobs are visually disabled
+  - when final disabled, recording retention is forced off on the backend"
+  []
+  (let [controls (get (hooks/use-atom store/session*) :controls {})
+        realtime? (true? (:realtime controls))
+        refined? (true? (:refined controls))
+        final? (true? (:final controls))
+        open?* (react/useState true)
+        open? (aget open?* 0)
+        set-open! (aget open?* 1)
+        outputs-summary (->> [(when realtime? "Real-time")
+                              (when refined? "Refined")
+                              (when final? "Final")]
+                             (remove nil?)
+                             (str/join ", "))
+        retention-summary (if (and final? (true? (:store_recording controls)))
+                            "Stored"
+                            "Not stored")]
+    (letfn [(checkbox-row [{:keys [id label checked disabled? on-change]}]
+              [:div {:class "checkbox-row"}
+               [:input {:id id
+                        :type "checkbox"
+                        :disabled (boolean disabled?)
+                        :checked (boolean checked)
+                        :on-change (fn [e]
+                                     (when (fn? on-change)
+                                       (on-change (.. e -target -checked))))}]
+               [:label {:htmlFor id} label]])
+
+            (number-field [{:keys [label disabled? value placeholder min max step on-change hint]}]
+              [:div {:class "field"}
+               [:div {:class "label"} label]
+               [:input (cond-> {:type "number"
+                                :disabled (boolean disabled?)
+                                :placeholder (or placeholder "")
+                                :value (or value "")
+                                :on-change (fn [e]
+                                             (let [raw (.. e -target -value)]
+                                               (when (fn? on-change)
+                                                 (on-change (when (seq raw) (js/parseFloat raw))))))}
+                         (some? min) (assoc :min min)
+                         (some? max) (assoc :max max)
+                         (some? step) (assoc :step step))]
+               (when (seq (str hint))
+                 [:div {:class "hint"} hint])])]
+      [:div {:class "controls stream-controls"}
+       [:div {:class "stream-controls-header"}
+        [:div {:class "stream-controls-title"}
+         [:div {:class "stream-controls-title-text"} "Stream settings"]
+         [:div {:class "muted" :style {:fontSize "12px"}}
+          (str "Outputs: " (if (seq outputs-summary) outputs-summary "None")
+               " • Recording: " retention-summary)]]
+        [:button {:class "btn ghost"
+                  :type "button"
+                  :aria-expanded (boolean open?)
+                  :on-click (fn [_] (set-open! (not open?)))}
+         (if open? "Hide" "Show")]]
+
+       (when open?
+         [:div {:class "stream-controls-body"}
+          [:div {:class "sc-grid"}
+           [:div {:class "sc-cell sc-span-2"}
+            [:div {:class "label"} "Transcription"]
+            [:div {:class "checkbox-group"}
+             [checkbox-row {:id "sc-out-realtime"
+                            :label "Real-time"
+                            :checked realtime?
+                            :on-change (fn [v] (store/set-session-control! :realtime v))}]
+             [checkbox-row {:id "sc-out-refined"
+                            :label "Refined"
+                            :checked refined?
+                            :on-change (fn [v] (store/set-session-control! :refined v))}]
+             [checkbox-row {:id "sc-out-final"
+                            :label "Final"
+                            :checked final?
+                            :on-change (fn [v] (store/set-session-control! :final v))}]]]
+
+           [:div {:class "sc-cell"}
+            [:div {:class "field"}
+             [:div {:class "label"} "Recording"]
+             [:select {:value (if (true? (:store_recording controls)) "store" "delete")
+                       :disabled (not final?)
+                       :on-change (fn [e]
+                                    (let [v (.. e -target -value)]
+                                      (store/set-session-control! :store_recording (= v "store"))))}
+              [:option {:value "store"} "Store"]
+              [:option {:value "delete"} "Do not store"]]
+             (when-not final?
+               [:div {:class "hint"} "Enable Final to store the full recording."])]]
+
+           [:div {:class "sc-cell"}
+            [number-field {:label "Refinement window (sec)"
+                           :disabled? (not refined?)
+                           :min 10
+                           :max 600
+                           :step 1
+                           :placeholder "Default"
+                           :value (:refinement_window_sec controls)
+                           :on-change (fn [v] (store/set-session-control! :refinement_window_sec v))
+                           :hint (when-not refined?
+                                   "Enable Refined to adjust this setting.")}]]]
+
+          [:div {:class "sc-divider"}]
+
+          [:div {:class "sc-grid"}
+           [:div {:class "sc-cell"}
+            [:div {:class "label"} "Real-time"]
+            [:div {:class "checkbox-group"}
+             [checkbox-row {:id "sc-rt-partials"
+                            :label "Show partial text while speaking"
+                            :checked (true? (:rt_partial_enable controls))
+                            :disabled? (not realtime?)
+                            :on-change (fn [v] (store/set-session-control! :rt_partial_enable v))}]]
+            (when-not realtime?
+              [:div {:class "hint"} "Enable Real-time to adjust these settings."])]
+
+           [:div {:class "sc-cell"}
+            [number-field {:label "Update interval (sec)"
+                           :disabled? (not realtime?)
+                           :min 1
+                           :step 0.1
+                           :placeholder "Default"
+                           :value (:rt_emit_every_sec controls)
+                           :on-change (fn [v] (store/set-session-control! :rt_emit_every_sec v))
+                           :hint "Minimum 1 second."}]]
+
+           [:div {:class "sc-cell"}
+            [number-field {:label "Window (sec)"
+                           :disabled? (not realtime?)
+                           :min 1
+                           :max 30
+                           :step 0.1
+                           :placeholder "Default"
+                           :value (:rt_window_sec controls)
+                           :on-change (fn [v] (store/set-session-control! :rt_window_sec v))}]]
+
+           [:div {:class "sc-cell"}
+            [number-field {:label "Overlap (sec)"
+                           :disabled? (not realtime?)
+                           :min 0
+                           :step 0.1
+                           :placeholder "Default"
+                           :value (:rt_overlap_sec controls)
+                           :on-change (fn [v] (store/set-session-control! :rt_overlap_sec v))}]]]])])))
+
 (defn- log-view
-  "Debug log view." 
+  "Debug log view."
   []
   (let [lines (->> (hooks/use-atom store/log*)
                    (take-last 160))]
@@ -132,7 +285,7 @@
 (defn right-panel
   "Right-side panel for Live Recording.
 
-  Contains tabs (for now: Log only)." 
+  Contains tabs (for now: Log only)."
   []
   (let [active :log
         debug-asr? (hooks/use-atom store/debug-asr-log?*)]
@@ -155,7 +308,7 @@
       [log-view]]]))
 
 (defn- live-transcript
-  "Transcript component bound to the live session store." 
+  "Transcript component bound to the live session store."
   []
   [components.transcript/transcript-view
    {:messages (hooks/use-atom store/asr-segments*)
@@ -163,7 +316,7 @@
     :empty-hint "No ASR events yet…"}])
 
 (defn- refined-live-transcript
-  "Refined realtime transcript component bound to the live session store." 
+  "Refined realtime transcript component bound to the live session store."
   []
   [components.transcript/transcript-view
    {:messages (hooks/use-atom store/refined-segments*)
@@ -171,7 +324,7 @@
     :empty-hint "No refined events yet…"}])
 
 (defn live-recording-page
-  "Live Recording page." 
+  "Live Recording page."
   []
   (let [tab* (react/useState :realtime)
         tab (aget tab* 0)
@@ -187,6 +340,8 @@
         "Recordings"]]]
 
      [controls]
+
+     [stream-controls-panel]
 
      [:div {:class "tabs"}
       [:button {:class (str "tab " (when (= tab :realtime) "active"))

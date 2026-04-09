@@ -35,6 +35,8 @@ CREATE TABLE sessions (
     -- Set to the timestamp when audio recording begins (first successful /ws/audio connect).
     started_at     timestamptz,
     ended_at       timestamptz,           -- set when finalized
+    -- Stream controls snapshot (outputs + retention + realtime knobs)
+    stream_controls jsonb,
     created_at     timestamptz NOT NULL DEFAULT now()
 );
 

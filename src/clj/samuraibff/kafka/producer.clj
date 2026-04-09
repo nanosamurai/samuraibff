@@ -4,38 +4,30 @@
   This namespace currently focuses on publishing raw audio frames as
   `samuraibff.proto.AudioChunk` into Kafka topic `audio.raw`.
 
-  The producer is used by the websocket ingestion pipeline:
-  - browser -> /ws/audio (binary PCM16)
-  - BFF builds an AudioChunk protobuf per frame
-  - BFF publishes the message to Kafka (keyed by session_id)
-
   Integrant key:
   - `:samuraibff/kafka-producer`
 
-  Config (under `:kafka` in the global config map):
-  - :bootstrap-servers  string (host:port)
-  - :client-id          string
-  - :acks               string (e.g. all)
-  - :compression-type   string (e.g. zstd)
-  - :topics {:audio-raw string}
-
   Public API:
-  - `send-audio-chunk!`"
+  - `send-audio-chunk!`
+
+  Security / safety:
+  - values are sent as byte[] and keys must be strings
+  - trace context is propagated via `traceparent` Kafka header"
   (:require
-    [integrant.core :as ig]
-    [org.corfield.logging4j2 :as log]
-    [samuraibff.otel.kafka :as otel.kafka]
-    [samuraibff.session-trace :as session-trace])
+   [integrant.core :as ig]
+   [org.corfield.logging4j2 :as log]
+   [samuraibff.otel.kafka :as otel.kafka]
+   [samuraibff.session-trace :as session-trace])
   (:import
-    (java.util Properties)
-    (org.apache.kafka.clients.producer KafkaProducer ProducerRecord)
-    (samuraibff.proto AudioChunk)))
+   (java.util Properties)
+   (org.apache.kafka.clients.producer Callback KafkaProducer ProducerRecord)
+   (samuraibff.proto AudioChunk)))
 
 (defn- props
   "Build Java Properties for KafkaProducer.
 
   Inputs:
-  - kafka-config: map with keys described in namespace docstring
+  - kafka-config: map (typically config under :kafka)
 
   Returns: java.util.Properties"
   [kafka-config]
@@ -44,13 +36,7 @@
     (.put "client.id" (or (:client-id kafka-config) "samuraibff"))
     (.put "acks" (or (:acks kafka-config) "all"))
     (.put "compression.type" (or (:compression-type kafka-config) "zstd"))
-
-    ;; TLS / security
-    ;; Expected values: PLAINTEXT|SSL|SASL_SSL (etc.)
-    ;; For MSK TLS-only (port 9094), set to "SSL".
     (.put "security.protocol" (or (:security-protocol kafka-config) "PLAINTEXT"))
-
-    ;; We publish (string key, bytes value)
     (.put "key.serializer" "org.apache.kafka.common.serialization.StringSerializer")
     (.put "value.serializer" "org.apache.kafka.common.serialization.ByteArraySerializer")))
 
@@ -62,23 +48,16 @@
   - session-id: string
   - chunk: protobuf AudioChunk
   - opts: map with optional keys:
-      - :tenant-id string (added as Kafka header `tenant_id`)
+      - :tenant-id string (Kafka header `tenant_id`)
+      - :headers map of {header-name string -> header-value bytes}
 
-  Observability (local dev):
-  - We derive a deterministic W3C `traceparent` from session-id and attach it
-    as a Kafka header.
-  - We also bind the same context as current (`with-session-trace`) so any
-    spans created by the OTEL Java agent (and downstream consumers) line up
-    under a single session trace.
-
-  Behavior:
-  - sends asynchronously (does not block for ack)
-  - logs a warning on callback error
-
-  Returns: nil." 
+  Returns: nil."
   ([producer session-id chunk]
    (send-audio-chunk! producer session-id chunk {}))
-  ([{:keys [^KafkaProducer producer topic-audio-raw]} session-id ^AudioChunk chunk {:keys [tenant-id]}]
+  ([{:keys [^KafkaProducer producer topic-audio-raw]}
+    session-id
+    ^AudioChunk chunk
+    {:keys [tenant-id headers]}]
    (when (and producer topic-audio-raw)
      (session-trace/with-session-trace session-id
        (let [span (otel.kafka/start-audio-raw-produce-span!)
@@ -90,20 +69,20 @@
            (.add hdrs "tenant_id" (.getBytes (str tenant-id) "UTF-8")))
          (when tp
            (.add hdrs "traceparent" (.getBytes ^String tp "UTF-8")))
+         (doseq [[k v] (or headers {})]
+           (when (and (string? k) (bytes? v))
+             (.add hdrs k ^bytes v)))
          (try
            (.send
-             producer
-             record
-             (reify org.apache.kafka.clients.producer.Callback
-               (onCompletion [_ metadata exception]
-                 (otel.kafka/end-produce-span! span metadata exception)
-                 (when exception
-                   (log/warn exception "Kafka send failed" {:topic topic-audio-raw
-                                                            :session-id session-id
-                                                            :partition (when metadata (.partition metadata))
-                                                            :offset (when metadata (.offset metadata))})))))
+            producer
+            record
+            (reify Callback
+              (onCompletion [_ metadata exception]
+                (otel.kafka/end-produce-span! span metadata exception)
+                (when exception
+                  (log/warn exception "Kafka send failed" {:topic topic-audio-raw
+                                                           :session-id session-id})))))
            (catch Exception e
-             ;; if send itself throws (rare), end span best-effort
              (otel.kafka/end-produce-span! span nil e)
              (throw e))
            (finally
@@ -122,9 +101,6 @@
        :topic-audio-raw topic-audio-raw
        :config config}
       (catch Exception e
-        ;; HA behavior: treat Kafka as optional at process startup.
-        ;; If Kafka is down, we still want the HTTP/WS server to come up.
-        ;; Readiness should report Kafka unavailable.
         (log/error e "Kafka producer failed to start; continuing without Kafka" {:bootstrap-servers (:bootstrap-servers kafka-cfg)})
         {:producer nil
          :topic-audio-raw topic-audio-raw

@@ -381,6 +381,8 @@ Two endpoints power the Recordings UI and are also part of the customer-facing A
 
 - `GET /api/recordings/{session_id}`
   - returns session metadata and stored transcript records
+  - includes `stream_controls` (when present)
+    - snapshot of `/ws/audio` stream control parameters used when audio started
   - transcript records contain:
     - `segments`: **JSON array** of `{start_s,end_s,text,speaker?,lang?,words?}` (not a JSON string)
       - `words` (optional): array of `{start_s,end_s,text}` for word-level timing (karaoke)
@@ -628,14 +630,46 @@ Under **768px** width:
 - `lang` is an ISO-639-1 language code (e.g. `en`, `cs`, `de`, ...)
 - empty string means **auto-detect** (recommended if you don't know the language)
 
-Optional per-session rtservice overrides (passed as gRPC metadata headers):
-- `rt_window_sec` / `window_sec`
-- `rt_overlap_sec` / `overlap_sec`
-- `rt_emit_every_sec` / `emit_every_sec`
+### `/ws/audio` query parameters (stream controls)
 
-Example:
+`/ws/audio` accepts additional per-session controls via query params.
+These are used by the UI and are intended for SDKs as well.
 
-`/ws/audio?session_id=<uuid>&lang=en&sample_rate=16000&rt_window_sec=5.0&rt_overlap_sec=0.5&rt_emit_every_sec=0.7`
+Required:
+- `session_id` – session UUID
+
+Optional:
+- `lang` – ISO-639-1 language code; empty means auto
+- `sample_rate` – integer; defaults to `16000`
+
+Output selection (all default to `true` when omitted):
+- `realtime=true|false` – whether to run rtservice realtime ASR (gRPC)
+- `refined=true|false` – whether to publish audio to the refined pipeline (Kafka)
+- `final=true|false` – whether to produce final transcript artifacts (pipeline)
+
+Recording retention:
+- `store_recording=true|false` – whether the recording should be retained for playback.
+  Notes:
+  - This only applies when `final=true`.
+  - When `final=false`, the backend forces retention off.
+
+Refinement tuning:
+- `refinement_window_sec=<double>` – optional refinement window size.
+  The backend clamps it to **[10, 600]** seconds.
+
+Realtime tuning (rtservice overrides):
+- `rt_partial_enable=true|false` – whether rtservice should emit partial hypotheses.
+- `rt_window_sec=<double>` (alias: `window_sec`)
+- `rt_overlap_sec=<double>` (alias: `overlap_sec`)
+- `rt_emit_every_sec=<double>` (alias: `emit_every_sec`) – backend enforces a minimum of **1s**.
+
+Semantics:
+- If `realtime=false`, the BFF does not start the gRPC realtime stream.
+- If `refined=false` and `final=false`, the BFF does not publish audio to Kafka.
+
+Example (tune realtime only):
+
+`/ws/audio?session_id=<uuid>&lang=en&sample_rate=16000&rt_window_sec=5.0&rt_overlap_sec=0.5&rt_emit_every_sec=1.0`
 
 Notes:
 - The compiled JS bundle is large (shadow-cljs dev output). Avoid printing it to the terminal.

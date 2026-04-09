@@ -9,10 +9,10 @@
    - :seq is monotonic per session (assigned by BFF)
    - Times in segments are seconds (double) unless explicitly *_ms"
   (:require
-    [malli.core :as m]
-    [malli.error :as me]
-    [malli.util :as mu]
-    [malli.transform :as mt]))
+   [malli.core :as m]
+   [malli.error :as me]
+   [malli.util :as mu]
+   [malli.transform :as mt]))
 
 ;; ---------------------------------------------------------------------
 ;; Common primitives
@@ -83,15 +83,15 @@
   "Realtime ASR event from BFF to UI.
    - :final indicates whether this is FINAL vs PARTIAL (realtime)."
   (mu/merge
-    BaseWsEvent
-    [:map
-     [:type [:= "asr"]]
-     [:start_s Sec]
-     [:end_s Sec]
-     [:text :string]
-     [:lang {:optional true} LangCode]
-     [:speaker {:optional true} SpeakerLabel]
-     [:final :boolean]]))
+   BaseWsEvent
+   [:map
+    [:type [:= "asr"]]
+    [:start_s Sec]
+    [:end_s Sec]
+    [:text :string]
+    [:lang {:optional true} LangCode]
+    [:speaker {:optional true} SpeakerLabel]
+    [:final :boolean]]))
 
 (def RefinedEvent
   "Refined transcript event from BFF to UI.
@@ -99,36 +99,36 @@
    - semantics: refined updates replace overlapping live window.
 
    Note: `:supersedes_seq` is optional and may be present when workers link
-   refined segments to realtime seq numbers." 
+   refined segments to realtime seq numbers."
   (mu/merge
-    BaseWsEvent
-    [:map
-     [:type [:= "refined"]]
-     [:start_s Sec]
-     [:end_s Sec]
-     [:text :string]
-     [:lang {:optional true} LangCode]
-     [:speaker {:optional true} SpeakerLabel]
-     [:supersedes_seq {:optional true} [:sequential NonNegInt]]]))
+   BaseWsEvent
+   [:map
+    [:type [:= "refined"]]
+    [:start_s Sec]
+    [:end_s Sec]
+    [:text :string]
+    [:lang {:optional true} LangCode]
+    [:speaker {:optional true} SpeakerLabel]
+    [:supersedes_seq {:optional true} [:sequential NonNegInt]]]))
 
 (def StatusEvent
   "Status event for UI debug and lifecycle."
   (mu/merge
-    BaseWsEvent
-    [:map
-     [:type [:= "status"]]
-     [:status [:enum "connected" "started" "paused" "resumed" "stopped"]]
-     [:detail {:optional true} :string]]))
+   BaseWsEvent
+   [:map
+    [:type [:= "status"]]
+    [:status [:enum "connected" "started" "paused" "resumed" "stopped"]]
+    [:detail {:optional true} :string]]))
 
 (def ErrorEvent
   "Error event for UI debugging."
   (mu/merge
-    BaseWsEvent
-    [:map
-     [:type [:= "error"]]
-     [:message :string]
-     [:code {:optional true} :int]
-     [:detail {:optional true} :any]]))
+   BaseWsEvent
+   [:map
+    [:type [:= "error"]]
+    [:message :string]
+    [:code {:optional true} :int]
+    [:detail {:optional true} :any]]))
 
 (def WsEvent
   "Union of all possible WS events."
@@ -146,7 +146,7 @@
   "Generic ok response body.
 
   Shape:
-  - {:ok true}" 
+  - {:ok true}"
   [:map
    [:ok [:= true]]])
 
@@ -158,7 +158,7 @@
 
   Notes:
   - `message` is intended to be a stable, machine-readable error identifier.
-  - Additional keys may be present on some endpoints." 
+  - Additional keys may be present on some endpoints."
   [:map
    [:ok [:= false]]
    [:message :string]])
@@ -167,7 +167,7 @@
   "Response body for GET /health.
 
   Shape:
-  - {:status \"ok\" :timestamp <inst> :version <string>}" 
+  - {:status \"ok\" :timestamp <inst> :version <string>}"
   [:map
    [:status [:enum "ok"]]
    [:timestamp inst?]
@@ -178,7 +178,7 @@
 
   Readiness is intended for load balancers / Kubernetes readiness probes.
   Unlike liveness (/health), readiness may return a non-200 when a required
-  dependency (e.g. Postgres) is unavailable." 
+  dependency (e.g. Postgres) is unavailable."
   [:map
    [:status [:enum "ok" "degraded"]]
    [:timestamp inst?]
@@ -219,7 +219,7 @@
   - authenticated=true and user info is present.
 
   When unauthenticated (only possible when auth is not required by config):
-  - authenticated=false and no user/tenant_id is present." 
+  - authenticated=false and no user/tenant_id is present."
   [:map
    [:ok :boolean]
    [:authenticated :boolean]
@@ -238,7 +238,7 @@
   Notes:
   - Timestamp fields are nullable, depending on whether a session was started/ended.
   - `recording` contains best-effort metadata from the latest recording.
-  - The API intentionally does NOT expose internal recording URLs (file://, s3://...)." 
+  - The API intentionally does NOT expose internal recording URLs (file://, s3://...)."
   [:map
    [:session_id Uuid]
    [:session_key [:maybe :string]]
@@ -257,14 +257,14 @@
      [:lang [:maybe :string]]]]])
 
 (def RecordingsListResponse
-  "Response body for GET /api/recordings." 
+  "Response body for GET /api/recordings."
   [:map
    [:ok :boolean]
    [:tenant_id Uuid]
    [:items [:sequential RecordingItem]]])
 
 (def RecordingDetailSession
-  "Session metadata returned by `GET /api/recordings/{session_id}`." 
+  "Session metadata returned by `GET /api/recordings/{session_id}`."
   [:map
    [:id Uuid]
    [:session_key [:maybe :string]]
@@ -273,6 +273,9 @@
    [:started_at [:maybe :string]]
    [:ended_at [:maybe :string]]
    [:created_at [:maybe :string]]
+   ;; Stream controls snapshot (outputs + retention + realtime knobs).
+   ;; Stored as JSONB on sessions and returned as a JSON object.
+   [:stream_controls {:optional true} [:maybe :map]]
    ;; Flags for UI convenience (used for audio playback gating).
    [:has_recording :boolean]
    [:has_final_transcript :boolean]])
@@ -282,7 +285,7 @@
 
   Notes:
   - `segments` is returned as a JSON array of segment objects (not a JSON string).
-  - Only a whitelisted subset of DB fields is exposed (no tenant_id/user_id/etc.)." 
+  - Only a whitelisted subset of DB fields is exposed (no tenant_id/user_id/etc.)."
   [:map
    [:id Uuid]
    [:type [:enum "refined" "final"]]
@@ -310,7 +313,7 @@
    [:segments [:sequential TranscriptSegment]]])
 
 (def RecordingDetailResponse
-  "Response body for GET /api/recordings/{session_id}." 
+  "Response body for GET /api/recordings/{session_id}."
   [:map
    [:ok :boolean]
    [:tenant_id Uuid]
@@ -321,7 +324,7 @@
      [:final [:sequential TranscriptRecord]]]]])
 
 (def DeleteRecordingResponse
-  "Response body for DELETE /api/recordings/{session_id}." 
+  "Response body for DELETE /api/recordings/{session_id}."
   [:map
    [:ok :boolean]
    [:deleted {:optional true} :boolean]
@@ -339,7 +342,7 @@
    [:title {:optional true} [:maybe :string]]])
 
 (def UpdateSessionTitleResponse
-  "Response body for PATCH /api/sessions/{session_id}." 
+  "Response body for PATCH /api/sessions/{session_id}."
   [:map
    [:ok :boolean]
    [:session_id Uuid]
@@ -347,7 +350,7 @@
    [:message {:optional true} :string]])
 
 (def ApiCredentialsListResponse
-  "Response body for GET /api/api-credentials." 
+  "Response body for GET /api/api-credentials."
   [:map
    [:ok :boolean]
    [:tenant_id Uuid]
@@ -364,14 +367,14 @@
       [:revoked_at [:maybe :string]]]]]])
 
 (def CreateApiCredentialRequest
-  "Request body for POST /api/api-credentials." 
+  "Request body for POST /api/api-credentials."
   [:map
    [:name [:and :string [:fn (fn [s] (<= 1 (count s) 200))]]]])
 
 (def CreateApiCredentialResponse
   "Response body for POST /api/api-credentials.
 
-  The client_secret is returned only at creation/rotation time." 
+  The client_secret is returned only at creation/rotation time."
   [:map
    [:ok :boolean]
    [:credential_id Uuid]
@@ -381,7 +384,7 @@
 (def RotateApiCredentialResponse
   "Response body for POST /api/api-credentials/{id}/rotate.
 
-  The new client_secret is returned only once." 
+  The new client_secret is returned only once."
   [:map
    [:ok :boolean]
    [:credential_id Uuid]
@@ -389,7 +392,7 @@
    [:client_secret :string]])
 
 (def SpeakersListResponse
-  "Response body for GET /api/speakers." 
+  "Response body for GET /api/speakers."
   [:map
    [:ok :boolean]
    [:items
@@ -403,7 +406,7 @@
       [:created_at [:maybe :string]]]]]])
 
 (def CreateSpeakerResponse
-  "Response body for POST /api/speakers." 
+  "Response body for POST /api/speakers."
   [:map
    [:ok :boolean]
    [:speaker_id Uuid]
@@ -413,7 +416,7 @@
    [:manifest_url :string]])
 
 (def DeleteSpeakerResponse
-  "Response body for DELETE /api/speakers/{speaker_id}." 
+  "Response body for DELETE /api/speakers/{speaker_id}."
   [:map
    [:ok :boolean]
    [:speaker_id Uuid]])
@@ -494,8 +497,8 @@
 (def json-transformer
   "Transformer for common JSON coercions (strings->numbers etc.)."
   (mt/transformer
-    mt/string-transformer
-    mt/json-transformer))
+   mt/string-transformer
+   mt/json-transformer))
 
 (defn decode-and-validate!
   "Coerce + validate (useful for HTTP handlers).
