@@ -57,14 +57,20 @@
 
   Notes:
   - We trim text to avoid duplicates caused by whitespace differences.
-  - We include speaker/lang so diarization changes don't collapse bubbles." 
+  - We include speaker/lang so diarization changes don't collapse bubbles.
+  - Speaker/lang are normalized so that nil/blank are treated as equivalent.
+    (WS vs DB sources sometimes differ in representing missing values)."
   [msg]
-  ["refined"
-   (double (or (:start_s msg) 0.0))
-   (double (or (:end_s msg) 0.0))
-   (-> (str (or (:text msg) "")) str/trim)
-   (some-> (:speaker msg) str)
-   (some-> (:lang msg) str)])
+  (let [speaker (some-> (:speaker msg) str)
+        speaker (when-not (str/blank? speaker) speaker)
+        lang (some-> (:lang msg) str)
+        lang (when-not (str/blank? lang) lang)]
+    ["refined"
+     (double (or (:start_s msg) 0.0))
+     (double (or (:end_s msg) 0.0))
+     (-> (str (or (:text msg) "")) str/trim)
+     speaker
+     lang]))
 
 (defn normalize-asr
   "Normalize an incoming WS `asr` event map into a transcript message.
