@@ -7,6 +7,7 @@
    [clojure.string :as str]
    [samuraibff.ui.api :as api]
    [samuraibff.ui.components.transcript :as components.transcript]
+   [samuraibff.ui.recording-detail :as recording-detail]
    [samuraibff.ui.router :as router]
    [samuraibff.ui.store :as store]
    [samuraibff.ui.transcript :as transcript]
@@ -94,17 +95,8 @@
      (when (seq (str error))
        [:div {:class "badge bad"} (str error)])]))
 
-(defn- refined-events->messages
-  "Convert refined events (with start/end/text) into transcript messages.
-
-  Inputs:
-  - events: vector of refined event maps
-
-  Returns: vector of transcript messages."
-  [events]
-  (->> (or events [])
-       (mapv transcript/normalize-refined)
-       transcript/sort-messages))
+;; NOTE: refined event conversion helpers live in shared CLJC namespace
+;; `samuraibff.ui.recording-detail` so we can unit-test them from CLJ.
 
 (defn- dedupe-by
   "De-dupe a sequence by key function, preserving the first seen item.
@@ -200,32 +192,7 @@
        [:div {:class "muted"}
         "Audio playback not available (no recording or no final transcript)."])]))
 
-(defn- db-refined-records->events
-  "Convert DB refined transcript records into refined events.
-
-  We assign a stable unique :seq per segment (DB record may contain multiple segments).
-
-  Inputs:
-  - records: vector of DB refined transcript records
-
-  Returns: vector of events."
-  [records]
-  (reduce
-   (fn [events r]
-     (let [segments (vec (or (:segments r) []))]
-       (reduce
-        (fn [events [idx seg]]
-          (conj events {:seq (+ (long (or (:event_created_at_ns r) 0)) (long idx))
-                        :ts_ms 0
-                        :start_s (:start_s seg)
-                        :end_s (:end_s seg)
-                        :text (:text seg)
-                        :speaker (:speaker seg)
-                        :lang (:lang seg)}))
-        events
-        (map-indexed vector segments))))
-   []
-   (vec (or records []))))
+;; NOTE: moved to `samuraibff.ui.recording-detail/db-refined-records->events`.
 
 (defn recording-detail-page
   "Recording detail page.
@@ -275,7 +242,7 @@
 
         db-refined (get-in detail [:transcripts :refined])
         db-final (get-in detail [:transcripts :final])
-        refined-events (db-refined-records->events db-refined)
+        refined-events (recording-detail/db-refined-records->events db-refined)
 
         current-title (get-in detail [:session :title])
         title-display (let [t (str/trim (str (or current-title "")))]
@@ -296,7 +263,7 @@
     ;; - refined realtime (DB refined records + cached refined WS items if available)
     ;; - final transcript (DB)
     (let [realtime-msgs (transcript/sort-messages (vec (or cached-asr [])))
-          refined-msgs (->> (concat (refined-events->messages refined-events)
+          refined-msgs (->> (concat (recording-detail/refined-events->messages refined-events)
                                     (vec (or cached-refined [])))
                             ;; De-dupe refined segments by stable content/time key.
                             ;; :seq is not stable across DB vs WS.
