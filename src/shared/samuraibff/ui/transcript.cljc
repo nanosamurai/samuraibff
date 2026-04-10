@@ -57,14 +57,28 @@
 
   Notes:
   - We trim text to avoid duplicates caused by whitespace differences.
-  - We include speaker/lang so diarization changes don't collapse bubbles." 
+  - We include speaker/lang so diarization changes don't collapse bubbles.
+  - Speaker/lang are normalized so that nil/blank are treated as equivalent.
+    (WS vs DB sources sometimes differ in representing missing values)."
   [msg]
-  ["refined"
-   (double (or (:start_s msg) 0.0))
-   (double (or (:end_s msg) 0.0))
-   (-> (str (or (:text msg) "")) str/trim)
-   (some-> (:speaker msg) str)
-   (some-> (:lang msg) str)])
+  (let [quantize-cs (fn [sec]
+                      ;; Quantize to centiseconds (0.01s) to match UI rendering.
+                      ;; This prevents "visually identical" duplicates where WS vs DB
+                      ;; carry slightly different floating timestamps.
+                      (let [x (* 100.0 (+ (double (or sec 0.0)) 1.0e-9))]
+                        (long
+                          #?(:cljs (js/Math.floor x)
+                             :clj (Math/floor x)))))
+        speaker (some-> (:speaker msg) str)
+        speaker (when-not (str/blank? speaker) speaker)
+        lang (some-> (:lang msg) str)
+        lang (when-not (str/blank? lang) lang)]
+    ["refined"
+     (quantize-cs (:start_s msg))
+     (quantize-cs (:end_s msg))
+     (-> (str (or (:text msg) "")) str/trim)
+     speaker
+     lang]))
 
 (defn normalize-asr
   "Normalize an incoming WS `asr` event map into a transcript message.

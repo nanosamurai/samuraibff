@@ -76,6 +76,16 @@ In practice, ASR and refined timestamps can come from different sources.
 - ASR events are **rebased in the UI** to make the timeline start at `00:00.xx` when you hit **Start**.
 - Refined events are currently **NOT rebased** (they are displayed using the raw `start_s/end_s`).
 
+When opening a recent live session under **Recordings**, the UI may show refined
+segments coming from two sources:
+- cached WS refined events from the live session, and
+- refined records fetched from the DB.
+
+To avoid duplicate bubbles, the UI de-duplicates refined segments using a stable
+key based on text + timing at the **centisecond (0.01s) resolution** (matching
+what the UI renders). Missing `speaker/lang` values are normalized so that `nil`
+and blank are treated as equivalent.
+
 The UI shows `start → end` in the message header to make it easier to debug window alignment.
 
 If you see refined segments with `00:00.00 → 00:00.00`, check backend logs: protobuf3 defaults missing doubles to `0.0`, which usually means the worker didn’t populate `start_s/end_s`.
