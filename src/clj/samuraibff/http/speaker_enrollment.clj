@@ -190,7 +190,7 @@
               session-uuid (UUID/fromString (str (:session_id coerced)))
               recording (db.recordings/find-latest-recording ds tenant-id session-uuid)
               recording-url (some-> (:recording_url recording) str)
-              max-d (double default-max-duration-s)
+              max-d default-max-duration-s
               clip-opts {:start_s (:start_s coerced)
                          :end_s (:end_s coerced)
                          :max_duration_s max-d}

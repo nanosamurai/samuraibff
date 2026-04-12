@@ -42,7 +42,6 @@
    [reitit.ring.middleware.parameters :as parameters]
    [ring.middleware.multipart-params :refer [wrap-multipart-params]]
    [ring.middleware.content-type :refer [wrap-content-type]]
-   [ring.middleware.not-modified :refer [wrap-not-modified]]
    [ring.middleware.resource :refer [wrap-resource]]
    [ring.middleware.cookies :refer [wrap-cookies]]
    [ring.util.response :as resp]))
@@ -53,8 +52,9 @@
 
 ;; --- Routes ---
 
-(defn- healthcheck-route []
+(defn- healthcheck-route
   "Create the health check route definition."
+  []
   ["/health"
    {:get {:summary "Health check"
           :description "Returns health status of the application"
