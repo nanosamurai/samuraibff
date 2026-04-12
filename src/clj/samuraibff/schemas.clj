@@ -415,6 +415,43 @@
    [:sample_url :string]
    [:manifest_url :string]])
 
+(def CreateSpeakerFromRecordingRequest
+  "Request body for POST /api/speakers/from-recording.
+
+  Shape:
+  - {:session_id <uuid>
+     :start_s <double>
+     :end_s <double>
+     :label <string>}"
+  [:map
+   [:session_id Uuid]
+   [:start_s Sec]
+   [:end_s Sec]
+   [:label NonEmptyString]])
+
+(def SpeakerEnrollmentClipInfo
+  "Clip window information returned by speaker enrollment from a recording.
+
+  Shape:
+  - {:session_id <uuid>
+     :start_s <double>
+     :end_s <double>
+     :max_duration_s <double>
+     :truncated? <boolean>}"
+  [:map
+   [:session_id Uuid]
+   [:start_s Sec]
+   [:end_s Sec]
+   [:max_duration_s Sec]
+   [:truncated? :boolean]])
+
+(def CreateSpeakerFromRecordingResponse
+  "Response body for POST /api/speakers/from-recording." 
+  (mu/merge
+   CreateSpeakerResponse
+   [:map
+    [:clip SpeakerEnrollmentClipInfo]]))
+
 (def DeleteSpeakerResponse
   "Response body for DELETE /api/speakers/{speaker_id}."
   [:map
