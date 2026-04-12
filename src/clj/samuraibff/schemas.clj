@@ -416,7 +416,7 @@
    [:manifest_url :string]])
 
 (def CreateSpeakerFromRecordingRequest
-  "Request body for POST /api/speakers/from-recording.
+  "Request body for POST /api/speaker-enrollment/from-recording.
 
   Shape:
   - {:session_id <uuid>
@@ -446,7 +446,7 @@
    [:truncated? :boolean]])
 
 (def CreateSpeakerFromRecordingResponse
-  "Response body for POST /api/speakers/from-recording." 
+  "Response body for POST /api/speaker-enrollment/from-recording."
   (mu/merge
    CreateSpeakerResponse
    [:map

@@ -283,6 +283,23 @@ in S3 and persisted in Postgres.
   - `sample` (WAV file)
 - `DELETE /api/speakers/:speaker_id` – delete speaker (S3 + DB)
 
+### Enrollment from recordings (preferred UX)
+
+Since we now have **recordings + playback**, you typically don’t need to manually upload a WAV file.
+
+Instead, the UI lets you enroll a speaker directly from a diarized **final transcript bubble**:
+
+1. Open a recording under `/recordings/:session_id`
+2. Go to **Final transcript** tab
+3. Hover a transcript bubble and click the **＋** action
+4. Enter the speaker name and click **Enroll**
+
+Backend endpoint:
+
+- `POST /api/speaker-enrollment/from-recording`
+  - body: `{ "session_id": "...", "start_s": 12.34, "end_s": 18.90, "label": "Dr Novak" }`
+  - server clamps the clip duration to a safe maximum (currently **10s**)
+
 ### S3 layout (enrollments)
 
 ```

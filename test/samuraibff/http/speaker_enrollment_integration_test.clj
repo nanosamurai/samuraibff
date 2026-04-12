@@ -3,7 +3,7 @@
   "Integration tests for enrolling speakers from a stored recording.
 
   Covered endpoint:
-  - POST /api/speakers/from-recording
+  - POST /api/speaker-enrollment/from-recording
 
   The test uses LocalStack (S3) + Postgres testcontainers and calls the handler directly." 
   (:require
@@ -94,7 +94,7 @@
     (.array bb)))
 
 (deftest enroll-speaker-from-recording-s3-integration-test
-  (testing "POST /api/speakers/from-recording clips WAV from S3 and stores enrolled speaker"
+  (testing "POST /api/speaker-enrollment/from-recording clips WAV from S3 and stores enrolled speaker"
     (tc.localstack/with-localstack [localstack]
       (tc.pg/with-postgres [pg]
         (let [jdbc-url (tc.pg/jdbc-url pg)
@@ -124,7 +124,7 @@
               handler (http.speaker-enrollment/create-speaker-from-recording-handler deps)
 
               ;; Intentionally request a longer window; server should clamp to 10 seconds.
-              req (-> (mock/request :post "/api/speakers/from-recording")
+              req (-> (mock/request :post "/api/speaker-enrollment/from-recording")
                       (assoc :body-params {:session_id (str session-id)
                                            :start_s 0.0
                                            :end_s 30.0

@@ -3,7 +3,7 @@
   "HTTP handler for creating enrolled speakers from an existing recording.
 
   Endpoint:
-  - POST /api/speakers/from-recording
+  - POST /api/speaker-enrollment/from-recording
 
   Behavior:
   - Loads the tenant-scoped latest recording for the session.

@@ -43,7 +43,7 @@
   - {:keys [messages empty-title empty-hint auto-scroll? initial-scroll]}
 
   Returns: hiccup." 
-  [{:keys [messages empty-title empty-hint auto-scroll? initial-scroll]}]
+  [{:keys [messages empty-title empty-hint auto-scroll? initial-scroll message-actions]}]
   (let [msgs (->> (or messages [])
                   transcript/coalesce-asr-finals
                   vec)
@@ -86,14 +86,16 @@
                                      (.-scrollTop el)
                                      (.-clientHeight el))]
                          (set! (.-current auto-scroll?*) (<= dist 48))))))
-        (for [[idx msg] (map-indexed vector msgs)]
-          (let [k (message-key idx msg)
+         (for [[idx msg] (map-indexed vector msgs)]
+           (let [k (message-key idx msg)
                 speaker (:speaker msg)
                 who (transcript/speaker->display-name speaker)
                 avatar (transcript/speaker->avatar-text speaker)
                 start-ts (util/fmt-sec (:start_s msg))
                 end-ts (util/fmt-sec (:end_s msg))
-                bubble-class (str "bubble" (when (and (= "asr" (:kind msg)) (false? (:final msg))) " draft"))]
+                 bubble-class (str "bubble" (when (and (= "asr" (:kind msg)) (false? (:final msg))) " draft"))
+                 actions-node (when (fn? message-actions)
+                                (message-actions {:idx idx :msg msg}))]
             [:div {:class "msg" :key k}
              [:div {:class "avatar"} avatar]
              [:div {:class "msgBody"}
@@ -101,7 +103,11 @@
                [:span {:class "who"} who]
                [:span {:class "ts"} (str start-ts " → " end-ts)]
                (badge msg)]
-              [:div {:class bubble-class} (:text msg)]]]))])]))
+               [:div {:class bubble-class}
+                ;; NOTE: message actions are rendered *inside* the bubble so they
+                ;; follow the bubble on line breaks / narrow viewports.
+                (when actions-node actions-node)
+                (:text msg)]]]))])]))
 
 (defn final-transcript-karaoke
   "Render final transcript with word-level karaoke highlighting.

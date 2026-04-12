@@ -390,40 +390,33 @@
                      :handler (http.ui/rename-session-handler deps)}}]
 
            ["/speakers"
-            {:get {:summary "List enrolled speakers"
-                   :description "Lists the current tenant's enrolled speakers."
-                   :responses {200 {:body schemas/SpeakersListResponse}
-                               403 {:body schemas/ApiErrorResponse}}
-                   :handler (http.speakers/list-speakers-handler deps)}
+            {}
 
-              ;; Enrollment from a stored recording (final transcript bubble selection)
-             ["/from-recording"
-              {:post {:summary "Create enrolled speaker from recording"
-                      :description (str
-                                    "Creates a new enrolled speaker by clipping a short WAV sample from the session's stored recording. "
-                                    "The server enforces a maximum clip duration (currently 10 seconds).")
-                      :parameters {:body schemas/CreateSpeakerFromRecordingRequest}
-                      :responses {200 {:body schemas/CreateSpeakerFromRecordingResponse}
-                                  400 {:body schemas/ApiErrorResponse}
-                                  403 {:body schemas/ApiErrorResponse}
-                                  404 {:body schemas/ApiErrorResponse}
-                                  503 {:body schemas/ApiErrorResponse}
-                                  500 {:body schemas/ApiErrorResponse}}
-                      :handler (http.speaker-enrollment/create-speaker-from-recording-handler deps)}}]
+            ;; NOTE: Route nodes that have children should not define method handlers
+            ;; directly at the same node. Put them under an empty-path child instead.
+            [""
+             {:get {:summary "List enrolled speakers"
+                    :description "Lists the current tenant's enrolled speakers."
+                    :responses {200 {:body schemas/SpeakersListResponse}
+                                403 {:body schemas/ApiErrorResponse}}
+                    :handler (http.speakers/list-speakers-handler deps)}
 
-             :post {:summary "Create enrolled speaker"
-                    :description (str
-                                  "Creates a new enrolled speaker by uploading a single WAV sample. "
-                                  "Request must be multipart/form-data with fields: label (string), sample (file).")
+              :post {:summary "Create enrolled speaker"
+                     :description (str
+                                   "Creates a new enrolled speaker by uploading a single WAV sample. "
+                                   "Request must be multipart/form-data with fields: label (string), sample (file).")
                      ;; OpenAPI multipart file schemas vary by generator; we document
                      ;; it textually and still keep response schemas formal.
-                    :responses {200 {:body schemas/CreateSpeakerResponse}
-                                400 {:body schemas/ApiErrorResponse}
-                                403 {:body schemas/ApiErrorResponse}
-                                500 {:body schemas/ApiErrorResponse}}
-                    :middleware [wrap-multipart-params]
-                    :handler (http.speakers/create-speaker-handler deps)}}]
-           ["/speakers/:speaker_id"
+                     :responses {200 {:body schemas/CreateSpeakerResponse}
+                                 400 {:body schemas/ApiErrorResponse}
+                                 403 {:body schemas/ApiErrorResponse}
+                                 500 {:body schemas/ApiErrorResponse}}
+                     :middleware [wrap-multipart-params]
+                     :handler (http.speakers/create-speaker-handler deps)}}]]
+
+;; NOTE: We constrain :speaker_id to UUID to avoid route conflicts with
+           ;; literal subpaths like /speakers/from-recording.
+           ["/speakers/:speaker_id{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}"
             {:delete {:summary "Delete enrolled speaker"
                       :description "Deletes an enrolled speaker and all associated stored data for the current tenant."
                       :parameters {:path [:map [:speaker_id :string]]}
@@ -433,6 +426,21 @@
                                   404 {:body schemas/ApiErrorResponse}
                                   500 {:body schemas/ApiErrorResponse}}
                       :handler (http.speakers/delete-speaker-handler deps)}}]
+
+           ;; Enrollment from a stored recording (final transcript bubble selection)
+           ["/speaker-enrollment/from-recording"
+            {:post {:summary "Create enrolled speaker from recording"
+                    :description (str
+                                  "Creates a new enrolled speaker by clipping a short WAV sample from the session's stored recording. "
+                                  "The server enforces a maximum clip duration (currently 10 seconds).")
+                    :parameters {:body schemas/CreateSpeakerFromRecordingRequest}
+                    :responses {200 {:body schemas/CreateSpeakerFromRecordingResponse}
+                                400 {:body schemas/ApiErrorResponse}
+                                403 {:body schemas/ApiErrorResponse}
+                                404 {:body schemas/ApiErrorResponse}
+                                503 {:body schemas/ApiErrorResponse}
+                                500 {:body schemas/ApiErrorResponse}}
+                    :handler (http.speaker-enrollment/create-speaker-from-recording-handler deps)}}]
 
             ;; M2M credential management (human UX; secrets returned once)
            ["/api-credentials"

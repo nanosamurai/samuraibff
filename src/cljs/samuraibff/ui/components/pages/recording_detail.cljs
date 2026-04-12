@@ -6,6 +6,7 @@
   (:require
    [clojure.string :as str]
    [samuraibff.ui.api :as api]
+    [samuraibff.ui.components.shared :as shared]
    [samuraibff.ui.components.transcript :as components.transcript]
    [samuraibff.ui.recording-detail :as recording-detail]
    [samuraibff.ui.router :as router]
@@ -13,6 +14,85 @@
    [samuraibff.ui.transcript :as transcript]
    [samuraibff.ui.util :as util]
    ["react" :as react]))
+
+(defn- enroll-speaker-modal
+  "Modal for enrolling a speaker from a final transcript bubble.
+
+  Inputs:
+  - {:keys [open? session-id start-s end-s on-close]}
+    - open?: boolean
+    - session-id: string
+    - start-s/end-s: numbers (seconds)
+    - on-close: (fn [])
+
+  Behavior:
+  - Lets user enter speaker label and submits to backend
+  - On success, prepends speaker into `store/speakers*`
+
+  Returns: hiccup node or nil." 
+  [{:keys [open? session-id start-s end-s on-close]}]
+  (let [open? (true? open?)
+        label* (react/useState "")
+        label (aget label* 0)
+        set-label! (aget label* 1)
+        saving?* (react/useState false)
+        saving? (aget saving?* 0)
+        set-saving! (aget saving?* 1)
+        error* (react/useState nil)
+        error (aget error* 0)
+        set-error! (aget error* 1)
+        close! (fn []
+                 (set-error! nil)
+                 (set-saving! false)
+                 (set-label! "")
+                 (when (fn? on-close) (on-close)))
+        submit! (fn []
+                  (set-saving! true)
+                  (set-error! nil)
+                  (-> (api/create-speaker-from-recording!
+                       {:session-id session-id
+                        :start-s start-s
+                        :end-s end-s
+                        :label label})
+                      (.then (fn [{:keys [speaker_id label]}]
+                               ;; Keep the speakers management page in sync.
+                               (store/prepend-speaker!
+                                {:id speaker_id
+                                 :label label
+                                 :created_at_ms (.getTime (js/Date.))})
+                               (close!)))
+                      (.catch (fn [e]
+                                (store/append-log! (str "[ui] failed enrolling speaker from recording: " (shared/safe-http-error e)))
+                                (set-error! (shared/safe-http-error e))))
+                      (.finally (fn []
+                                  (set-saving! false)))))]
+    (when open?
+      [:div {:class "modal-overlay"
+             :on-click (fn [_] (close!))}
+       [:div {:class "modal"
+              :on-click (fn [e] (.stopPropagation e))}
+        [:div {:class "modal-title"} "Enroll speaker"]
+        [:div {:class "muted" :style {:marginBottom "10px"}}
+         (str "This will clip audio from the recording (" (util/fmt-sec start-s)
+              " → " (util/fmt-sec end-s) ") and create a new enrolled speaker.")]
+
+        [:div {:class "row" :style {:marginBottom "10px"}}
+         [:input {:placeholder "Speaker name (e.g. Dr Novak)"
+                  :value label
+                  :disabled saving?
+                  :on-change (fn [e]
+                               (set-label! (.. e -target -value)))}]
+         [:button {:class "btn primary"
+                   :disabled (or saving? (str/blank? (str label)))
+                   :on-click (fn [_] (submit!))}
+          (if saving? "Saving…" "Enroll")]
+         [:button {:class "btn"
+                   :disabled saving?
+                   :on-click (fn [_] (close!))}
+          "Cancel"]]
+
+        (when (seq (str error))
+          [:div {:class "badge bad"} (str error)])]])))
 
 (defn- title-editor
   "Inline session title editor.
@@ -262,7 +342,20 @@
     ;; - realtime ASR (cached locally if available)
     ;; - refined realtime (DB refined records + cached refined WS items if available)
     ;; - final transcript (DB)
-    (let [realtime-msgs (transcript/sort-messages (vec (or cached-asr [])))
+    (let [enroll-open?* (react/useState false)
+          enroll-open? (aget enroll-open?* 0)
+          set-enroll-open! (aget enroll-open?* 1)
+          enroll-range* (react/useState nil)
+          enroll-range (aget enroll-range* 0)
+          set-enroll-range! (aget enroll-range* 1)
+          open-enroll! (fn [{:keys [start_s end_s]}]
+                         (set-enroll-range! {:start_s start_s :end_s end_s})
+                         (set-enroll-open! true))
+          close-enroll! (fn []
+                          (set-enroll-open! false)
+                          (set-enroll-range! nil))
+
+          realtime-msgs (transcript/sort-messages (vec (or cached-asr [])))
           refined-msgs (->> (concat (recording-detail/refined-events->messages refined-events)
                                     (vec (or cached-refined [])))
                             ;; De-dupe refined segments by stable content/time key.
@@ -318,9 +411,28 @@
                :auto-scroll? false
                :initial-scroll :top
                :empty-title "Final transcript"
-               :empty-hint (if final-record "(no segments)" "No final transcript stored")}])]]
+                :empty-hint (if final-record "(no segments)" "No final transcript stored")
+                :message-actions
+                (fn [{:keys [msg]}]
+                  (when (and (= "final" (:kind msg))
+                             (number? (:start_s msg))
+                             (number? (:end_s msg))
+                             (> (double (:end_s msg)) (double (:start_s msg))))
+                    [:div {:class "bubble-actions"}
+                     [:button {:class "bubble-action-btn"
+                               :title "Enroll speaker from this segment"
+                               :on-click (fn [e]
+                                           (.stopPropagation e)
+                                           (open-enroll! {:start_s (:start_s msg)
+                                                          :end_s (:end_s msg)}))}
+                      (shared/icon "＋" {:title "Enroll"})]]))}])]]
 
-      [:div {:class "page"}
+       [:div {:class "page"}
+        [enroll-speaker-modal {:open? enroll-open?
+                               :session-id session-id
+                               :start-s (get enroll-range :start_s)
+                               :end-s (get enroll-range :end_s)
+                               :on-close close-enroll!}]
        [:div {:class "page-header"}
         [:div
          [:div {:class "page-title"} (or title-display "Recording")]
