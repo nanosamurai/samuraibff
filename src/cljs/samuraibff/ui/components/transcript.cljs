@@ -42,7 +42,7 @@
   Inputs:
   - {:keys [messages empty-title empty-hint auto-scroll? initial-scroll]}
 
-  Returns: hiccup." 
+  Returns: hiccup."
   [{:keys [messages empty-title empty-hint auto-scroll? initial-scroll message-actions]}]
   (let [msgs (->> (or messages [])
                   transcript/coalesce-asr-finals
@@ -78,24 +78,24 @@
         [:div {:class "muted"} (or empty-hint "No events yet…")]]
        [:div (cond-> {:class "transcript-feed"
                       :ref container-ref}
-              auto-scroll?
-              (assoc :on-scroll
-                     (fn [e]
-                       (let [el (.-target e)
-                             dist (- (.-scrollHeight el)
-                                     (.-scrollTop el)
-                                     (.-clientHeight el))]
-                         (set! (.-current auto-scroll?*) (<= dist 48))))))
-         (for [[idx msg] (map-indexed vector msgs)]
-           (let [k (message-key idx msg)
+               auto-scroll?
+               (assoc :on-scroll
+                      (fn [e]
+                        (let [el (.-target e)
+                              dist (- (.-scrollHeight el)
+                                      (.-scrollTop el)
+                                      (.-clientHeight el))]
+                          (set! (.-current auto-scroll?*) (<= dist 48))))))
+        (for [[idx msg] (map-indexed vector msgs)]
+          (let [k (message-key idx msg)
                 speaker (:speaker msg)
                 who (transcript/speaker->display-name speaker)
                 avatar (transcript/speaker->avatar-text speaker)
                 start-ts (util/fmt-sec (:start_s msg))
                 end-ts (util/fmt-sec (:end_s msg))
-                 bubble-class (str "bubble" (when (and (= "asr" (:kind msg)) (false? (:final msg))) " draft"))
-                 actions-node (when (fn? message-actions)
-                                (message-actions {:idx idx :msg msg}))]
+                bubble-class (str "bubble" (when (and (= "asr" (:kind msg)) (false? (:final msg))) " draft"))
+                actions-node (when (fn? message-actions)
+                               (message-actions {:idx idx :msg msg}))]
             [:div {:class "msg" :key k}
              [:div {:class "avatar"} avatar]
              [:div {:class "msgBody"}
@@ -103,11 +103,11 @@
                [:span {:class "who"} who]
                [:span {:class "ts"} (str start-ts " → " end-ts)]
                (badge msg)]
-               [:div {:class bubble-class}
-                ;; NOTE: message actions are rendered *inside* the bubble so they
-                ;; follow the bubble on line breaks / narrow viewports.
-                (when actions-node actions-node)
-                (:text msg)]]]))])]))
+              [:div {:class bubble-class}
+               ;; NOTE: message actions are rendered *inside* the bubble so they
+               ;; follow the bubble on line breaks / narrow viewports.
+               (when actions-node actions-node)
+               (:text msg)]]]))])]))
 
 (defn final-transcript-karaoke
   "Render final transcript with word-level karaoke highlighting.
@@ -117,9 +117,10 @@
   - audio-ref: React ref to the <audio> element
   - current-time-s: double
   - follow?: boolean
+  - message-actions: (fn [{:keys [idx msg]}] ...) optional
 
-  Returns: hiccup." 
-  [{:keys [messages audio-ref current-time-s follow?]}]
+  Returns: hiccup."
+  [{:keys [messages audio-ref current-time-s follow? message-actions]}]
   (let [msgs (vec (or messages []))
         word-index (react/useMemo (fn [] (karaoke/build-word-index msgs)) #js [msgs])
         active-flat-idx (karaoke/active-word-idx-normalized word-index current-time-s)
@@ -188,6 +189,7 @@
            msgs)]
       [transcript-view
        {:messages rendered-msgs
+        :message-actions message-actions
         ;; Final transcript playback should not behave like a live chat.
         ;; Default to top and let karaoke "Follow" be the only source of scrolling.
         :auto-scroll? false

@@ -400,32 +400,34 @@
               [:span {:class "muted"}
                (str "t=" (util/fmt-sec current-time-s))]])
 
-           (if karaoke-enabled?
-             [components.transcript/final-transcript-karaoke
-              {:messages final-msgs
-               :audio-ref audio-ref
-               :current-time-s current-time-s
-               :follow? follow?}]
-             [components.transcript/transcript-view
-              {:messages final-msgs
-               :auto-scroll? false
-               :initial-scroll :top
-               :empty-title "Final transcript"
-                :empty-hint (if final-record "(no segments)" "No final transcript stored")
-                :message-actions
-                (fn [{:keys [msg]}]
-                  (when (and (= "final" (:kind msg))
-                             (number? (:start_s msg))
-                             (number? (:end_s msg))
-                             (> (double (:end_s msg)) (double (:start_s msg))))
-                    [:div {:class "bubble-actions"}
-                     [:button {:class "bubble-action-btn"
-                               :title "Enroll speaker from this segment"
-                               :on-click (fn [e]
-                                           (.stopPropagation e)
-                                           (open-enroll! {:start_s (:start_s msg)
-                                                          :end_s (:end_s msg)}))}
-                      (shared/icon "＋" {:title "Enroll"})]]))}])]]
+           (let [enroll-action
+                 (fn [{:keys [msg]}]
+                   (when (and (= "final" (:kind msg))
+                              (number? (:start_s msg))
+                              (number? (:end_s msg))
+                              (> (double (:end_s msg)) (double (:start_s msg))))
+                     [:div {:class "bubble-actions"}
+                      [:button {:class "bubble-action-btn"
+                                :title "Enroll speaker from this segment"
+                                :on-click (fn [e]
+                                            (.stopPropagation e)
+                                            (open-enroll! {:start_s (:start_s msg)
+                                                           :end_s (:end_s msg)}))}
+                       (shared/icon "＋" {:title "Enroll"})]]))]
+             (if karaoke-enabled?
+               [components.transcript/final-transcript-karaoke
+                {:messages final-msgs
+                 :audio-ref audio-ref
+                 :current-time-s current-time-s
+                 :follow? follow?
+                 :message-actions enroll-action}]
+               [components.transcript/transcript-view
+                {:messages final-msgs
+                 :auto-scroll? false
+                 :initial-scroll :top
+                 :empty-title "Final transcript"
+                 :empty-hint (if final-record "(no segments)" "No final transcript stored")
+                 :message-actions enroll-action}]))]]
 
        [:div {:class "page"}
         [enroll-speaker-modal {:open? enroll-open?
