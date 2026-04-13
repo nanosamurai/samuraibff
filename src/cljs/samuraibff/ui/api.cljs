@@ -9,6 +9,7 @@
   - DELETE /api/recordings/:session_id
   - GET /api/speakers
   - POST /api/speakers (multipart)
+  - POST /api/speaker-enrollment/from-recording
   - DELETE /api/speakers/:speaker_id
 
   - GET /api/api-credentials
@@ -188,6 +189,32 @@
   (-> (js/fetch (str "/api/speakers/" speaker-id) #js {:method "DELETE"})
       (.then ensure-ok!)
       (.then (fn [res] (.json res)))))
+
+(defn create-speaker-from-recording!
+  "Create a new enrolled speaker by clipping a segment from an existing recording.
+
+  Inputs:
+  - {:keys [session-id start-s end-s label]}
+    - session-id: string UUID
+    - start-s: number (seconds)
+    - end-s: number (seconds)
+    - label: string
+
+  Returns:
+  - Promise resolving to response map (keyword keys)." 
+  [{:keys [session-id start-s end-s label]}]
+  (-> (js/fetch "/api/speaker-enrollment/from-recording"
+                #js {:method "POST"
+                     :headers #js {"content-type" "application/json"}
+                     :body (.stringify js/JSON
+                                       #js {:session_id (or session-id "")
+                                            :start_s (double (or start-s 0.0))
+                                            :end_s (double (or end-s 0.0))
+                                            :label (or label "")})})
+      (.then ensure-ok!)
+      (.then (fn [res] (.json res)))
+      (.then (fn [body]
+               (js->clj body :keywordize-keys true)))))
 
 (defn list-api-credentials!
   "List API credentials for the authenticated tenant.

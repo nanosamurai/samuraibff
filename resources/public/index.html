@@ -370,7 +370,40 @@
       line-height:1.45;
       white-space:pre-wrap;
       word-wrap:break-word;
+      position:relative;
     }
+
+    .bubble-actions{
+      position:absolute;
+      top:6px;
+      right:8px;
+      display:flex;
+      gap:6px;
+      opacity:0;
+      pointer-events:none;
+      transition: opacity 120ms ease-out;
+    }
+
+    .bubble:hover .bubble-actions,
+    .bubble:focus-within .bubble-actions{
+      opacity:1;
+      pointer-events:auto;
+    }
+
+    .bubble-action-btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:28px;
+      height:28px;
+      padding:0;
+      border-radius:10px;
+      border:1px solid rgba(34,48,70,.7);
+      background:rgba(15,22,32,.95);
+      color:var(--muted);
+    }
+
+    .bubble-action-btn:hover{color:var(--txt);border-color:rgba(168,139,255,.35)}
 
     .bubble.draft{border-style:dashed;opacity:.92}
 
@@ -465,6 +498,9 @@
       .topbar{flex-wrap:wrap;height:auto}
       .brand{min-width:0}
       .breadcrumbs{flex-basis:100%}
+
+      /* On touch devices there is no hover; keep actions visible. */
+      .bubble-actions{opacity:1;pointer-events:auto}
     }
   </style>
 </head>
