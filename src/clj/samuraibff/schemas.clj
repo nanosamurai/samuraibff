@@ -204,13 +204,32 @@
   "Request body for POST /api/sessions.
 
   Shape:
-  - {:title <string?>}
+  - {:title <string?>
+     :webhook_overrides <WebhookOverrides?>}
 
   Notes:
-  - Title is optional and may be nil/blank (server will generate a default)."
+  - Title is optional and may be nil/blank (server will generate a default).
+  - webhook_overrides is optional; when present, BFF stores it and uses it to
+    publish `sessions.meta` routing snapshot per webhook RFC.
+
+  IMPORTANT:
+  - We intentionally refer to `WebhookEventType` here as strings (not as a
+    schema symbol) because webhook event types are defined later in this file.
+  "
   [:map
    [:title {:optional true}
-    [:maybe [:and :string [:fn (fn [s] (<= (count s) 200))]]]]])
+    [:maybe [:and :string [:fn (fn [s] (<= (count s) 200))]]]]
+   [:webhook_overrides {:optional true}
+    [:maybe
+     [:map
+      [:use_defaults {:optional true} :boolean]
+      [:webhook_ids {:optional true} [:sequential Uuid]]
+      [:disable_event_types {:optional true}
+       [:sequential
+        [:enum
+         "transcript.refined.segment"
+         "recording.finished"
+         "transcript.final.ready"]]]]]]])
 
 ;; ---------------------------------------------------------------------
 ;; Webhooks (tenant-configured outbound endpoints)
