@@ -37,6 +37,9 @@ CREATE TABLE sessions (
     ended_at       timestamptz,           -- set when finalized
     -- Stream controls snapshot (outputs + retention + realtime knobs)
     stream_controls jsonb,
+
+    -- Session-scoped webhook override request body snapshot (used to compute sessions.meta)
+    webhook_overrides jsonb,
     created_at     timestamptz NOT NULL DEFAULT now()
 );
 
@@ -116,3 +119,51 @@ CREATE TABLE api_credentials (
 
 CREATE INDEX idx_api_credentials_tenant ON api_credentials(tenant_id);
 CREATE INDEX idx_api_credentials_tenant_revoked ON api_credentials(tenant_id, revoked_at);
+
+-- Webhooks (tenant-scoped webhook endpoint configs)
+CREATE TABLE webhooks (
+    id            uuid PRIMARY KEY,
+    tenant_id     uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+
+    name          text NOT NULL,
+    url           text NOT NULL,
+    enabled       boolean NOT NULL DEFAULT true,
+
+    auth_type     text NOT NULL,
+
+    hmac_secret_ref         text,
+    oauth_client_secret_ref text,
+    api_key_ref             text,
+
+    oauth_token_url   text,
+    oauth_client_id   text,
+    oauth_scopes      text,
+    api_key_header_name text,
+    api_key_prefix      text,
+
+    static_headers jsonb,
+
+    created_at    timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_webhooks_tenant ON webhooks(tenant_id);
+CREATE UNIQUE INDEX idx_webhooks_tenant_name ON webhooks(tenant_id, name);
+
+CREATE TABLE webhook_subscriptions (
+    tenant_id  uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    webhook_id uuid NOT NULL REFERENCES webhooks(id) ON DELETE CASCADE,
+    event_type text NOT NULL,
+
+    created_at timestamptz NOT NULL DEFAULT now(),
+
+    PRIMARY KEY (tenant_id, webhook_id, event_type)
+);
+
+CREATE INDEX idx_webhook_subscriptions_tenant_event_type
+  ON webhook_subscriptions(tenant_id, event_type);
+
+CREATE TABLE tenant_webhook_defaults (
+    tenant_id   uuid PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+    webhook_ids uuid[] NOT NULL DEFAULT '{}'::uuid[],
+    updated_at  timestamptz NOT NULL DEFAULT now()
+);
