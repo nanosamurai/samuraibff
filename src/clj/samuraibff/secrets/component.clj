@@ -17,8 +17,7 @@
     [integrant.core :as ig]
     [org.corfield.logging4j2 :as log]
     [samuraibff.secrets.aws-secrets-manager :as aws-sm]
-    [samuraibff.secrets.k8s-secrets :as k8s]
-    [samuraibff.secrets.core :as secrets.core]))
+    [samuraibff.secrets.k8s-secrets :as k8s]))
 
 (defn- backend
   [config]

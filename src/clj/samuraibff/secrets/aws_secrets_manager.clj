@@ -11,7 +11,7 @@
           :access-key string (optional)
           :secret-key string (optional)
           :kms-key-id string (optional)
-          :name-prefix string (optional; default "nanosamurai")
+          :name-prefix string (optional; default nanosamurai)
           :name-suffix string (optional)}
 
   Secret naming
@@ -29,7 +29,6 @@
   (:import
     (java.net URI)
     (java.util UUID)
-    (java.util.function Consumer)
     (software.amazon.awssdk.auth.credentials AwsBasicCredentials StaticCredentialsProvider)
     (software.amazon.awssdk.regions Region)
     (software.amazon.awssdk.services.secretsmanager SecretsManagerClient)

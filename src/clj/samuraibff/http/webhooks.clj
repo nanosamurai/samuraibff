@@ -135,8 +135,7 @@
               _ (when-not ds
                   (throw (ex-info "Missing datasource" {:type :samuraibff.http/missing-datasource})))
               {:keys [name url enabled auth subscriptions static_headers
-                      hmac_secret api_key oauth_client_secret]
-               :as data} (schemas/decode-and-validate! schemas/CreateWebhookRequest body)
+                      hmac_secret api_key oauth_client_secret]} (schemas/decode-and-validate! schemas/CreateWebhookRequest body)
 
               name (str/trim (str name))
               url (str/trim (str url))
@@ -198,8 +197,7 @@
               webhook-id (or (parse-uuid-or-nil id-str)
                              (throw (ex-info "Invalid id" {:type :samuraibff.http/invalid-id})))
               {:keys [name url enabled auth subscriptions static_headers
-                      hmac_secret api_key oauth_client_secret]
-               :as data} (schemas/decode-and-validate! schemas/UpdateWebhookRequest body)
+                      hmac_secret api_key oauth_client_secret]} (schemas/decode-and-validate! schemas/UpdateWebhookRequest body)
 
               store (:store secrets)
               hmac-ref (store-secret-if-present! store tenant-id-str (str "webhook-hmac/" (or name webhook-id)) hmac_secret)

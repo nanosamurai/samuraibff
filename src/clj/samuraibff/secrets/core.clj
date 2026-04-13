@@ -21,30 +21,34 @@
   We treat secret references as opaque strings.
 
   Expected reference formats:
-  - AWS SM:  "aws-sm:<secret-arn>" or "aws-sm:<secret-name>" (implementation detail)
-  - K8s:     "k8s-secret:<namespace>/<name>#<key>" (implementation detail)
+  - AWS SM:  aws-sm:<secret-arn> or aws-sm:<secret-name> (implementation detail)
+  - K8s:     k8s-secret:<namespace>/<name>#<key> (implementation detail)
   "
   (:require
     [clojure.string :as str]))
 
 (defprotocol SecretStore
   (put-secret!
-    [this {:keys [tenant-id name value]}]
+    [this params]
     "Store a secret and return a reference string.
 
     Inputs:
     - this: SecretStore implementation
-    - {:tenant-id string/uuid, :name string, :value string}
+    - params: map
+        {:tenant-id string/uuid
+         :name string
+         :value string}
 
     Returns:
     - {:secret-ref string}")
   (delete-secret!
-    [this {:keys [secret-ref]}]
+    [this params]
     "Delete a secret by reference.
 
     Inputs:
     - this: SecretStore implementation
-    - {:secret-ref string}
+    - params: map
+        {:secret-ref string}
 
     Returns: nil"))
 

@@ -378,40 +378,43 @@
                                 :handler (http.ui/create-session-handler deps)}}]
 
            ["/webhooks"
-            {"" {:get {:summary "List webhooks"
-                       :description "Lists configured webhook endpoints for the current tenant."
-                       :responses {200 {:body schemas/WebhooksListResponse}
-                                   403 {:body schemas/ApiErrorResponse}
-                                   503 {:body schemas/ApiErrorResponse}}
-                       :handler (http.webhooks/list-webhooks-handler deps)}
+            {}
 
-                  :post {:summary "Create webhook"
-                         :description "Creates a new webhook endpoint and its event subscriptions. Secrets are write-only."
-                         :parameters {:body schemas/CreateWebhookRequest}
-                         :responses {200 {:body schemas/CreateWebhookResponse}
+            [""
+             {:get {:summary "List webhooks"
+                    :description "Lists configured webhook endpoints for the current tenant."
+                    :responses {200 {:body schemas/WebhooksListResponse}
+                                403 {:body schemas/ApiErrorResponse}
+                                503 {:body schemas/ApiErrorResponse}}
+                    :handler (http.webhooks/list-webhooks-handler deps)}
+
+              :post {:summary "Create webhook"
+                     :description "Creates a new webhook endpoint and its event subscriptions. Secrets are write-only."
+                     :parameters {:body schemas/CreateWebhookRequest}
+                     :responses {200 {:body schemas/CreateWebhookResponse}
+                                 400 {:body schemas/ApiErrorResponse}
+                                 403 {:body schemas/ApiErrorResponse}
+                                 503 {:body schemas/ApiErrorResponse}}
+                     :handler (http.webhooks/create-webhook-handler deps)}}]
+
+            ["/:id" {:parameters {:path [:map [:id :string]]}}
+             ["" {:put {:summary "Update webhook"
+                         :description "Updates a webhook endpoint and its subscriptions. Secrets are write-only."
+                         :parameters {:body schemas/UpdateWebhookRequest}
+                         :responses {200 {:body schemas/ApiOkResponse}
                                      400 {:body schemas/ApiErrorResponse}
                                      403 {:body schemas/ApiErrorResponse}
+                                     404 {:body schemas/ApiErrorResponse}
                                      503 {:body schemas/ApiErrorResponse}}
-                         :handler (http.webhooks/create-webhook-handler deps)}}
-
-             ["/:id" {:parameters {:path [:map [:id :string]]}}
-              ["" {:put {:summary "Update webhook"
-                          :description "Updates a webhook endpoint and its subscriptions. Secrets are write-only."
-                          :parameters {:body schemas/UpdateWebhookRequest}
-                          :responses {200 {:body schemas/ApiOkResponse}
-                                      400 {:body schemas/ApiErrorResponse}
-                                      403 {:body schemas/ApiErrorResponse}
-                                      404 {:body schemas/ApiErrorResponse}
-                                      503 {:body schemas/ApiErrorResponse}}
-                          :handler (http.webhooks/update-webhook-handler deps)}
-                    :delete {:summary "Delete webhook"
-                             :description "Deletes a webhook endpoint."
-                             :responses {200 {:body schemas/ApiOkResponse}
-                                         400 {:body schemas/ApiErrorResponse}
-                                         403 {:body schemas/ApiErrorResponse}
-                                         404 {:body schemas/ApiErrorResponse}
-                                         503 {:body schemas/ApiErrorResponse}}
-                             :handler (http.webhooks/delete-webhook-handler deps)}}]]}]
+                         :handler (http.webhooks/update-webhook-handler deps)}
+                   :delete {:summary "Delete webhook"
+                            :description "Deletes a webhook endpoint."
+                            :responses {200 {:body schemas/ApiOkResponse}
+                                        400 {:body schemas/ApiErrorResponse}
+                                        403 {:body schemas/ApiErrorResponse}
+                                        404 {:body schemas/ApiErrorResponse}
+                                        503 {:body schemas/ApiErrorResponse}}
+                            :handler (http.webhooks/delete-webhook-handler deps)}}]]]
 
            ["/webhooks/defaults"
             {"" {:get {:summary "Get webhook defaults"

@@ -56,7 +56,7 @@
               logical-name (or (secrets.core/blank->nil name) "secret")
               _ (when (str/blank? (or value ""))
                   (log/warn "Storing blank secret value" {:tenant_id tenant-id :name logical-name}))
-              secret-name (str name-prefix "-" tenant-id "-" logical-name "-" (str (UUID/randomUUID)))
+              secret-name (str name-prefix "-" tenant-id "-" logical-name "-" (UUID/randomUUID))
               ref (str "k8s-secret:" namespace "/" secret-name "#" key)]
           (log/info "Generated k8s secret reference (stub backend)" {:tenant_id tenant-id
                                                                       :secret_name secret-name
