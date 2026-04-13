@@ -107,6 +107,24 @@
   ;; - For file:// URLs, we only allow paths under `:recordings :local-root`.
   :recordings {:local-root ""}}
 
+  ;; --- Secrets (webhook auth) ---
+  ;; Customer-managed webhook secrets must be write-only and must not be stored in Postgres.
+  ;;
+  ;; Backends:
+  ;; - :aws-secrets-manager (default; use LocalStack in dev/test)
+  ;; - :k8s-secrets (optional; recommended for high-cardinality secret sets)
+  :secrets {:backend :aws-secrets-manager
+            :aws {:region ""
+                  :endpoint "http://localhost:4566"
+                  :access-key ""
+                  :secret-key ""
+                  ;; Optional: KMS key id/arn for envelope encryption.
+                  :kms-key-id nil
+                  :name-prefix "nanosamurai"}
+            :k8s {:namespace "default"
+                  :key "value"
+                  :name-prefix "nanosamurai"}}
+
  ;; --- Integrant components ---
 
  :samuraibff/db
@@ -131,9 +149,13 @@
   :db          #ig/ref :samuraibff/db
   :ws-registry #ig/ref :samuraibff/ws-registry
   :grpc        #ig/ref :samuraibff/grpc-client
-  :keycloak-admin #ig/ref :samuraibff/keycloak-admin}
+  :keycloak-admin #ig/ref :samuraibff/keycloak-admin
+  :secrets #ig/ref :samuraibff/secrets}
 
  :samuraibff/keycloak-admin
+ {:config #ig/ref :samuraibff/config}
+
+ :samuraibff/secrets
  {:config #ig/ref :samuraibff/config}
 
  :samuraibff/http-server

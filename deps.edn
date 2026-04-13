@@ -73,6 +73,9 @@
   software.amazon.awssdk/auth       {:mvn/version "2.32.21"}
   software.amazon.awssdk/regions    {:mvn/version "2.32.21"}
 
+   ;; --- Secrets (webhooks) ---
+   software.amazon.awssdk/secretsmanager {:mvn/version "2.32.21"}
+
   ;; Multipart parsing is provided by ring-core.
   }
 
