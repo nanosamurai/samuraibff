@@ -20,12 +20,10 @@
   All functions are tenant-scoped: tenant-id must always be provided.
   "
   (:require
-    [cheshire.core :as cheshire]
     [honey.sql :as sql]
     [honey.sql.helpers :as h]
     [next.jdbc :as jdbc]
-    [next.jdbc.result-set :as rs]
-    [org.corfield.logging4j2 :as log])
+    [next.jdbc.result-set :as rs])
   (:import
     (java.util UUID)
     (javax.sql DataSource)))

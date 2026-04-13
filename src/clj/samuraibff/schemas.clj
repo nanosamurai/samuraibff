@@ -212,6 +212,145 @@
    [:title {:optional true}
     [:maybe [:and :string [:fn (fn [s] (<= (count s) 200))]]]]])
 
+;; ---------------------------------------------------------------------
+;; Webhooks (tenant-configured outbound endpoints)
+;; ---------------------------------------------------------------------
+
+(def WebhookEventType
+  "Webhook event type string.
+
+  v1 values per RFC:
+  - transcript.refined.segment
+  - recording.finished
+  - transcript.final.ready"
+  [:enum
+   "transcript.refined.segment"
+   "recording.finished"
+   "transcript.final.ready"])
+
+(def WebhookAuthType
+  "Webhook auth type.
+
+  Values:
+  - none
+  - hmac
+  - oauth
+  - api_key"
+  [:enum "none" "hmac" "oauth" "api_key"])
+
+(def WebhookAuth
+  "Webhook auth configuration (non-secret fields).
+
+  Notes:
+  - secret values are provided separately (write-only) and stored via SecretStore.
+  "
+  [:map
+   [:type WebhookAuthType]
+
+   ;; OAuth client_credentials
+   [:token_url {:optional true} [:maybe :string]]
+   [:client_id {:optional true} [:maybe :string]]
+   [:scopes {:optional true} [:maybe :string]]
+
+   ;; API key
+   [:header_name {:optional true} [:maybe :string]]
+   [:prefix {:optional true} [:maybe :string]]])
+
+(def StaticHeaders
+  "Optional static headers (non-secret) attached to webhook requests.
+
+  Shape: map string->string." 
+  [:map-of :string :string])
+
+(def CreateWebhookRequest
+  "Request body for POST /api/webhooks.
+
+  Secrets are write-only fields:
+  - :hmac_secret
+  - :api_key
+  - :oauth_client_secret" 
+  [:map
+   [:name NonEmptyString]
+   [:url NonEmptyString]
+   [:enabled {:optional true} :boolean]
+   [:auth WebhookAuth]
+   [:subscriptions [:sequential WebhookEventType]]
+   [:static_headers {:optional true} [:maybe StaticHeaders]]
+
+   [:hmac_secret {:optional true} [:maybe :string]]
+   [:api_key {:optional true} [:maybe :string]]
+   [:oauth_client_secret {:optional true} [:maybe :string]]])
+
+(def CreateWebhookResponse
+  "Response body for POST /api/webhooks." 
+  [:map
+   [:ok :boolean]
+   [:webhook_id Uuid]])
+
+(def UpdateWebhookRequest
+  "Request body for PUT /api/webhooks/{id}.
+
+  All fields are optional; provided fields replace stored values.
+  Secrets are write-only.
+  "
+  [:map
+   [:name {:optional true} [:maybe :string]]
+   [:url {:optional true} [:maybe :string]]
+   [:enabled {:optional true} [:maybe :boolean]]
+   [:auth {:optional true} [:maybe WebhookAuth]]
+   [:subscriptions {:optional true} [:maybe [:sequential WebhookEventType]]]
+   [:static_headers {:optional true} [:maybe StaticHeaders]]
+
+   [:hmac_secret {:optional true} [:maybe :string]]
+   [:api_key {:optional true} [:maybe :string]]
+   [:oauth_client_secret {:optional true} [:maybe :string]]])
+
+(def WebhookItem
+  "Webhook list item.
+
+  Notes:
+  - secret values are never returned; only secret refs are stored in DB.
+  "
+  [:map
+   [:id Uuid]
+   [:tenant_id Uuid]
+   [:name :string]
+   [:url :string]
+   [:enabled :boolean]
+   [:auth_type :string]
+   [:hmac_secret_ref {:optional true} [:maybe :string]]
+   [:oauth_client_secret_ref {:optional true} [:maybe :string]]
+   [:api_key_ref {:optional true} [:maybe :string]]
+   [:oauth_token_url {:optional true} [:maybe :string]]
+   [:oauth_client_id {:optional true} [:maybe :string]]
+   [:oauth_scopes {:optional true} [:maybe :string]]
+   [:api_key_header_name {:optional true} [:maybe :string]]
+   [:api_key_prefix {:optional true} [:maybe :string]]
+   [:static_headers {:optional true} [:maybe :map]]
+   [:created_at :string]])
+
+(def WebhooksListResponse
+  "Response body for GET /api/webhooks." 
+  [:map
+   [:ok :boolean]
+   [:tenant_id Uuid]
+   [:items [:sequential WebhookItem]]])
+
+(def WebhookDefaultsRequest
+  "Request body for PUT /api/webhooks/defaults.
+
+  Shape:
+  - {:webhook_ids [<uuid> ...]}" 
+  [:map
+   [:webhook_ids [:sequential Uuid]]])
+
+(def WebhookDefaultsResponse
+  "Response body for GET /api/webhooks/defaults." 
+  [:map
+   [:ok :boolean]
+   [:tenant_id Uuid]
+   [:webhook_ids [:sequential Uuid]]])
+
 (def ApiMeResponse
   "Response body for GET /api/me.
 
