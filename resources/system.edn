@@ -149,6 +149,7 @@
  :samuraibff/router
  {:config      #ig/ref :samuraibff/config
   :db          #ig/ref :samuraibff/db
+  :kafka-producer #ig/ref :samuraibff/kafka-producer
   :ws-registry #ig/ref :samuraibff/ws-registry
   :grpc        #ig/ref :samuraibff/grpc-client
   :keycloak-admin #ig/ref :samuraibff/keycloak-admin
