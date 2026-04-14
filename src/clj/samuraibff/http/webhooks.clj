@@ -154,7 +154,7 @@
                    :name name
                    :url url
                    :enabled (boolean enabled)
-                   :auth-type (name auth-type)
+                   :auth-type (clojure.core/name auth-type)
 
                    :hmac_secret_ref hmac-ref
                    :api_key_ref api-key-ref
