@@ -124,3 +124,35 @@
         ;; If the route param is wrong, coercion fails and you get 400 with "missing required key".
         (is (= 200 (:status resp)))
         (is (= resp-body (schemas/validate! schemas/ApiOkResponse resp-body)))))))
+
+(deftest get-webhook-defaults-response-conforms-to-schema-integration-test
+  (testing "GET /api/webhooks/defaults returns webhook_ids as vector of UUID strings"
+    (tc.pg/with-postgres [pg]
+      (let [jdbc-url (tc.pg/jdbc-url pg)
+            ds (tc.pg/datasource jdbc-url "drsynth" "drsynth")
+            _ (tc.pg/apply-schema! ds)
+
+            tenant-uuid (UUID/fromString "00000000-0000-0000-0000-000000000000")
+            _ (jdbc/execute! ds ["INSERT INTO tenants (id, name) VALUES (?, ?)" tenant-uuid "Guest"])
+
+            w1 (UUID/randomUUID)
+            w2 (UUID/randomUUID)
+            _ (jdbc/execute!
+               ds
+               ["INSERT INTO tenant_webhook_defaults (tenant_id, webhook_ids, updated_at)
+                 VALUES (?, ?::uuid[], now())"
+                tenant-uuid (into-array UUID [w1 w2])])
+
+            handler (router-handler ds)
+            resp (with-redefs [oidc/extract-token (fn [_config _req] "test-token")
+                               oidc/verify-token (fn [_config _token] {:sub "u"})
+                               oidc/extract-tenant-from-claims* (fn [_config _claims] (str tenant-uuid))]
+                   (handler {:request-method :get
+                             :uri "/api/webhooks/defaults"
+                             :headers {"authorization" "Bearer test-token"}}))
+            body (parse-json-body resp)]
+        (is (= 200 (:status resp)))
+        (is (= body (schemas/validate! schemas/WebhookDefaultsResponse body)))
+        (is (= (str tenant-uuid) (:tenant_id body)))
+        ;; order is preserved by our INSERT array order.
+        (is (= [(str w1) (str w2)] (:webhook_ids body)))))))

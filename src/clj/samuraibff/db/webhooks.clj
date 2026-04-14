@@ -291,8 +291,22 @@
   (let [row (jdbc/execute-one!
               ds
               ["SELECT webhook_ids FROM tenant_webhook_defaults WHERE tenant_id=?" tenant-id]
-              {:builder-fn rs/as-unqualified-lower-maps})]
-    {:webhook_ids (vec (or (:webhook_ids row) []))}))
+              {:builder-fn rs/as-unqualified-lower-maps})
+        arr (:webhook_ids row)
+        ;; Postgres `uuid[]` is returned as `java.sql.Array` (often PgArray).
+        ;; We must unwrap it via `.getArray` before turning into a Clojure vector.
+        xs (cond
+             (nil? arr) []
+             (instance? java.sql.Array arr) (or (.getArray ^java.sql.Array arr) (object-array 0))
+             :else arr)
+        ids (->> (seq xs)
+                 (keep (fn [x]
+                         (try
+                           (UUID/fromString (str x))
+                           (catch Exception _
+                             nil))))
+                 vec)]
+    {:webhook_ids ids}))
 
 (defn set-defaults!
   "Set tenant webhook defaults.
