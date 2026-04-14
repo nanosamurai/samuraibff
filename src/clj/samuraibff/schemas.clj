@@ -337,6 +337,8 @@
    [:url :string]
    [:enabled :boolean]
    [:auth_type :string]
+   ;; Subscribed event types for this webhook.
+   [:subscriptions [:sequential WebhookEventType]]
    [:hmac_secret_ref {:optional true} [:maybe :string]]
    [:oauth_client_secret_ref {:optional true} [:maybe :string]]
    [:api_key_ref {:optional true} [:maybe :string]]
