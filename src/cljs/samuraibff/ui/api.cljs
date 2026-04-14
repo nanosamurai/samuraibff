@@ -17,6 +17,13 @@
   - POST /api/api-credentials/:id/rotate
   - DELETE /api/api-credentials/:id
 
+  - GET /api/webhooks
+  - POST /api/webhooks
+  - PUT /api/webhooks/:id
+  - DELETE /api/webhooks/:id
+  - GET /api/webhooks/defaults
+  - PUT /api/webhooks/defaults
+
   All functions return JS Promises."
   (:require
     [clojure.string :as str]))
@@ -226,6 +233,107 @@
   Throws on non-2xx." 
   []
   (-> (js/fetch "/api/api-credentials")
+      (.then ensure-ok!)
+      (.then (fn [res] (.json res)))
+      (.then (fn [body]
+               (js->clj body :keywordize-keys true)))))
+
+;; --- Webhooks ---
+
+(defn list-webhooks!
+  "List tenant webhooks.
+
+  Returns:
+  - Promise resolving to response map:
+      {:ok true
+       :tenant_id <uuid>
+       :items [ ... ]}" 
+  []
+  (-> (js/fetch "/api/webhooks")
+      (.then ensure-ok!)
+      (.then (fn [res] (.json res)))
+      (.then (fn [body]
+               (js->clj body :keywordize-keys true)))))
+
+(defn create-webhook!
+  "Create a webhook.
+
+  Inputs:
+  - payload: map (will be JSON encoded)
+
+  Returns:
+  - Promise resolving to response map." 
+  [payload]
+  (-> (js/fetch "/api/webhooks"
+                #js {:method "POST"
+                     :headers #js {"content-type" "application/json"}
+                     :body (.stringify js/JSON (clj->js (or payload {})))})
+      (.then ensure-ok!)
+      (.then (fn [res] (.json res)))
+      (.then (fn [body]
+               (js->clj body :keywordize-keys true)))))
+
+(defn update-webhook!
+  "Update a webhook.
+
+  Inputs:
+  - webhook-id: string UUID
+  - patch: map (JSON)
+
+  Returns:
+  - Promise resolving to response map." 
+  [webhook-id patch]
+  (-> (js/fetch (str "/api/webhooks/" (js/encodeURIComponent (or webhook-id "")))
+                #js {:method "PUT"
+                     :headers #js {"content-type" "application/json"}
+                     :body (.stringify js/JSON (clj->js (or patch {})))})
+      (.then ensure-ok!)
+      (.then (fn [res] (.json res)))
+      (.then (fn [body]
+               (js->clj body :keywordize-keys true)))))
+
+(defn delete-webhook!
+  "Delete a webhook.
+
+  Inputs:
+  - webhook-id string UUID
+
+  Returns:
+  - Promise resolving to response map." 
+  [webhook-id]
+  (-> (js/fetch (str "/api/webhooks/" (js/encodeURIComponent (or webhook-id "")))
+                #js {:method "DELETE"})
+      (.then ensure-ok!)
+      (.then (fn [res] (.json res)))
+      (.then (fn [body]
+               (js->clj body :keywordize-keys true)))))
+
+(defn get-webhook-defaults!
+  "Get tenant webhook defaults.
+
+  Returns:
+  - Promise resolving to response map {:ok true :webhook_ids [..]}" 
+  []
+  (-> (js/fetch "/api/webhooks/defaults")
+      (.then ensure-ok!)
+      (.then (fn [res] (.json res)))
+      (.then (fn [body]
+               (js->clj body :keywordize-keys true)))))
+
+(defn set-webhook-defaults!
+  "Set tenant webhook defaults.
+
+  Inputs:
+  - webhook-ids: vector of uuid strings
+
+  Returns:
+  - Promise resolving to response map." 
+  [webhook-ids]
+  (-> (js/fetch "/api/webhooks/defaults"
+                #js {:method "PUT"
+                     :headers #js {"content-type" "application/json"}
+                     :body (.stringify js/JSON
+                                       (clj->js {:webhook_ids (vec (or webhook-ids []))}))})
       (.then ensure-ok!)
       (.then (fn [res] (.json res)))
       (.then (fn [body]

@@ -30,6 +30,12 @@
    {:label "Live Recording"
     :route {:page :live :params {}}
     :active? (= active-page :live)}
+   {:label "Webhooks"
+    :route {:page :webhooks :params {}}
+    :active? (= active-page :webhooks)}
+   {:label "Webhook Defaults"
+    :route {:page :webhook-defaults :params {}}
+    :active? (= active-page :webhook-defaults)}
    {:label "Speakers"
     :route {:page :speakers :params {}}
     :active? (= active-page :speakers)}
@@ -112,6 +118,8 @@
                  :recordings [{:label "Recordings" :route {:page :recordings :params {}}}]
                  :live [{:label "Recordings" :route {:page :recordings :params {}}}
                         {:label "Live Recording" :route {:page :live :params {}}}]
+                  :webhooks [{:label "Webhooks" :route {:page :webhooks :params {}}}]
+                  :webhook-defaults [{:label "Webhook Defaults" :route {:page :webhook-defaults :params {}}}]
                  :speakers [{:label "Speakers" :route {:page :speakers :params {}}}]
                  :api-credentials [{:label "API Credentials" :route {:page :api-credentials :params {}}}]
                  :recording [{:label "Recordings" :route {:page :recordings :params {}}}

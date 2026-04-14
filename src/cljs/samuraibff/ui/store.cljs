@@ -203,6 +203,69 @@
 (defonce speakers*
   (atom []))
 
+;; --- Webhooks (tenant-scoped outbound endpoints) ---
+
+(defonce webhooks*
+  (atom {:items []
+         :loading? false
+         :error nil}))
+
+(defonce webhook-defaults*
+  (atom {:webhook_ids []
+         :loading? false
+         :error nil}))
+
+(defn set-webhooks-loading!
+  "Set loading flag for the webhooks list." 
+  [loading?]
+  (swap! webhooks* assoc :loading? (boolean loading?))
+  nil)
+
+(defn set-webhooks-error!
+  "Set error string for the webhooks list (nil clears)." 
+  [err]
+  (swap! webhooks* assoc :error err)
+  nil)
+
+(defn set-webhooks-items!
+  "Replace the current webhooks list.
+
+  Inputs:
+  - items: vector of webhook item maps" 
+  [items]
+  (swap! webhooks* assoc :items (vec (or items [])))
+  nil)
+
+(defn remove-webhook-item!
+  "Remove a webhook by id from store list." 
+  [webhook-id]
+  (swap! webhooks*
+         (fn [st]
+           (update st :items (fn [xs]
+                               (vec (remove #(= (or webhook-id "") (or (:id %) "")) xs))))))
+  nil)
+
+(defn set-webhook-defaults-loading!
+  "Set loading flag for webhook defaults." 
+  [loading?]
+  (swap! webhook-defaults* assoc :loading? (boolean loading?))
+  nil)
+
+(defn set-webhook-defaults-error!
+  "Set error string for webhook defaults (nil clears)." 
+  [err]
+  (swap! webhook-defaults* assoc :error err)
+  nil)
+
+(defn set-webhook-defaults-ids!
+  "Replace default webhook ids.
+
+  Inputs:
+  - webhook-ids: vector of uuid strings" 
+  [webhook-ids]
+  (swap! webhook-defaults* assoc :webhook_ids (vec (or webhook-ids [])))
+  nil)
+
 (defonce api-credentials*
   (atom (api-creds.store/init-state)))
 

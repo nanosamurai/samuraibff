@@ -241,6 +241,8 @@
           ["/recordings/:session_id" {:get {:handler http.ui/index-handler}}]
           ["/live" {:get {:handler http.ui/index-handler}}]
           ["/api-credentials" {:get {:handler http.ui/index-handler}}]
+           ["/webhooks" {:get {:handler http.ui/index-handler}}]
+           ["/webhooks-defaults" {:get {:handler http.ui/index-handler}}]
 
            ;; --- OpenAPI + Swagger UI ---
           ["/openapi" {:tags ["openapi"]}
