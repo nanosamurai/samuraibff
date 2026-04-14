@@ -357,6 +357,14 @@ Not all persistence is handled by **samuraipersistor** service - the BFF still h
 - `POST /api/sessions` generates a **UUIDv7** session id and inserts a row into `sessions`.
 - Keycloak user mapping: `app_users.external_id` should contain Keycloak `sub`.
 
+### Session webhook overrides
+
+When creating a session (`POST /api/sessions`), the client can optionally provide
+`webhook_overrides` which is stored in `sessions.webhook_overrides` (JSONB).
+
+This is used to derive the session's webhook routing snapshot published to Kafka
+(`sessions.meta`).
+
 ### Unauthenticated / dev fallback
 
 If `:auth {:required? false}` we still need to satisfy the DB schema constraint `sessions.tenant_id NOT NULL`.
