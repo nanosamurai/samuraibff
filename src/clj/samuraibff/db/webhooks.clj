@@ -30,6 +30,50 @@
     (java.util UUID)
     (javax.sql DataSource)))
 
+(defn- parse-jsonb
+  "Parse a Postgres jsonb value returned by next.jdbc into a Clojure map.
+
+  Context:
+  - next.jdbc returns jsonb columns as `org.postgresql.util.PGobject` by default.
+  - HTTP responses (Malli coercion) require `static_headers` to be a plain map
+    of string->string (per schemas/StaticHeaders).
+
+  Inputs:
+  - x: nil | map | string | PGobject
+
+  Returns:
+  - map | nil
+
+  Notes:
+  - We intentionally parse with *string* keys (keyword? = false).
+  - If parsing fails, returns nil." 
+  [x]
+  (let [m (cond
+            (nil? x) nil
+            (map? x) x
+            (instance? PGobject x)
+            (let [v (.getValue ^PGobject x)]
+              (when (seq (str v))
+                (cheshire/parse-string (str v) false)))
+            (string? x)
+            (when (seq x)
+              (cheshire/parse-string x false))
+            :else
+            (try
+              (let [s (str x)]
+                (when (seq s)
+                  (cheshire/parse-string s false)))
+              (catch Exception _
+                nil)))]
+    (when (map? m)
+      (into {}
+            (keep (fn [[k v]]
+                    (let [k (some-> k str)
+                          v (some-> v str)]
+                      (when (and (seq k) (seq v))
+                        [k v]))))
+            m))))
+
 (defn- ->jsonb-pgobject
   "Convert a Clojure value into a Postgres jsonb PGobject.
 
@@ -44,6 +88,18 @@
     (.setType "jsonb")
     (.setValue (cheshire/generate-string x))))
 
+(defn- normalize-webhook-row
+  "Normalize a webhook row returned from the DB.
+
+  Inputs:
+  - row: map from next.jdbc
+
+  Returns:
+  - row with :static_headers parsed into a Clojure map (or nil)." 
+  [row]
+  (cond-> row
+    (contains? row :static_headers) (update :static_headers parse-jsonb)))
+
 (defn list-webhooks
   "List webhooks for a tenant.
 
@@ -52,41 +108,48 @@
   - tenant-id: UUID
 
   Returns:
-  - vector of webhook maps (unqualified lower keys)." 
+  - vector of webhook maps (unqualified lower keys).
+
+  Note:
+  - `static_headers` is returned as a Clojure map (parsed from jsonb)." 
   [^DataSource ds ^UUID tenant-id]
   (when-not (and ds (instance? UUID tenant-id))
     (throw (ex-info "list-webhooks missing required params" {:tenant-id tenant-id})))
-  (jdbc/execute!
-    ds
-    ["SELECT id, tenant_id, name, url, enabled, auth_type,
-             hmac_secret_ref, oauth_client_secret_ref, api_key_ref,
-             oauth_token_url, oauth_client_id, oauth_scopes,
-             api_key_header_name, api_key_prefix,
-             static_headers, created_at
-        FROM webhooks
-       WHERE tenant_id = ?
-       ORDER BY created_at DESC"
-     tenant-id]
-    {:builder-fn rs/as-unqualified-lower-maps}))
-
+  (->> (jdbc/execute!
+        ds
+        ["SELECT id, tenant_id, name, url, enabled, auth_type,
+                 hmac_secret_ref, oauth_client_secret_ref, api_key_ref,
+                 oauth_token_url, oauth_client_id, oauth_scopes,
+                 api_key_header_name, api_key_prefix,
+                 static_headers, created_at
+            FROM webhooks
+           WHERE tenant_id = ?
+           ORDER BY created_at DESC"
+         tenant-id]
+        {:builder-fn rs/as-unqualified-lower-maps})
+       (mapv normalize-webhook-row)))
 (defn find-webhook
   "Find a single webhook by id for a tenant.
 
-  Returns: row map or nil." 
+  Returns: row map or nil.
+
+  Note:
+  - `static_headers` is returned as a Clojure map (parsed from jsonb)." 
   [^DataSource ds ^UUID tenant-id ^UUID webhook-id]
   (when-not (and ds (instance? UUID tenant-id) (instance? UUID webhook-id))
     (throw (ex-info "find-webhook missing required params" {:tenant-id tenant-id :webhook-id webhook-id})))
-  (jdbc/execute-one!
-    ds
-    ["SELECT id, tenant_id, name, url, enabled, auth_type,
-             hmac_secret_ref, oauth_client_secret_ref, api_key_ref,
-             oauth_token_url, oauth_client_id, oauth_scopes,
-             api_key_header_name, api_key_prefix,
-             static_headers, created_at
-        FROM webhooks
-       WHERE tenant_id = ? AND id = ?"
-     tenant-id webhook-id]
-    {:builder-fn rs/as-unqualified-lower-maps}))
+  (some-> (jdbc/execute-one!
+           ds
+           ["SELECT id, tenant_id, name, url, enabled, auth_type,
+                    hmac_secret_ref, oauth_client_secret_ref, api_key_ref,
+                    oauth_token_url, oauth_client_id, oauth_scopes,
+                    api_key_header_name, api_key_prefix,
+                    static_headers, created_at
+               FROM webhooks
+              WHERE tenant_id = ? AND id = ?"
+            tenant-id webhook-id]
+           {:builder-fn rs/as-unqualified-lower-maps})
+          normalize-webhook-row))
 
 (defn insert-webhook!
   "Insert a webhook row.
