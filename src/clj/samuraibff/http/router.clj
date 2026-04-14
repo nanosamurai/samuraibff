@@ -415,9 +415,15 @@
                                  503 {:body schemas/ApiErrorResponse}}
                      :handler (http.webhooks/create-webhook-handler deps)}}]
 
-            ;; Constrain :id to UUID so it doesn't conflict with literal subpaths
-            ;; like /webhooks/defaults.
-            ["/:id{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}"
+            ;; NOTE: We intentionally do NOT constrain :id with a regex here.
+            ;; Reitit uses `{...}` to denote path parameter constraints, which
+            ;; conflicts with common UUID regexes that include quantifiers like
+            ;; `{8}` / `{4}`.
+            ;;
+            ;; Instead we rely on handler-level UUID parsing (`parse-uuid-or-nil`)
+            ;; and on route ordering (the literal `/defaults` route is matched
+            ;; before this parameter route).
+            ["/:id"
              {:parameters {:path [:map [:id :string]]}}
              ["" {:put {:summary "Update webhook"
                         :description "Updates a webhook endpoint and its subscriptions. Secrets are write-only."

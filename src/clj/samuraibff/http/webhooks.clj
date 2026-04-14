@@ -219,7 +219,8 @@
                       (some? name) (assoc :name (str (str/trim (str name))))
                       (some? url) (assoc :url (str (str/trim (str url))))
                       (some? enabled) (assoc :enabled (boolean enabled))
-                      (some? auth) (assoc :auth_type (name (get auth :type))
+                      ;; NOTE: do not call `name` here because it's shadowed by the request field.
+                      (some? auth) (assoc :auth_type (clojure.core/name (get auth :type))
                                           :oauth_token_url (get auth :token_url)
                                           :oauth_client_id (get auth :client_id)
                                           :oauth_scopes (get auth :scopes)
