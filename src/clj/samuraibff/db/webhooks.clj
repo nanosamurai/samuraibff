@@ -26,8 +26,23 @@
     [next.jdbc :as jdbc]
     [next.jdbc.result-set :as rs])
   (:import
+    (org.postgresql.util PGobject)
     (java.util UUID)
     (javax.sql DataSource)))
+
+(defn- ->jsonb-pgobject
+  "Convert a Clojure value into a Postgres jsonb PGobject.
+
+  Inputs:
+  - x: any JSON-serializable Clojure value
+
+  Returns:
+  - org.postgresql.util.PGobject with type jsonb" 
+  ^PGobject
+  [x]
+  (doto (PGobject.)
+    (.setType "jsonb")
+    (.setValue (cheshire/generate-string x))))
 
 (defn list-webhooks
   "List webhooks for a tenant.
@@ -90,16 +105,21 @@
                  (seq (str name)) (seq (str url)) (seq (str auth-type)))
     (throw (ex-info "insert-webhook! missing required params" {:webhook webhook})))
   (let [static-headers (:static_headers webhook)
-        static-headers-json (when (some? static-headers)
-                              (cheshire/generate-string (or static-headers {})))
+        static-headers-pg (when (some? static-headers)
+                            (->jsonb-pgobject (or static-headers {})))
 
+        ;; IMPORTANT:
+        ;; - do NOT use `[:raw "(?::jsonb)"]` + manual param `conj` here.
+        ;;   That is fragile because the SQL placeholder order depends on map
+        ;;   iteration order (hash-map), which can vary when optional keys exist.
+        ;; - Use a PGobject parameter instead.
         values (cond-> {:id id
                         :tenant_id tenant-id
                         :name (str name)
                         :url (str url)
                         :enabled (boolean enabled)
                         :auth_type (str auth-type)}
-                 (some? static-headers) (assoc :static_headers [:raw "(?::jsonb)"])
+                 (some? static-headers-pg) (assoc :static_headers static-headers-pg)
                  :always (merge (select-keys webhook
                                              [:hmac_secret_ref
                                               :oauth_client_secret_ref
@@ -111,8 +131,7 @@
                                               :api_key_prefix])))
         q (-> (h/insert-into :webhooks)
               (h/values [values]))
-        sqlvec (cond-> (sql/format q)
-                 (some? static-headers) (conj static-headers-json))]
+        sqlvec (sql/format q)]
     (jdbc/execute-one! ds sqlvec)
     {:id id}))
 
@@ -130,12 +149,15 @@
   [^DataSource ds ^UUID tenant-id ^UUID webhook-id patch]
   (when-not (and ds (instance? UUID tenant-id) (instance? UUID webhook-id))
     (throw (ex-info "update-webhook! missing required params" {:tenant-id tenant-id :webhook-id webhook-id})))
-  (let [allowed (select-keys patch
-                            [:name :url :enabled :auth_type
-                             :hmac_secret_ref :oauth_client_secret_ref :api_key_ref
-                             :oauth_token_url :oauth_client_id :oauth_scopes
-                             :api_key_header_name :api_key_prefix
-                             :static_headers])
+  (let [allowed0 (select-keys patch
+                             [:name :url :enabled :auth_type
+                              :hmac_secret_ref :oauth_client_secret_ref :api_key_ref
+                              :oauth_token_url :oauth_client_id :oauth_scopes
+                              :api_key_header_name :api_key_prefix
+                              :static_headers])
+        allowed (cond-> allowed0
+                  (contains? allowed0 :static_headers)
+                  (assoc :static_headers (->jsonb-pgobject (or (:static_headers allowed0) {}))))
         q (-> (h/update :webhooks)
               (h/set allowed)
               (h/where [:= :tenant_id tenant-id]
