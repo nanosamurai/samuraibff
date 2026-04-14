@@ -382,7 +382,7 @@
       [:div
        [:div {:class "page-title"} "Webhooks"]
        [:div {:class "muted"}
-        "Manage tenant-scoped outbound webhook endpoints and event subscriptions."]
+        "Manage your webhooks here - don't call us, we'll call you!"]
        (when (seq error)
          [:div {:class "badge bad" :style {:marginTop "10px"}} error])]
       [:div {:class "row"}
