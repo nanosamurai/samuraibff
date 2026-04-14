@@ -191,7 +191,18 @@
           ;; Publish session routing snapshot (compacted topic) best-effort.
           (when (and ds kafka-producer)
             (try
-              (let [meta (webhooks.snapshot/resolve-routing-snapshot ds tenant-id-uuid session-uuid webhook_overrides)]
+              (log/info "Resolving sessions.meta routing snapshot" {:tenant_id (str tenant-id-uuid)
+                                                                   :session_id session-id
+                                                                   :webhook_overrides_present? (some? webhook_overrides)})
+              (let [meta (webhooks.snapshot/resolve-routing-snapshot ds tenant-id-uuid session-uuid webhook_overrides)
+                    targets (get-in meta [:routing :targets_by_event_type])
+                    targets-count (when (map? targets)
+                                    (reduce + 0 (map (comp count val) targets)))]
+                (log/info "Publishing sessions.meta" {:tenant_id (str tenant-id-uuid)
+                                                     :session_id session-id
+                                                     :schema_version (:schema_version meta)
+                                                     :event_types_count (count (keys (or targets {})))
+                                                     :targets_count (or targets-count 0)})
                 (kafka.producer/send-sessions-meta! kafka-producer session-id meta {:tenant-id (str tenant-id-uuid)}))
               (catch Exception e
                 (log/warn e "Failed publishing sessions.meta" {:tenant_id (str tenant-id-uuid)
