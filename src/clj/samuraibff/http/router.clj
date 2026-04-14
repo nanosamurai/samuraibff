@@ -27,8 +27,8 @@
    [samuraibff.http.internal :as http.internal]
    [samuraibff.http.speaker-enrollment :as http.speaker-enrollment]
    [samuraibff.http.speakers :as http.speakers]
-    [samuraibff.http.ui :as http.ui]
-    [samuraibff.http.webhooks :as http.webhooks]
+   [samuraibff.http.ui :as http.ui]
+   [samuraibff.http.webhooks :as http.webhooks]
    [samuraibff.http.middleware.observability :as http.obs]
    [samuraibff.observability.metrics :as metrics]
    [samuraibff.schemas :as schemas]
@@ -380,6 +380,22 @@
            ["/webhooks"
             {}
 
+            ["/defaults"
+             {:get {:summary "Get webhook defaults"
+                    :description "Returns tenant defaults (webhook ids applied by default to new sessions)."
+                    :responses {200 {:body schemas/WebhookDefaultsResponse}
+                                403 {:body schemas/ApiErrorResponse}
+                                503 {:body schemas/ApiErrorResponse}}
+                    :handler (http.webhooks/get-defaults-handler deps)}
+              :put {:summary "Set webhook defaults"
+                    :description "Replaces tenant webhook defaults."
+                    :parameters {:body schemas/WebhookDefaultsRequest}
+                    :responses {200 {:body schemas/ApiOkResponse}
+                                400 {:body schemas/ApiErrorResponse}
+                                403 {:body schemas/ApiErrorResponse}
+                                503 {:body schemas/ApiErrorResponse}}
+                    :handler (http.webhooks/set-defaults-handler deps)}}]
+
             [""
              {:get {:summary "List webhooks"
                     :description "Lists configured webhook endpoints for the current tenant."
@@ -397,40 +413,27 @@
                                  503 {:body schemas/ApiErrorResponse}}
                      :handler (http.webhooks/create-webhook-handler deps)}}]
 
-            ["/:id" {:parameters {:path [:map [:id :string]]}}
+            ;; Constrain :id to UUID so it doesn't conflict with literal subpaths
+            ;; like /webhooks/defaults.
+            ["/:id{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}"
+             {:parameters {:path [:map [:id :string]]}}
              ["" {:put {:summary "Update webhook"
-                         :description "Updates a webhook endpoint and its subscriptions. Secrets are write-only."
-                         :parameters {:body schemas/UpdateWebhookRequest}
-                         :responses {200 {:body schemas/ApiOkResponse}
-                                     400 {:body schemas/ApiErrorResponse}
-                                     403 {:body schemas/ApiErrorResponse}
-                                     404 {:body schemas/ApiErrorResponse}
-                                     503 {:body schemas/ApiErrorResponse}}
-                         :handler (http.webhooks/update-webhook-handler deps)}
-                   :delete {:summary "Delete webhook"
-                            :description "Deletes a webhook endpoint."
-                            :responses {200 {:body schemas/ApiOkResponse}
-                                        400 {:body schemas/ApiErrorResponse}
-                                        403 {:body schemas/ApiErrorResponse}
-                                        404 {:body schemas/ApiErrorResponse}
-                                        503 {:body schemas/ApiErrorResponse}}
-                            :handler (http.webhooks/delete-webhook-handler deps)}}]]]
-
-           ["/webhooks/defaults"
-            {"" {:get {:summary "Get webhook defaults"
-                       :description "Returns tenant defaults (webhook ids applied by default to new sessions)."
-                       :responses {200 {:body schemas/WebhookDefaultsResponse}
-                                   403 {:body schemas/ApiErrorResponse}
-                                   503 {:body schemas/ApiErrorResponse}}
-                       :handler (http.webhooks/get-defaults-handler deps)}
-                  :put {:summary "Set webhook defaults"
-                        :description "Replaces tenant webhook defaults."
-                        :parameters {:body schemas/WebhookDefaultsRequest}
+                        :description "Updates a webhook endpoint and its subscriptions. Secrets are write-only."
+                        :parameters {:body schemas/UpdateWebhookRequest}
                         :responses {200 {:body schemas/ApiOkResponse}
                                     400 {:body schemas/ApiErrorResponse}
                                     403 {:body schemas/ApiErrorResponse}
+                                    404 {:body schemas/ApiErrorResponse}
                                     503 {:body schemas/ApiErrorResponse}}
-                        :handler (http.webhooks/set-defaults-handler deps)}}}]
+                        :handler (http.webhooks/update-webhook-handler deps)}
+                  :delete {:summary "Delete webhook"
+                           :description "Deletes a webhook endpoint."
+                           :responses {200 {:body schemas/ApiOkResponse}
+                                       400 {:body schemas/ApiErrorResponse}
+                                       403 {:body schemas/ApiErrorResponse}
+                                       404 {:body schemas/ApiErrorResponse}
+                                       503 {:body schemas/ApiErrorResponse}}
+                           :handler (http.webhooks/delete-webhook-handler deps)}}]]]
 
            ["/sessions/:session_id"
             {:patch {:summary "Rename session"
@@ -558,7 +561,13 @@
            ["/audio" {:get {:handler (ws.audio/handler deps)}}]
            ["/events" {:get {:handler (ws.events/handler deps)}}]]]
 
-         {:data {:muuntaja mc/instance
+         {:conflicts (fn [_conflicts]
+                       ;; Reitit conflict detection is conservative and reports a conflict
+                       ;; between literal and parameter subpaths under the same parent.
+                       ;; We rely on normal matching semantics where the literal route
+                       ;; (/webhooks/defaults) wins over the parameter route (/webhooks/:id).
+                       nil)
+          :data {:muuntaja mc/instance
                  :coercion reitit.coercion.malli/coercion
                  :malli/options {:error-keys #(mu/keys schemas/HealthCheckResponse)}
                  :swagger {:id ::api}

@@ -36,14 +36,14 @@
   - config: full config map
 
   Config keys (under [:secrets :k8s]):
-  - :namespace string (default "default")
-  - :key string (default "value")
-  - :name-prefix string (default "nanosamurai")
+  - :namespace string (default 'default')
+  - :key string (default 'value')
+  - :name-prefix string (default 'nanosamurai')
 
   Returns: SecretStore.
 
   WARNING:
-  - This is currently a stub; it does not call Kubernetes API." 
+  - This is currently a stub; it does not call Kubernetes API."
   [config]
   (let [k8s (get-in config [:secrets :k8s] {})
         namespace (or (secrets.core/blank->nil (:namespace k8s)) "default")
