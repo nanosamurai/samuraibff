@@ -80,6 +80,10 @@
         (is (= body (schemas/validate! schemas/WebhooksListResponse body)))
         (is (= (str tenant-uuid) (:tenant_id body)))
         (is (= 1 (count (:items body))))
+        (is (= ["recording.finished"
+                "transcript.final.ready"
+                "transcript.refined.segment"]
+               (get-in body [:items 0 :subscriptions])))
         (is (= {} (get-in body [:items 0 :static_headers])))))))
 
 (deftest put-webhook-route-path-param-is-id-integration-test
