@@ -20,6 +20,7 @@ For the data model, please look at proto at resources/proto/stream.proto and als
 - DO NOT EVER run `clojure -Spath` or similar command to list entire classpath, you would burn too many tokens and rot your context without any significant benefit
 - **IMPORTANT:** If you encounter unbalanced parentheses, brackets, or braces in any `.clj`, `.cljs`, `.cljc`, `.cljd`, or EDN-like file: Do NOT try to manually repair them by repeated editing. Run `clj-paren-repair <path>` on the affected file. After repair, re-read the file and continue.
 - DO NOT create huge namespaces. If a namespace has 1000 LoC, you are doing something wrong and are likely to run into issues. Break dow the namespace into smaller logical namespaces instead.
+- USE LOGGING FFS!!! Whenever you are doing something important from the business logic perspective, use log info and log what are you about to do, and then if you have done it successfully - for instance "Saving webhook data into database {***map with web hook data****}...." 
 
 ## Clojure / ClojureScript editing rules
 
