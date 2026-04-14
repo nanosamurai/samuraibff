@@ -80,6 +80,7 @@
     (try
       (let [tenant-uuid (require-tenant-uuid! req)
             ds (:ds db)]
+        (log/info "Listing webhooks" {:tenant_id (str tenant-uuid)})
         (when-not ds
           (throw (ex-info "Missing datasource" {:type :samuraibff.http/missing-datasource})))
         (let [items (db.webhooks/list-webhooks ds tenant-uuid)
@@ -166,6 +167,14 @@
                    :api_key_header_name (get auth :header_name)
                    :api_key_prefix (get auth :prefix)
                    :static_headers (normalize-static-headers static_headers)}]
+          (log/info "Creating webhook" {:tenant_id (str tenant-uuid)
+                                        :webhook_id (str webhook-id)
+                                        :name name
+                                        :url url
+                                        :auth_type (clojure.core/name auth-type)
+                                        :enabled (boolean enabled)
+                                        :subscriptions_count (count subscriptions)
+                                        :static_headers_count (count (or static_headers {}))})
           (db.webhooks/insert-webhook! ds row)
           (db.webhooks/replace-subscriptions! ds tenant-uuid webhook-id subscriptions)
           (json-response 200 {:ok true
@@ -256,6 +265,8 @@
                   (throw (ex-info "Missing datasource" {:type :samuraibff.http/missing-datasource})))
               webhook-id (or (parse-uuid-or-nil id-str)
                              (throw (ex-info "Invalid id" {:type :samuraibff.http/invalid-id})))
+              _ (log/info "Deleting webhook" {:tenant_id (str tenant-uuid)
+                                              :webhook_id (str webhook-id)})
               {:keys [deleted?]} (db.webhooks/delete-webhook! ds tenant-uuid webhook-id)]
           (if deleted?
             (json-response 200 {:ok true})
@@ -285,6 +296,8 @@
             _ (when-not ds
                 (throw (ex-info "Missing datasource" {:type :samuraibff.http/missing-datasource})))
             {:keys [webhook_ids]} (db.webhooks/get-defaults ds tenant-uuid)]
+        (log/info "Reading webhook defaults" {:tenant_id (str tenant-uuid)
+                                              :webhook_ids_count (count webhook_ids)})
         (json-response 200 {:ok true
                             :tenant_id (str tenant-uuid)
                             :webhook_ids (mapv str webhook_ids)}))
@@ -315,6 +328,8 @@
               ids (->> webhook_ids
                        (keep parse-uuid-or-nil)
                        vec)]
+          (log/info "Setting webhook defaults" {:tenant_id (str tenant-uuid)
+                                                :webhook_ids_count (count ids)})
           (db.webhooks/set-defaults! ds tenant-uuid ids)
           (json-response 200 {:ok true}))
 

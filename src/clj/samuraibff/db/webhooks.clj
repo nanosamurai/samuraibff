@@ -20,6 +20,7 @@
   All functions are tenant-scoped: tenant-id must always be provided.
   "
   (:require
+    [cheshire.core :as cheshire]
     [honey.sql :as sql]
     [honey.sql.helpers :as h]
     [next.jdbc :as jdbc]
@@ -88,25 +89,30 @@
   (when-not (and ds (instance? UUID id) (instance? UUID tenant-id)
                  (seq (str name)) (seq (str url)) (seq (str auth-type)))
     (throw (ex-info "insert-webhook! missing required params" {:webhook webhook})))
-  (let [values (-> {:id id
-                    :tenant_id tenant-id
-                    :name (str name)
-                    :url (str url)
-                    :enabled (boolean enabled)
-                    :auth_type (str auth-type)}
-                   (merge (select-keys webhook
-                                       [:hmac_secret_ref
-                                        :oauth_client_secret_ref
-                                        :api_key_ref
-                                        :oauth_token_url
-                                        :oauth_client_id
-                                        :oauth_scopes
-                                        :api_key_header_name
-                                        :api_key_prefix
-                                        :static_headers])))
+  (let [static-headers (:static_headers webhook)
+        static-headers-json (when (some? static-headers)
+                              (cheshire/generate-string (or static-headers {})))
+
+        values (cond-> {:id id
+                        :tenant_id tenant-id
+                        :name (str name)
+                        :url (str url)
+                        :enabled (boolean enabled)
+                        :auth_type (str auth-type)}
+                 (some? static-headers) (assoc :static_headers [:raw "(?::jsonb)"])
+                 :always (merge (select-keys webhook
+                                             [:hmac_secret_ref
+                                              :oauth_client_secret_ref
+                                              :api_key_ref
+                                              :oauth_token_url
+                                              :oauth_client_id
+                                              :oauth_scopes
+                                              :api_key_header_name
+                                              :api_key_prefix])))
         q (-> (h/insert-into :webhooks)
               (h/values [values]))
-        sqlvec (sql/format q)]
+        sqlvec (cond-> (sql/format q)
+                 (some? static-headers) (conj static-headers-json))]
     (jdbc/execute-one! ds sqlvec)
     {:id id}))
 
