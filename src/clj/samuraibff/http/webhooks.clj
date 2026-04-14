@@ -84,11 +84,13 @@
           (throw (ex-info "Missing datasource" {:type :samuraibff.http/missing-datasource})))
         (let [items (db.webhooks/list-webhooks ds tenant-uuid)
               items' (mapv (fn [w]
-                             ;; never expose secret values (we store refs only anyway)
-                             (-> w
-                                 (update :id str)
-                                 (update :tenant_id str)
-                                 (update :created_at str)))
+                             (let [subs (db.webhooks/list-subscriptions ds tenant-uuid (:id w))]
+                               ;; never expose secret values (we store refs only anyway)
+                               (-> w
+                                   (assoc :subscriptions (vec subs))
+                                   (update :id str)
+                                   (update :tenant_id str)
+                                   (update :created_at str))))
                            items)]
           (json-response 200 {:ok true
                               :tenant_id (str tenant-uuid)
