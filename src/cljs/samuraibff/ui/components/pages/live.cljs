@@ -168,6 +168,8 @@
                               (set-settings-open! (not (true? settings-open?)))))}
        "⚙"]]]))
 
+(declare webhook-routing-panel stream-controls-panel)
+
 (defn- session-settings-panel
   "Single settings panel shown from the gear button.
 
