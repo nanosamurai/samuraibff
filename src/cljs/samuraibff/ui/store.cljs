@@ -25,6 +25,20 @@
   (atom {:id ""
          :title ""
          :lang "cs"
+         ;; Session-scoped webhook routing overrides.
+         ;;
+         ;; Shape matches schemas/CreateSessionRequest:
+         ;; {:use_defaults boolean
+         ;;  :webhook_ids #{<uuid-string> ...}
+         ;;  :disable_event_types #{<event-type> ...}}
+         ;;
+         ;; Notes:
+         ;; - We keep :webhook_ids as a set for easy checkbox toggling.
+         ;; - UI currently does not expose :disable_event_types, but we keep it
+         ;;   here to avoid churn when we decide to surface it.
+         :webhook_overrides {:use_defaults true
+                             :webhook_ids #{}
+                             :disable_event_types #{}}
          ;; Stream controls (sent at /ws/audio connect).
          :controls {:realtime true
                     :refined true
@@ -47,6 +61,40 @@
   Returns: nil."
   [k v]
   (swap! session* assoc-in [:controls k] v)
+  nil)
+
+(defn set-session-webhook-overrides-use-defaults!
+  "Set whether tenant defaults should be used for newly created sessions.
+
+  This mutates `session*` under :webhook_overrides.
+
+  Inputs:
+  - use-defaults?: boolean
+
+  Returns: nil."
+  [use-defaults?]
+  (swap! session* assoc-in [:webhook_overrides :use_defaults] (boolean use-defaults?))
+  nil)
+
+(defn set-session-webhook-id-selected!
+  "Select/unselect a webhook id for the next session creation.
+
+  Inputs:
+  - webhook-id: string UUID
+  - selected?: boolean
+
+  Returns: nil."
+  [webhook-id selected?]
+  (let [sid (str (or webhook-id ""))]
+    (when (seq sid)
+      (swap! session*
+             (fn [st]
+               (let [path [:webhook_overrides :webhook_ids]
+                     ids (set (get-in st path #{}))
+                     ids' (if (true? selected?)
+                            (conj ids sid)
+                            (disj ids sid))]
+                 (assoc-in st path ids'))))))
   nil)
 
 (defonce ws-status*
@@ -216,13 +264,13 @@
          :error nil}))
 
 (defn set-webhooks-loading!
-  "Set loading flag for the webhooks list." 
+  "Set loading flag for the webhooks list."
   [loading?]
   (swap! webhooks* assoc :loading? (boolean loading?))
   nil)
 
 (defn set-webhooks-error!
-  "Set error string for the webhooks list (nil clears)." 
+  "Set error string for the webhooks list (nil clears)."
   [err]
   (swap! webhooks* assoc :error err)
   nil)
@@ -231,13 +279,13 @@
   "Replace the current webhooks list.
 
   Inputs:
-  - items: vector of webhook item maps" 
+  - items: vector of webhook item maps"
   [items]
   (swap! webhooks* assoc :items (vec (or items [])))
   nil)
 
 (defn remove-webhook-item!
-  "Remove a webhook by id from store list." 
+  "Remove a webhook by id from store list."
   [webhook-id]
   (swap! webhooks*
          (fn [st]
@@ -246,13 +294,13 @@
   nil)
 
 (defn set-webhook-defaults-loading!
-  "Set loading flag for webhook defaults." 
+  "Set loading flag for webhook defaults."
   [loading?]
   (swap! webhook-defaults* assoc :loading? (boolean loading?))
   nil)
 
 (defn set-webhook-defaults-error!
-  "Set error string for webhook defaults (nil clears)." 
+  "Set error string for webhook defaults (nil clears)."
   [err]
   (swap! webhook-defaults* assoc :error err)
   nil)
@@ -261,7 +309,7 @@
   "Replace default webhook ids.
 
   Inputs:
-  - webhook-ids: vector of uuid strings" 
+  - webhook-ids: vector of uuid strings"
   [webhook-ids]
   (swap! webhook-defaults* assoc :webhook_ids (vec (or webhook-ids [])))
   nil)

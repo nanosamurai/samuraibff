@@ -26,7 +26,7 @@
 
   All functions return JS Promises."
   (:require
-    [clojure.string :as str]))
+   [clojure.string :as str]))
 
 (defn- ensure-ok!
   "Ensure a fetch Response is OK.
@@ -44,23 +44,26 @@
   "Create a new session via backend.
 
   Returns:
-  - Promise resolving to {:session_id <string> :title <string>}" 
+  - Promise resolving to {:session_id <string> :title <string>}"
   ([]
    (create-session! {}))
-  ([{:keys [title]}]
+  ([{:keys [title webhook_overrides]}]
    (-> (js/fetch "/api/sessions"
                  #js {:method "POST"
                       :headers #js {"content-type" "application/json"}
-                      :body (.stringify js/JSON #js {:title (or title "")})})
-      (.then ensure-ok!)
-      (.then (fn [res] (.json res)))
-      (.then (fn [body]
-               (let [sid (aget body "session_id")
-                     t (aget body "title")]
-                 (when-not sid
-                   (throw (js/Error. "Missing session_id in response")))
-                 {:session_id sid
-                  :title t}))))))
+                      :body (.stringify js/JSON
+                                        (clj->js (cond-> {:title (or title "")}
+                                                   (some? webhook_overrides)
+                                                   (assoc :webhook_overrides webhook_overrides))))})
+       (.then ensure-ok!)
+       (.then (fn [res] (.json res)))
+       (.then (fn [body]
+                (let [sid (aget body "session_id")
+                      t (aget body "title")]
+                  (when-not sid
+                    (throw (js/Error. "Missing session_id in response")))
+                  {:session_id sid
+                   :title t}))))))
 
 (defn rename-session!
   "Rename a session title.
@@ -70,7 +73,7 @@
   - title: string
 
   Returns:
-  - Promise resolving to response map {:ok boolean :session_id ... :title ...}" 
+  - Promise resolving to response map {:ok boolean :session_id ... :title ...}"
   [session-id title]
   (-> (js/fetch (str "/api/sessions/" (js/encodeURIComponent (or session-id "")))
                 #js {:method "PATCH"
@@ -88,7 +91,7 @@
   - Promise resolving to response map with keys:
       :items (vector)
 
-  Throws on non-2xx." 
+  Throws on non-2xx."
   ([]
    (list-recordings! {}))
   ([{:keys [limit offset]}]
@@ -98,8 +101,8 @@
          qs (when (seq params)
               (->> params
                    (map (fn [[k v]] (str (js/encodeURIComponent k)
-                                        "="
-                                        (js/encodeURIComponent v))))
+                                         "="
+                                         (js/encodeURIComponent v))))
                    (str/join "&")))
          url (str "/api/recordings" (when qs (str "?" qs)))]
      (-> (js/fetch url)
@@ -118,7 +121,7 @@
   - Promise resolving to map:
       {:session {...}
        :transcripts {:refined [...] :final [...]}}
-  " 
+  "
   [session-id]
   (-> (js/fetch (str "/api/recordings/" (js/encodeURIComponent (or session-id ""))))
       (.then ensure-ok!)
@@ -133,7 +136,7 @@
   - session-id: string
 
   Returns:
-  - string URL (relative)" 
+  - string URL (relative)"
   [session-id]
   (str "/api/recordings/" (js/encodeURIComponent (or session-id "")) "/audio"))
 
@@ -144,7 +147,7 @@
   - session-id: string
 
   Returns:
-  - Promise resolving to response map." 
+  - Promise resolving to response map."
   [session-id]
   (-> (js/fetch (str "/api/recordings/" (js/encodeURIComponent (or session-id "")))
                 #js {:method "DELETE"})
@@ -157,7 +160,7 @@
   "Fetch speakers for the current tenant.
 
   Returns:
-  - Promise resolving to vector of speaker maps." 
+  - Promise resolving to vector of speaker maps."
   []
   (-> (js/fetch "/api/speakers")
       (.then ensure-ok!)
@@ -174,7 +177,7 @@
   - file JS File
 
   Returns:
-  - Promise resolving to speaker map." 
+  - Promise resolving to speaker map."
   [label file]
   (let [data (js/FormData.)]
     (.append data "label" (or label ""))
@@ -191,7 +194,7 @@
   - speaker-id string
 
   Returns:
-  - Promise resolving to response body." 
+  - Promise resolving to response body."
   [speaker-id]
   (-> (js/fetch (str "/api/speakers/" speaker-id) #js {:method "DELETE"})
       (.then ensure-ok!)
@@ -208,7 +211,7 @@
     - label: string
 
   Returns:
-  - Promise resolving to response map (keyword keys)." 
+  - Promise resolving to response map (keyword keys)."
   [{:keys [session-id start-s end-s label]}]
   (-> (js/fetch "/api/speaker-enrollment/from-recording"
                 #js {:method "POST"
@@ -230,7 +233,7 @@
   - Promise resolving to response map with keys:
       :items (vector)
 
-  Throws on non-2xx." 
+  Throws on non-2xx."
   []
   (-> (js/fetch "/api/api-credentials")
       (.then ensure-ok!)
@@ -247,7 +250,7 @@
   - Promise resolving to response map:
       {:ok true
        :tenant_id <uuid>
-       :items [ ... ]}" 
+       :items [ ... ]}"
   []
   (-> (js/fetch "/api/webhooks")
       (.then ensure-ok!)
@@ -262,7 +265,7 @@
   - payload: map (will be JSON encoded)
 
   Returns:
-  - Promise resolving to response map." 
+  - Promise resolving to response map."
   [payload]
   (-> (js/fetch "/api/webhooks"
                 #js {:method "POST"
@@ -281,7 +284,7 @@
   - patch: map (JSON)
 
   Returns:
-  - Promise resolving to response map." 
+  - Promise resolving to response map."
   [webhook-id patch]
   (-> (js/fetch (str "/api/webhooks/" (js/encodeURIComponent (or webhook-id "")))
                 #js {:method "PUT"
@@ -299,7 +302,7 @@
   - webhook-id string UUID
 
   Returns:
-  - Promise resolving to response map." 
+  - Promise resolving to response map."
   [webhook-id]
   (-> (js/fetch (str "/api/webhooks/" (js/encodeURIComponent (or webhook-id "")))
                 #js {:method "DELETE"})
@@ -312,7 +315,7 @@
   "Get tenant webhook defaults.
 
   Returns:
-  - Promise resolving to response map {:ok true :webhook_ids [..]}" 
+  - Promise resolving to response map {:ok true :webhook_ids [..]}"
   []
   (-> (js/fetch "/api/webhooks/defaults")
       (.then ensure-ok!)
@@ -327,7 +330,7 @@
   - webhook-ids: vector of uuid strings
 
   Returns:
-  - Promise resolving to response map." 
+  - Promise resolving to response map."
   [webhook-ids]
   (-> (js/fetch "/api/webhooks/defaults"
                 #js {:method "PUT"
@@ -353,7 +356,7 @@
        :client_secret <string>}
 
   Notes:
-  - The secret is returned only once; callers must treat it as transient." 
+  - The secret is returned only once; callers must treat it as transient."
   [name]
   (-> (js/fetch "/api/api-credentials"
                 #js {:method "POST"
@@ -375,7 +378,7 @@
       {:ok true :credential_id <uuid-string> :client_id <string> :client_secret <string>}
 
   Notes:
-  - The new secret is returned only once; callers must treat it as transient." 
+  - The new secret is returned only once; callers must treat it as transient."
   [credential-id]
   (-> (js/fetch (str "/api/api-credentials/" (js/encodeURIComponent (or credential-id "")) "/rotate")
                 #js {:method "POST"})
@@ -391,7 +394,7 @@
   - credential-id: string (UUID)
 
   Returns:
-  - Promise resolving to map (e.g. {:ok true ...})." 
+  - Promise resolving to map (e.g. {:ok true ...})."
   [credential-id]
   (-> (js/fetch (str "/api/api-credentials/" (js/encodeURIComponent (or credential-id "")))
                 #js {:method "DELETE"})

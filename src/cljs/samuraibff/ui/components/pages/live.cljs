@@ -14,6 +14,31 @@
    [samuraibff.ui.ws :as ws]
    ["react" :as react]))
 
+(defn- resolved-webhook-overrides
+  "Compute the `webhook_overrides` request body for `POST /api/sessions`.
+
+  Inputs:
+  - session: map from `store/session*`
+
+  Returns:
+  - nil when the UI is at the default state (so we omit the field entirely)
+  - otherwise a JSON-friendly map matching schemas/CreateSessionRequest"
+  [session]
+  (let [ov (or (:webhook_overrides session) {})
+        use-defaults? (if (contains? ov :use_defaults)
+                        (boolean (:use_defaults ov))
+                        true)
+        webhook-ids (set (or (:webhook_ids ov) #{}))
+        disable-event-types (set (or (:disable_event_types ov) #{}))
+        default? (and (true? use-defaults?)
+                      (empty? webhook-ids)
+                      (empty? disable-event-types))]
+    (when-not default?
+      (cond-> {:use_defaults use-defaults?
+               :webhook_ids (vec (sort webhook-ids))}
+        (seq disable-event-types)
+        (assoc :disable_event_types (vec (sort disable-event-types)))))))
+
 (defn- status-dot-class
   "Translate websocket status keyword to CSS class name."
   [status]
@@ -45,23 +70,26 @@
 
   This is the top strip of the Live Recording page."
   []
-  (let [{:keys [id lang]} (hooks/use-atom store/session*)
+  (let [session (hooks/use-atom store/session*)
+        {:keys [id lang]} session
         running? (hooks/use-atom store/running?*)]
     [:div {:class "controls"}
      [:div {:class "controls-row"}
       [:button {:class "btn"
                 :on-click (fn [_]
                             (store/append-log! "[ui] creating session...")
-                            (-> (api/create-session! {:title (get @store/session* :title "")})
-                                (.then (fn [{:keys [session_id title]}]
-                                         (store/set-session-id! session_id)
-                                         (store/set-session-title! (or title ""))
-                                         (store/add-recording! {:session_id session_id
-                                                                :created_at_ms (util/now-ms)
-                                                                :status :ready})
-                                         (store/append-log! (str "[ui] new session " session_id))))
-                                (.catch (fn [e]
-                                          (store/append-log! (str "[ui] failed creating session: " e))))))}
+                            (let [overrides (resolved-webhook-overrides @store/session*)]
+                              (-> (api/create-session! {:title (get @store/session* :title "")
+                                                        :webhook_overrides overrides})
+                                  (.then (fn [{:keys [session_id title]}]
+                                           (store/set-session-id! session_id)
+                                           (store/set-session-title! (or title ""))
+                                           (store/add-recording! {:session_id session_id
+                                                                  :created_at_ms (util/now-ms)
+                                                                  :status :ready})
+                                           (store/append-log! (str "[ui] new session " session_id))))
+                                  (.catch (fn [e]
+                                            (store/append-log! (str "[ui] failed creating session: " e)))))))}
        "New session"]
 
       [:div {:class "field"}
@@ -118,6 +146,120 @@
       [:button {:class "btn ghost"
                 :on-click (fn [_] (store/clear-log!))}
        "Clear log"]]]))
+
+(defn- webhook-routing-panel
+  "Advanced panel for per-session webhook routing overrides.
+
+  This panel matches the styling + minimize behavior of Stream settings.
+
+  It controls `webhook_overrides` sent to `POST /api/sessions`.
+
+  Returns: hiccup."
+  []
+  (let [session (hooks/use-atom store/session*)
+        webhooks-st (hooks/use-atom store/webhooks*)
+        {:keys [items loading? error]} webhooks-st
+        overrides (or (:webhook_overrides session) {})
+        use-defaults? (if (contains? overrides :use_defaults)
+                        (boolean (:use_defaults overrides))
+                        true)
+        selected-ids (set (or (:webhook_ids overrides) #{}))
+        open?* (react/useState false)
+        open? (aget open?* 0)
+        set-open! (aget open?* 1)
+        summary (str (if use-defaults? "Defaults ON" "Defaults OFF")
+                     " • Selected " (count selected-ids))
+        refresh! (fn []
+                   (store/set-webhooks-loading! true)
+                   (store/set-webhooks-error! nil)
+                   (-> (api/list-webhooks!)
+                       (.then (fn [resp]
+                                (store/set-webhooks-items! (:items resp))))
+                       (.catch (fn [e]
+                                 (store/set-webhooks-error! (shared/safe-http-error e))))
+                       (.finally (fn []
+                                   (store/set-webhooks-loading! false)))))
+        checkbox-row (fn [{:keys [id label checked disabled? on-change]}]
+                       [:div {:class "checkbox-row"}
+                        [:input {:id id
+                                 :type "checkbox"
+                                 :disabled (boolean disabled?)
+                                 :checked (boolean checked)
+                                 :on-change (fn [e]
+                                              (when (fn? on-change)
+                                                (on-change (.. e -target -checked))))}]
+                        [:label {:htmlFor id} label]])]
+
+    ;; Fetch webhooks when opening for the first time (best effort).
+    (react/useEffect
+     (fn []
+       (when (and (true? open?)
+                  (empty? (or items []))
+                  (not (true? loading?)))
+         (refresh!))
+       js/undefined)
+     #js [open?])
+
+    [:div {:class "controls stream-controls"}
+     [:div {:class "stream-controls-header"}
+      [:div {:class "stream-controls-title"}
+       [:div {:class "stream-controls-title-text"} "Webhook routing"]
+       [:div {:class "muted" :style {:fontSize "12px"}} summary]]
+      [:button {:class "btn ghost"
+                :type "button"
+                :aria-expanded (boolean open?)
+                :on-click (fn [_] (set-open! (not open?)))}
+       (if open? "Hide" "Show")]]
+
+     (when open?
+       [:div {:class "stream-controls-body"}
+        (when (seq error)
+          [:div {:class "error" :style {:marginBottom "8px"}} error])
+
+        [checkbox-row {:id "wh-use-defaults"
+                       :label "Use tenant default webhooks"
+                       :checked (true? use-defaults?)
+                       :on-change (fn [v] (store/set-session-webhook-overrides-use-defaults! v))}]
+
+        [:div {:class "muted" :style {:marginTop "6px" :marginBottom "8px"}}
+         "Select additional webhooks for this session (or disable defaults)."]
+
+        [:div {:style {:display "flex" :gap "8px" :marginBottom "8px"}}
+         [:button {:class "btn"
+                   :type "button"
+                   :disabled (boolean loading?)
+                   :on-click (fn [_] (refresh!))}
+          (if loading? "Loading…" "Refresh")]]
+
+        (cond
+          (true? loading?)
+          [:div {:class "muted"} "Loading webhooks…"]
+
+          (empty? (vec (or items [])))
+          [:div {:class "muted"}
+           "No webhooks configured yet. Create one under Settings → Webhooks."]
+
+          :else
+          [:div {:style {:display "flex" :flexDirection "column" :gap "6px"}}
+           (for [{:keys [id name url enabled]} (vec (or items []))]
+             (let [id (str (or id ""))
+                   enabled? (true? enabled)
+                   checked? (contains? selected-ids id)
+                   label [:span
+                          [:span (or name "")]
+                          (when-not enabled?
+                            [:span {:class "muted" :style {:marginLeft "6px"}} "(disabled)"])
+                          [:span {:class "muted" :style {:marginLeft "8px"}} (or url "")]]]
+               [:div {:key (str "wh-ov-" id)}
+                [checkbox-row {:id (str "wh-ov-" id)
+                               :label label
+                               :disabled? (not enabled?)
+                               :checked checked?
+                               :on-change (fn [v]
+                                            (store/set-session-webhook-id-selected! id v))}]]))])
+
+        [:div {:class "muted" :style {:marginTop "10px" :fontSize "12px"}}
+         "Applies only when creating a new session. Existing sessions keep their routing snapshot."]])]))
 
 (defn- stream-controls-panel
   "Render per-stream output + realtime/refined knobs.
@@ -342,6 +484,8 @@
      [controls]
 
      [stream-controls-panel]
+
+     [webhook-routing-panel]
 
      [:div {:class "tabs"}
       [:button {:class (str "tab " (when (= tab :realtime) "active"))
