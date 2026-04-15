@@ -11,6 +11,8 @@
    [samuraibff.ui.components.pages.recording-detail :as pages.recording-detail]
    [samuraibff.ui.components.pages.recordings :as pages.recordings]
    [samuraibff.ui.components.pages.speakers :as pages.speakers]
+    [samuraibff.ui.components.pages.webhook-defaults :as pages.webhook-defaults]
+    [samuraibff.ui.components.pages.webhooks :as pages.webhooks]
    [samuraibff.ui.hooks :as hooks]
    [samuraibff.ui.router :as router]
    [samuraibff.ui.store :as store]
@@ -66,6 +68,8 @@
          :live [pages.live/live-recording-page]
          :recording [pages.recording-detail/recording-detail-page
                      {:session-id (get-in route [:params :session_id])}]
+          :webhooks [pages.webhooks/webhooks-page]
+          :webhook-defaults [pages.webhook-defaults/webhook-defaults-page]
          :speakers [pages.speakers/speakers-page]
          :api-credentials [pages.api-credentials/api-credentials-page]
          [pages.recordings/recordings-page])]]]))

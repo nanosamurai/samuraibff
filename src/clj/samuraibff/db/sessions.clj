@@ -58,13 +58,14 @@
 
   Inputs:
   - ds: javax.sql.DataSource
-  - {:keys [id tenant-id user-id session-key status title]}
+  - {:keys [id tenant-id user-id session-key status title webhook-overrides]}
       id          => java.util.UUID
       tenant-id   => java.util.UUID
       user-id     => java.util.UUID or nil
       session-key => string
       title       => string or nil
       status      => string (defaults to active)
+      webhook-overrides => map or nil (stored as jsonb)
 
   Side effects:
   - INSERT into sessions
@@ -72,21 +73,25 @@
   Returns:
   - map with inserted identifiers:
       {:id <uuid> :session-key <string>}"
-  [^DataSource ds {:keys [id tenant-id user-id session-key status title]
+  [^DataSource ds {:keys [id tenant-id user-id session-key status title webhook-overrides]
                    :or {status "active"}}]
   (when-not (and ds (instance? UUID id) (instance? UUID tenant-id) (seq (str session-key)))
     (throw (ex-info "insert-session! missing required params"
                     {:id id :tenant-id tenant-id :session-key session-key})))
-  (let [values (cond-> {:id id
+  (let [wo-json (when (some? webhook-overrides)
+                  (cheshire/generate-string webhook-overrides))
+        values (cond-> {:id id
                         :tenant_id tenant-id
                         :session_key (str session-key)
                         :status (str status)}
-                 (some? user-id) (assoc :user_id user-id))
-        values (cond-> values
-                 (some? title) (assoc :title (str title)))
+                 (some? user-id) (assoc :user_id user-id)
+                 (some? title) (assoc :title (str title))
+                 (some? webhook-overrides) (assoc :webhook_overrides
+                                                  [:raw "(?::jsonb)"]))
         q (-> (h/insert-into :sessions)
               (h/values [values]))
-        sqlvec (sql/format q)]
+        sqlvec (cond-> (sql/format q)
+                 (some? webhook-overrides) (conj wo-json))]
     (jdbc/execute-one! ds sqlvec)
     {:id id :session-key (str session-key)}))
 

@@ -62,6 +62,52 @@ Instead, the UI shows separate views:
 ### 4) Front-end
 And of course, this repos also hosts the UI (Clojurescript) - see `src/cljs` .
 
+---
+
+## Webhooks: session overrides (UI)
+
+When webhooks are enabled for your tenant, the UI can provide **session-scoped webhook routing overrides**.
+
+### Where in UI
+
+On **Live Recording**, there is an advanced collapsible panel **Webhook routing** (next to Stream settings).
+
+### What it controls
+
+When you click **New session**, the UI sends an optional `webhook_overrides` object in `POST /api/sessions`.
+
+Supported fields (Phase 1 / RFC-0001):
+
+```json
+{
+  "title": "My session",
+  "webhook_overrides": {
+    "use_defaults": true,
+    "webhook_ids": ["<uuid>"],
+    "disable_event_types": ["transcript.refined.segment"]
+  }
+}
+```
+
+- `use_defaults` (boolean; default true) controls whether `tenant_webhook_defaults` are used.
+- `webhook_ids` is a list of additional webhooks to include for this session.
+- `disable_event_types` is a session-scoped **global filter** (events disabled here will not be routed to any webhooks for this session).
+
+The backend persists this payload in `sessions.webhook_overrides` (jsonb) and uses it to resolve the immutable routing snapshot published to Kafka (`sessions.meta`).
+
+### Manual verification
+
+1) Create 1-2 webhooks under **Settings → Webhooks** and subscribe them to at least one event type.
+2) Set at least one default under **Settings → Webhook Defaults**.
+3) Go to **Live Recording → Webhook routing**:
+   - toggle **Use tenant default webhooks**
+   - select an additional webhook
+   - optionally disable an event type (e.g. `transcript.refined.segment`)
+4) Click **New session**.
+5) Verify:
+   - DB: `sessions.webhook_overrides` contains the expected JSON.
+   - Server logs show "Resolving sessions.meta routing snapshot" with `webhook_overrides_present? true` and "Publishing sessions.meta" with a non-zero `targets_count`.
+
 #### Legacy refined replacement heuristic (no longer used)
 Historically, the UI merged refined segments into realtime ASR using a replacement
 heuristic based on time window containment.
@@ -356,6 +402,14 @@ Not all persistence is handled by **samuraipersistor** service - the BFF still h
 - Integrant component: `:samuraibff/db` (HikariCP pool)
 - `POST /api/sessions` generates a **UUIDv7** session id and inserts a row into `sessions`.
 - Keycloak user mapping: `app_users.external_id` should contain Keycloak `sub`.
+
+### Session webhook overrides
+
+When creating a session (`POST /api/sessions`), the client can optionally provide
+`webhook_overrides` which is stored in `sessions.webhook_overrides` (JSONB).
+
+This is used to derive the session's webhook routing snapshot published to Kafka
+(`sessions.meta`).
 
 ### Unauthenticated / dev fallback
 

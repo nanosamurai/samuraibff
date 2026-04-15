@@ -28,6 +28,7 @@
    [samuraibff.http.speaker-enrollment :as http.speaker-enrollment]
    [samuraibff.http.speakers :as http.speakers]
    [samuraibff.http.ui :as http.ui]
+   [samuraibff.http.webhooks :as http.webhooks]
    [samuraibff.http.middleware.observability :as http.obs]
    [samuraibff.observability.metrics :as metrics]
    [samuraibff.schemas :as schemas]
@@ -240,6 +241,8 @@
           ["/recordings/:session_id" {:get {:handler http.ui/index-handler}}]
           ["/live" {:get {:handler http.ui/index-handler}}]
           ["/api-credentials" {:get {:handler http.ui/index-handler}}]
+           ["/webhooks" {:get {:handler http.ui/index-handler}}]
+           ["/webhooks-defaults" {:get {:handler http.ui/index-handler}}]
 
            ;; --- OpenAPI + Swagger UI ---
           ["/openapi" {:tags ["openapi"]}
@@ -376,6 +379,70 @@
                                             500 {:body schemas/ApiErrorResponse}}
                                 :handler (http.ui/create-session-handler deps)}}]
 
+           ["/webhooks"
+            {}
+
+            ["/defaults"
+             {:get {:summary "Get webhook defaults"
+                    :description "Returns tenant defaults (webhook ids applied by default to new sessions)."
+                    :responses {200 {:body schemas/WebhookDefaultsResponse}
+                                403 {:body schemas/ApiErrorResponse}
+                                503 {:body schemas/ApiErrorResponse}}
+                    :handler (http.webhooks/get-defaults-handler deps)}
+              :put {:summary "Set webhook defaults"
+                    :description "Replaces tenant webhook defaults."
+                    :parameters {:body schemas/WebhookDefaultsRequest}
+                    :responses {200 {:body schemas/ApiOkResponse}
+                                400 {:body schemas/ApiErrorResponse}
+                                403 {:body schemas/ApiErrorResponse}
+                                503 {:body schemas/ApiErrorResponse}}
+                    :handler (http.webhooks/set-defaults-handler deps)}}]
+
+            [""
+             {:get {:summary "List webhooks"
+                    :description "Lists configured webhook endpoints for the current tenant."
+                    :responses {200 {:body schemas/WebhooksListResponse}
+                                403 {:body schemas/ApiErrorResponse}
+                                503 {:body schemas/ApiErrorResponse}}
+                    :handler (http.webhooks/list-webhooks-handler deps)}
+
+              :post {:summary "Create webhook"
+                     :description "Creates a new webhook endpoint and its event subscriptions. Secrets are write-only."
+                     :parameters {:body schemas/CreateWebhookRequest}
+                     :responses {200 {:body schemas/CreateWebhookResponse}
+                                 400 {:body schemas/ApiErrorResponse}
+                                 403 {:body schemas/ApiErrorResponse}
+                                 503 {:body schemas/ApiErrorResponse}}
+                     :handler (http.webhooks/create-webhook-handler deps)}}]
+
+            ;; NOTE: We intentionally do NOT constrain :id with a regex here.
+            ;; Reitit uses `{...}` to denote path parameter constraints, which
+            ;; conflicts with common UUID regexes that include quantifiers like
+            ;; `{8}` / `{4}`.
+            ;;
+            ;; Instead we rely on handler-level UUID parsing (`parse-uuid-or-nil`)
+            ;; and on route ordering (the literal `/defaults` route is matched
+            ;; before this parameter route).
+            ["/:id"
+             {:parameters {:path [:map [:id :string]]}}
+             ["" {:put {:summary "Update webhook"
+                        :description "Updates a webhook endpoint and its subscriptions. Secrets are write-only."
+                        :parameters {:body schemas/UpdateWebhookRequest}
+                        :responses {200 {:body schemas/ApiOkResponse}
+                                    400 {:body schemas/ApiErrorResponse}
+                                    403 {:body schemas/ApiErrorResponse}
+                                    404 {:body schemas/ApiErrorResponse}
+                                    503 {:body schemas/ApiErrorResponse}}
+                        :handler (http.webhooks/update-webhook-handler deps)}
+                  :delete {:summary "Delete webhook"
+                           :description "Deletes a webhook endpoint."
+                           :responses {200 {:body schemas/ApiOkResponse}
+                                       400 {:body schemas/ApiErrorResponse}
+                                       403 {:body schemas/ApiErrorResponse}
+                                       404 {:body schemas/ApiErrorResponse}
+                                       503 {:body schemas/ApiErrorResponse}}
+                           :handler (http.webhooks/delete-webhook-handler deps)}}]]]
+
            ["/sessions/:session_id"
             {:patch {:summary "Rename session"
                      :description "Updates the session title."
@@ -502,7 +569,13 @@
            ["/audio" {:get {:handler (ws.audio/handler deps)}}]
            ["/events" {:get {:handler (ws.events/handler deps)}}]]]
 
-         {:data {:muuntaja mc/instance
+         {:conflicts (fn [_conflicts]
+                       ;; Reitit conflict detection is conservative and reports a conflict
+                       ;; between literal and parameter subpaths under the same parent.
+                       ;; We rely on normal matching semantics where the literal route
+                       ;; (/webhooks/defaults) wins over the parameter route (/webhooks/:id).
+                       nil)
+          :data {:muuntaja mc/instance
                  :coercion reitit.coercion.malli/coercion
                  :malli/options {:error-keys #(mu/keys schemas/HealthCheckResponse)}
                  :swagger {:id ::api}

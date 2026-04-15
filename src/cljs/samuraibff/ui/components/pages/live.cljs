@@ -14,6 +14,31 @@
    [samuraibff.ui.ws :as ws]
    ["react" :as react]))
 
+(defn- resolved-webhook-overrides
+  "Compute the `webhook_overrides` request body for `POST /api/sessions`.
+
+  Inputs:
+  - session: map from `store/session*`
+
+  Returns:
+  - nil when the UI is at the default state (so we omit the field entirely)
+  - otherwise a JSON-friendly map matching schemas/CreateSessionRequest"
+  [session]
+  (let [ov (or (:webhook_overrides session) {})
+        use-defaults? (if (contains? ov :use_defaults)
+                        (boolean (:use_defaults ov))
+                        true)
+        webhook-ids (set (or (:webhook_ids ov) #{}))
+        disable-event-types (set (or (:disable_event_types ov) #{}))
+        default? (and (true? use-defaults?)
+                      (empty? webhook-ids)
+                      (empty? disable-event-types))]
+    (when-not default?
+      (cond-> {:use_defaults use-defaults?
+               :webhook_ids (vec (sort webhook-ids))}
+        (seq disable-event-types)
+        (assoc :disable_event_types (vec (sort disable-event-types)))))))
+
 (defn- status-dot-class
   "Translate websocket status keyword to CSS class name."
   [status]
@@ -39,29 +64,39 @@
       [:span {:class (status-dot-class audio-status)}]
       [:span {:class "muted"} "audio:"]
       [:span (name audio-status)]]]))
-
 (defn controls
   "Session controls (create session, set lang, start/stop).
 
-  This is the top strip of the Live Recording page."
-  []
-  (let [{:keys [id lang]} (hooks/use-atom store/session*)
-        running? (hooks/use-atom store/running?*)]
+  This is the top strip of the Live Recording page.
+
+  Inputs:
+  - {:keys [settings-open? set-settings-open!]} where:
+    - settings-open?: boolean
+    - set-settings-open!: (fn [boolean])
+
+  Returns: hiccup."
+  [{:keys [settings-open? set-settings-open!]}]
+  (let [session (hooks/use-atom store/session*)
+        {:keys [id lang]} session
+        running? (hooks/use-atom store/running?*)
+        set-settings-open! (when (fn? set-settings-open!) set-settings-open!)]
     [:div {:class "controls"}
      [:div {:class "controls-row"}
       [:button {:class "btn"
                 :on-click (fn [_]
                             (store/append-log! "[ui] creating session...")
-                            (-> (api/create-session! {:title (get @store/session* :title "")})
-                                (.then (fn [{:keys [session_id title]}]
-                                         (store/set-session-id! session_id)
-                                         (store/set-session-title! (or title ""))
-                                         (store/add-recording! {:session_id session_id
-                                                                :created_at_ms (util/now-ms)
-                                                                :status :ready})
-                                         (store/append-log! (str "[ui] new session " session_id))))
-                                (.catch (fn [e]
-                                          (store/append-log! (str "[ui] failed creating session: " e))))))}
+                            (let [overrides (resolved-webhook-overrides @store/session*)]
+                              (-> (api/create-session! {:title (get @store/session* :title "")
+                                                        :webhook_overrides overrides})
+                                  (.then (fn [{:keys [session_id title]}]
+                                           (store/set-session-id! session_id)
+                                           (store/set-session-title! (or title ""))
+                                           (store/add-recording! {:session_id session_id
+                                                                  :created_at_ms (util/now-ms)
+                                                                  :status :ready})
+                                           (store/append-log! (str "[ui] new session " session_id))))
+                                  (.catch (fn [e]
+                                            (store/append-log! (str "[ui] failed creating session: " e)))))))}
        "New session"]
 
       [:div {:class "field"}
@@ -98,7 +133,9 @@
                                 (.catch (fn [_]
                                           ;; audio will log; ensure running resets
                                           (store/set-running! false)
-                                          (store/set-recording-status! id :ready)))))}
+                                          (store/set-recording-status! id :ready)))))
+                :title "Start recording"}
+       [:span {:style {:color "var(--bad)"}} "●"]
        "Start"]
 
       [:button {:class "btn"
@@ -108,16 +145,173 @@
                             (store/set-running! false)
                             (store/set-recording-status! id :stopped)
                             (audio/stop-audio!)
-                            (ws/close-events!))}
+                            (ws/close-events!))
+                :title "Stop recording"}
+       [:span {:style {:color "var(--muted)"}} "■"]
        "Stop"]
 
-      [:button {:class "btn ghost"
-                :on-click (fn [_] (store/clear-segments!))}
-       "Clear transcript"]
+      ;; Hide these for now; they were primarily for debugging.
+      #_[:button {:class "btn ghost"
+                  :on-click (fn [_] (store/clear-segments!))}
+         "Clear transcript"]
 
-      [:button {:class "btn ghost"
-                :on-click (fn [_] (store/clear-log!))}
-       "Clear log"]]]))
+      #_[:button {:class "btn ghost"
+                  :on-click (fn [_] (store/clear-log!))}
+         "Clear log"]
+
+      [:button {:class "btn icon"
+                :type "button"
+                :aria-label "Session settings"
+                :title "Session settings"
+                :on-click (fn [_]
+                            (when set-settings-open!
+                              (set-settings-open! (not (true? settings-open?)))))}
+       "⚙"]]]))
+
+(declare webhook-routing-panel stream-controls-panel)
+
+(defn- session-settings-panel
+  "Single settings panel shown from the gear button.
+
+  It contains two tabs:
+  - Stream settings
+  - Webhooks
+
+  Inputs:
+  - {:keys [open? set-open!]} where:
+    - open?: boolean
+    - set-open!: (fn [boolean])
+
+  Returns: hiccup (or nil when closed)."
+  [{:keys [open? set-open!]}]
+  (let [tab* (react/useState :stream)
+        tab (aget tab* 0)
+        set-tab! (aget tab* 1)
+        set-open! (when (fn? set-open!) set-open!)]
+    (when (true? open?)
+      [:div {:class "controls stream-controls"}
+       [:div {:class "stream-controls-header"}
+        [:div {:class "stream-controls-title"}
+         [:div {:class "stream-controls-title-text"} "Session settings"]
+         [:div {:class "muted" :style {:fontSize "12px"}}
+          "Applies to newly created sessions."]]
+        [:button {:class "btn ghost"
+                  :type "button"
+                  :title "Close"
+                  :on-click (fn [_]
+                              (when set-open!
+                                (set-open! false)))}
+         "Close"]]
+
+       [:div {:class "tabs" :style {:marginBottom "0"}}
+        [:button {:class (str "tab " (when (= tab :stream) "active"))
+                  :type "button"
+                  :on-click (fn [_] (set-tab! :stream))}
+         "Stream"]
+        [:button {:class (str "tab " (when (= tab :webhooks) "active"))
+                  :type "button"
+                  :on-click (fn [_] (set-tab! :webhooks))}
+         "Webhooks"]
+        [:div {:class "spacer"}]]
+
+       (case tab
+         :webhooks [webhook-routing-panel]
+         [stream-controls-panel])])))
+
+(defn- webhook-routing-panel
+  "Advanced panel for per-session webhook routing overrides.
+
+  This panel matches the styling + minimize behavior of Stream settings.
+
+  It controls `webhook_overrides` sent to `POST /api/sessions`.
+
+  Returns: hiccup."
+  []
+  (let [session (hooks/use-atom store/session*)
+        webhooks-st (hooks/use-atom store/webhooks*)
+        {:keys [items loading? error]} webhooks-st
+        overrides (or (:webhook_overrides session) {})
+        use-defaults? (if (contains? overrides :use_defaults)
+                        (boolean (:use_defaults overrides))
+                        true)
+        selected-ids (set (or (:webhook_ids overrides) #{}))
+        refresh! (fn []
+                   (store/set-webhooks-loading! true)
+                   (store/set-webhooks-error! nil)
+                   (-> (api/list-webhooks!)
+                       (.then (fn [resp]
+                                (store/set-webhooks-items! (:items resp))))
+                       (.catch (fn [e]
+                                 (store/set-webhooks-error! (shared/safe-http-error e))))
+                       (.finally (fn []
+                                   (store/set-webhooks-loading! false)))))
+        checkbox-row (fn [{:keys [id label checked disabled? on-change]}]
+                       [:div {:class "checkbox-row"}
+                        [:input {:id id
+                                 :type "checkbox"
+                                 :disabled (boolean disabled?)
+                                 :checked (boolean checked)
+                                 :on-change (fn [e]
+                                              (when (fn? on-change)
+                                                (on-change (.. e -target -checked))))}]
+                        [:label {:htmlFor id} label]])]
+
+    (react/useEffect
+     (fn []
+       (when (and (empty? (or items []))
+                  (not (true? loading?)))
+         (refresh!))
+       js/undefined)
+     #js [])
+
+    [:div {:class "stream-controls-body"}
+     (when (seq error)
+       [:div {:class "error" :style {:marginBottom "8px"}} error])
+
+     [checkbox-row {:id "wh-use-defaults"
+                    :label "Use tenant default webhooks"
+                    :checked (true? use-defaults?)
+                    :on-change (fn [v] (store/set-session-webhook-overrides-use-defaults! v))}]
+
+     [:div {:class "muted" :style {:marginTop "6px" :marginBottom "8px"}}
+      "Select additional webhooks for this session (or disable defaults)."]
+
+     [:div {:style {:display "flex" :gap "8px" :marginBottom "8px"}}
+      [:button {:class "btn"
+                :type "button"
+                :disabled (boolean loading?)
+                :on-click (fn [_] (refresh!))}
+       (if loading? "Loading…" "Refresh")]]
+
+     (cond
+       (true? loading?)
+       [:div {:class "muted"} "Loading webhooks…"]
+
+       (empty? (vec (or items [])))
+       [:div {:class "muted"}
+        "No webhooks configured yet. Create one under Settings → Webhooks."]
+
+       :else
+       [:div {:style {:display "flex" :flexDirection "column" :gap "6px"}}
+        (for [{:keys [id name url enabled]} (vec (or items []))]
+          (let [id (str (or id ""))
+                enabled? (true? enabled)
+                checked? (contains? selected-ids id)
+                label [:span
+                       [:span (or name "")]
+                       (when-not enabled?
+                         [:span {:class "muted" :style {:marginLeft "6px"}} "(disabled)"])
+                       [:span {:class "muted" :style {:marginLeft "8px"}} (or url "")]]]
+            [:div {:key (str "wh-ov-" id)}
+             [checkbox-row {:id (str "wh-ov-" id)
+                            :label label
+                            :disabled? (not enabled?)
+                            :checked checked?
+                            :on-change (fn [v]
+                                         (store/set-session-webhook-id-selected! id v))}]]))])
+
+     [:div {:class "muted" :style {:marginTop "10px" :fontSize "12px"}}
+      "Applies only when creating a new session. Existing sessions keep their routing snapshot."]]))
 
 (defn- stream-controls-panel
   "Render per-stream output + realtime/refined knobs.
@@ -133,9 +327,6 @@
         realtime? (true? (:realtime controls))
         refined? (true? (:refined controls))
         final? (true? (:final controls))
-        open?* (react/useState true)
-        open? (aget open?* 0)
-        set-open! (aget open?* 1)
         outputs-summary (->> [(when realtime? "Real-time")
                               (when refined? "Refined")
                               (when final? "Final")]
@@ -171,105 +362,95 @@
                          (some? step) (assoc :step step))]
                (when (seq (str hint))
                  [:div {:class "hint"} hint])])]
-      [:div {:class "controls stream-controls"}
-       [:div {:class "stream-controls-header"}
-        [:div {:class "stream-controls-title"}
-         [:div {:class "stream-controls-title-text"} "Stream settings"]
-         [:div {:class "muted" :style {:fontSize "12px"}}
-          (str "Outputs: " (if (seq outputs-summary) outputs-summary "None")
-               " • Recording: " retention-summary)]]
-        [:button {:class "btn ghost"
-                  :type "button"
-                  :aria-expanded (boolean open?)
-                  :on-click (fn [_] (set-open! (not open?)))}
-         (if open? "Hide" "Show")]]
+      [:div {:class "stream-controls-body"}
+       [:div {:class "muted" :style {:fontSize "12px"}}
+        (str "Outputs: " (if (seq outputs-summary) outputs-summary "None")
+             " • Recording: " retention-summary)]
 
-       (when open?
-         [:div {:class "stream-controls-body"}
-          [:div {:class "sc-grid"}
-           [:div {:class "sc-cell sc-span-2"}
-            [:div {:class "label"} "Transcription"]
-            [:div {:class "checkbox-group"}
-             [checkbox-row {:id "sc-out-realtime"
-                            :label "Real-time"
-                            :checked realtime?
-                            :on-change (fn [v] (store/set-session-control! :realtime v))}]
-             [checkbox-row {:id "sc-out-refined"
-                            :label "Refined"
-                            :checked refined?
-                            :on-change (fn [v] (store/set-session-control! :refined v))}]
-             [checkbox-row {:id "sc-out-final"
-                            :label "Final"
-                            :checked final?
-                            :on-change (fn [v] (store/set-session-control! :final v))}]]]
+       [:div {:class "sc-grid"}
+        [:div {:class "sc-cell sc-span-2"}
+         [:div {:class "label"} "Transcription"]
+         [:div {:class "checkbox-group"}
+          [checkbox-row {:id "sc-out-realtime"
+                         :label "Real-time"
+                         :checked realtime?
+                         :on-change (fn [v] (store/set-session-control! :realtime v))}]
+          [checkbox-row {:id "sc-out-refined"
+                         :label "Refined"
+                         :checked refined?
+                         :on-change (fn [v] (store/set-session-control! :refined v))}]
+          [checkbox-row {:id "sc-out-final"
+                         :label "Final"
+                         :checked final?
+                         :on-change (fn [v] (store/set-session-control! :final v))}]]]
 
-           [:div {:class "sc-cell"}
-            [:div {:class "field"}
-             [:div {:class "label"} "Recording"]
-             [:select {:value (if (true? (:store_recording controls)) "store" "delete")
-                       :disabled (not final?)
-                       :on-change (fn [e]
-                                    (let [v (.. e -target -value)]
-                                      (store/set-session-control! :store_recording (= v "store"))))}
-              [:option {:value "store"} "Store"]
-              [:option {:value "delete"} "Do not store"]]
-             (when-not final?
-               [:div {:class "hint"} "Enable Final to store the full recording."])]]
+        [:div {:class "sc-cell"}
+         [:div {:class "field"}
+          [:div {:class "label"} "Recording"]
+          [:select {:value (if (true? (:store_recording controls)) "store" "delete")
+                    :disabled (not final?)
+                    :on-change (fn [e]
+                                 (let [v (.. e -target -value)]
+                                   (store/set-session-control! :store_recording (= v "store"))))}
+           [:option {:value "store"} "Store"]
+           [:option {:value "delete"} "Do not store"]]
+          (when-not final?
+            [:div {:class "hint"} "Enable Final to store the full recording."])]]
 
-           [:div {:class "sc-cell"}
-            [number-field {:label "Refinement window (sec)"
-                           :disabled? (not refined?)
-                           :min 10
-                           :max 600
-                           :step 1
-                           :placeholder "Default"
-                           :value (:refinement_window_sec controls)
-                           :on-change (fn [v] (store/set-session-control! :refinement_window_sec v))
-                           :hint (when-not refined?
-                                   "Enable Refined to adjust this setting.")}]]]
+        [:div {:class "sc-cell"}
+         [number-field {:label "Refinement window (sec)"
+                        :disabled? (not refined?)
+                        :min 10
+                        :max 600
+                        :step 1
+                        :placeholder "Default"
+                        :value (:refinement_window_sec controls)
+                        :on-change (fn [v] (store/set-session-control! :refinement_window_sec v))
+                        :hint (when-not refined?
+                                "Enable Refined to adjust this setting.")}]]]
 
-          [:div {:class "sc-divider"}]
+       [:div {:class "sc-divider"}]
 
-          [:div {:class "sc-grid"}
-           [:div {:class "sc-cell"}
-            [:div {:class "label"} "Real-time"]
-            [:div {:class "checkbox-group"}
-             [checkbox-row {:id "sc-rt-partials"
-                            :label "Show partial text while speaking"
-                            :checked (true? (:rt_partial_enable controls))
-                            :disabled? (not realtime?)
-                            :on-change (fn [v] (store/set-session-control! :rt_partial_enable v))}]]
-            (when-not realtime?
-              [:div {:class "hint"} "Enable Real-time to adjust these settings."])]
+       [:div {:class "sc-grid"}
+        [:div {:class "sc-cell"}
+         [:div {:class "label"} "Real-time"]
+         [:div {:class "checkbox-group"}
+          [checkbox-row {:id "sc-rt-partials"
+                         :label "Show partial text while speaking"
+                         :checked (true? (:rt_partial_enable controls))
+                         :disabled? (not realtime?)
+                         :on-change (fn [v] (store/set-session-control! :rt_partial_enable v))}]]
+         (when-not realtime?
+           [:div {:class "hint"} "Enable Real-time to adjust these settings."])]
 
-           [:div {:class "sc-cell"}
-            [number-field {:label "Update interval (sec)"
-                           :disabled? (not realtime?)
-                           :min 1
-                           :step 0.1
-                           :placeholder "Default"
-                           :value (:rt_emit_every_sec controls)
-                           :on-change (fn [v] (store/set-session-control! :rt_emit_every_sec v))
-                           :hint "Minimum 1 second."}]]
+        [:div {:class "sc-cell"}
+         [number-field {:label "Update interval (sec)"
+                        :disabled? (not realtime?)
+                        :min 1
+                        :step 0.1
+                        :placeholder "Default"
+                        :value (:rt_emit_every_sec controls)
+                        :on-change (fn [v] (store/set-session-control! :rt_emit_every_sec v))
+                        :hint "Minimum 1 second."}]]
 
-           [:div {:class "sc-cell"}
-            [number-field {:label "Window (sec)"
-                           :disabled? (not realtime?)
-                           :min 1
-                           :max 30
-                           :step 0.1
-                           :placeholder "Default"
-                           :value (:rt_window_sec controls)
-                           :on-change (fn [v] (store/set-session-control! :rt_window_sec v))}]]
+        [:div {:class "sc-cell"}
+         [number-field {:label "Window (sec)"
+                        :disabled? (not realtime?)
+                        :min 1
+                        :max 30
+                        :step 0.1
+                        :placeholder "Default"
+                        :value (:rt_window_sec controls)
+                        :on-change (fn [v] (store/set-session-control! :rt_window_sec v))}]]
 
-           [:div {:class "sc-cell"}
-            [number-field {:label "Overlap (sec)"
-                           :disabled? (not realtime?)
-                           :min 0
-                           :step 0.1
-                           :placeholder "Default"
-                           :value (:rt_overlap_sec controls)
-                           :on-change (fn [v] (store/set-session-control! :rt_overlap_sec v))}]]]])])))
+        [:div {:class "sc-cell"}
+         [number-field {:label "Overlap (sec)"
+                        :disabled? (not realtime?)
+                        :min 0
+                        :step 0.1
+                        :placeholder "Default"
+                        :value (:rt_overlap_sec controls)
+                        :on-change (fn [v] (store/set-session-control! :rt_overlap_sec v))}]]]])))
 
 (defn- log-view
   "Debug log view."
@@ -328,7 +509,11 @@
   []
   (let [tab* (react/useState :realtime)
         tab (aget tab* 0)
-        set-tab! (aget tab* 1)]
+        set-tab! (aget tab* 1)
+
+        settings-open?* (react/useState false)
+        settings-open? (aget settings-open?* 0)
+        set-settings-open! (aget settings-open?* 1)]
     [:div {:class "page"}
      [:div {:class "page-header"}
       [:div
@@ -339,9 +524,11 @@
                      :class "btn"}
         "Recordings"]]]
 
-     [controls]
+     [controls {:settings-open? settings-open?
+                :set-settings-open! set-settings-open!}]
 
-     [stream-controls-panel]
+     [session-settings-panel {:open? settings-open?
+                              :set-open! set-settings-open!}]
 
      [:div {:class "tabs"}
       [:button {:class (str "tab " (when (= tab :realtime) "active"))

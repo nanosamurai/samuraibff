@@ -9,6 +9,8 @@
   - /live
   - /speakers
   - /api-credentials
+  - /webhooks
+  - /webhooks-defaults
 
   The router stores the current route in `samuraibff.ui.store/route*`.
 
@@ -24,7 +26,7 @@
     [samuraibff.ui.store :as store]))
 
 (def ^:private known-pages
-  #{:recordings :recording :live :speakers :api-credentials})
+  #{:recordings :recording :live :speakers :api-credentials :webhooks :webhook-defaults})
 
 (defn href->route
   "Parse a URL path into a route map.
@@ -59,6 +61,12 @@
       (= ["api-credentials"] segs)
       {:page :api-credentials :params {}}
 
+      (= ["webhooks"] segs)
+      {:page :webhooks :params {}}
+
+      (= ["webhooks-defaults"] segs)
+      {:page :webhook-defaults :params {}}
+
       (and (= "recordings" (first segs))
            (= 2 (count segs)))
       {:page :recording :params {:session_id (second segs)}}
@@ -80,6 +88,8 @@
     :recording (str "/recordings/" (get params :session_id ""))
     :speakers "/speakers"
     :api-credentials "/api-credentials"
+    :webhooks "/webhooks"
+    :webhook-defaults "/webhooks-defaults"
     "/recordings"))
 
 (defn- current-path

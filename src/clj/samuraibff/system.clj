@@ -177,6 +177,18 @@
                      :recordings {:bucket (s "SAMURAIBFF_S3_RECORDINGS_BUCKET")
                                   :prefix (s "SAMURAIBFF_S3_RECORDINGS_PREFIX")}}}
 
+       :secrets {:backend (some-> (s "SAMURAIBFF_SECRETS_BACKEND") keyword)
+                 :aws {:region (s "SAMURAIBFF_SECRETS_AWS_REGION")
+                       :endpoint (s "SAMURAIBFF_SECRETS_AWS_ENDPOINT")
+                       :access-key (s "SAMURAIBFF_SECRETS_AWS_ACCESS_KEY")
+                       :secret-key (s "SAMURAIBFF_SECRETS_AWS_SECRET_KEY")
+                       :kms-key-id (s "SAMURAIBFF_SECRETS_AWS_KMS_KEY_ID")
+                       :name-prefix (s "SAMURAIBFF_SECRETS_AWS_NAME_PREFIX")
+                       :name-suffix (s "SAMURAIBFF_SECRETS_AWS_NAME_SUFFIX")}
+                 :k8s {:namespace (s "SAMURAIBFF_SECRETS_K8S_NAMESPACE")
+                       :key (s "SAMURAIBFF_SECRETS_K8S_KEY")
+                       :name-prefix (s "SAMURAIBFF_SECRETS_K8S_NAME_PREFIX")}}
+
       :bff {:origin-uri (s "SAMURAIBFF_ORIGIN_URI")
             ;; Public browser origin used for OIDC redirect_uri computation.
             ;; Keep this separate from origin-uri (which may be a pod-IP for inter-BFF callbacks).

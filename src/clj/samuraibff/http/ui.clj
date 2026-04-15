@@ -15,19 +15,17 @@
   (:require
     [clojure.java.io :as io]
     [clojure.string :as str]
-    [jsonista.core :as json]
     [org.corfield.logging4j2 :as log]
     [ring.util.response :as resp]
     [samuraibff.auth.oidc :as oidc]
     [samuraibff.db.sessions :as db.sessions]
+    [samuraibff.kafka.producer :as kafka.producer]
     [samuraibff.schemas :as schemas]
     [samuraibff.util.uuid :as uuid]
+    [samuraibff.webhooks.routing-snapshot :as webhooks.snapshot]
     [samuraibff.ws.registry :as ws.registry])
   (:import
     (java.util UUID)))
-
-(def ^:private json-mapper
-  (json/object-mapper {:encode-key-fn name}))
 
 (defn- json-response
   "Return a response with a data body.
@@ -146,13 +144,13 @@
     `{ :session_id \"<uuid>\" }`.
   - On missing tenant-id when auth required: 403 JSON.
   - On DB failure: 500 JSON." 
-  [{:keys [config ws-registry db]}]
+  [{:keys [config ws-registry db kafka-producer]}]
   (fn [req]
     (let [tenant-id (:auth/tenant-id req)]
       (try
         (let [body (or (:body-params req) (:body req) {})
               ;; Request body is optional for backward compatibility.
-              {:keys [title]} (try
+              {:keys [title webhook_overrides]} (try
                                (schemas/decode-and-validate! schemas/CreateSessionRequest body)
                                (catch Exception _
                                  {}))
@@ -180,14 +178,35 @@
                  :user-id user-id
                  :session-key session-key
                  :title title'
-                 :status "created"})))
+                 :status "created"
+                 :webhook-overrides webhook_overrides})))
 
           ;; Create/bind session in registry immediately so WS endpoints can be
           ;; strict and disallow session creation via WS when auth is required.
           ;;
           ;; IMPORTANT: even when auth is disabled, we bind the in-memory session
           ;; under the same tenant UUID that we persisted into Postgres.
-          (ws.registry/ensure-session! ws-registry (str tenant-id-uuid) session-id {})
+          (ws.registry/ensure-session! ws-registry (str tenant-id-uuid) session-id {:webhook_overrides webhook_overrides})
+
+          ;; Publish session routing snapshot (compacted topic) best-effort.
+          (when (and ds kafka-producer)
+            (try
+              (log/info "Resolving sessions.meta routing snapshot" {:tenant_id (str tenant-id-uuid)
+                                                                   :session_id session-id
+                                                                   :webhook_overrides_present? (some? webhook_overrides)})
+              (let [meta (webhooks.snapshot/resolve-routing-snapshot ds tenant-id-uuid session-uuid webhook_overrides)
+                    targets (get-in meta [:routing :targets_by_event_type])
+                    targets-count (when (map? targets)
+                                    (reduce + 0 (map (comp count val) targets)))]
+                (log/info "Publishing sessions.meta" {:tenant_id (str tenant-id-uuid)
+                                                     :session_id session-id
+                                                     :schema_version (:schema_version meta)
+                                                     :event_types_count (count (keys (or targets {})))
+                                                     :targets_count (or targets-count 0)})
+                (kafka.producer/send-sessions-meta! kafka-producer session-id meta {:tenant-id (str tenant-id-uuid)}))
+              (catch Exception e
+                (log/warn e "Failed publishing sessions.meta" {:tenant_id (str tenant-id-uuid)
+                                                               :session_id session-id}))))
 
           (log/info "Session created" {:tenant_id (str tenant-id-uuid)
                                        :user_id (some-> req :auth/user :sub str)
