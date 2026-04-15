@@ -266,7 +266,8 @@
         [:div {:class "muted" :style {:marginTop "10px" :fontSize "12px"}}
          "Applies only when creating a new session. Existing sessions keep their routing snapshot."]])
 
-     (when open?
+     (comment "Disabling the ability to disable events :) - even if a webhook (or even all available webhooks) does not support (enable) certain event, that event is still there ready to be checked, which is kind of confusing - we would have to know which events actually could be disabled before sensibly conveying that information to the user. Before we do that I am commenting out the next component.")
+     #_(when open?
        [:div {:class "stream-controls-body"}
         [:div {:class "label" :style {:marginTop "8px"}} "Disable event types for this session"]
         [:div {:class "muted" :style {:marginTop "4px" :marginBottom "8px"}}
@@ -296,7 +297,7 @@
         realtime? (true? (:realtime controls))
         refined? (true? (:refined controls))
         final? (true? (:final controls))
-        open?* (react/useState true)
+        open?* (react/useState false)
         open? (aget open?* 0)
         set-open! (aget open?* 1)
         outputs-summary (->> [(when realtime? "Real-time")
