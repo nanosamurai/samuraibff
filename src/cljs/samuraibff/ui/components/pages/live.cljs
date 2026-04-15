@@ -64,15 +64,22 @@
       [:span {:class (status-dot-class audio-status)}]
       [:span {:class "muted"} "audio:"]
       [:span (name audio-status)]]]))
-
 (defn controls
   "Session controls (create session, set lang, start/stop).
 
-  This is the top strip of the Live Recording page."
-  []
+  This is the top strip of the Live Recording page.
+
+  Inputs:
+  - {:keys [settings-open? set-settings-open!]} where:
+    - settings-open?: boolean
+    - set-settings-open!: (fn [boolean])
+
+  Returns: hiccup."
+  [{:keys [settings-open? set-settings-open!]}]
   (let [session (hooks/use-atom store/session*)
         {:keys [id lang]} session
-        running? (hooks/use-atom store/running?*)]
+        running? (hooks/use-atom store/running?*)
+        set-settings-open! (when (fn? set-settings-open!) set-settings-open!)]
     [:div {:class "controls"}
      [:div {:class "controls-row"}
       [:button {:class "btn"
@@ -126,7 +133,9 @@
                                 (.catch (fn [_]
                                           ;; audio will log; ensure running resets
                                           (store/set-running! false)
-                                          (store/set-recording-status! id :ready)))))}
+                                          (store/set-recording-status! id :ready)))))
+                :title "Start recording"}
+       [:span {:style {:color "var(--bad)"}} "●"]
        "Start"]
 
       [:button {:class "btn"
@@ -136,16 +145,76 @@
                             (store/set-running! false)
                             (store/set-recording-status! id :stopped)
                             (audio/stop-audio!)
-                            (ws/close-events!))}
+                            (ws/close-events!))
+                :title "Stop recording"}
+       [:span {:style {:color "var(--muted)"}} "■"]
        "Stop"]
 
-      [:button {:class "btn ghost"
-                :on-click (fn [_] (store/clear-segments!))}
-       "Clear transcript"]
+      ;; Hide these for now; they were primarily for debugging.
+      #_[:button {:class "btn ghost"
+                  :on-click (fn [_] (store/clear-segments!))}
+         "Clear transcript"]
 
-      [:button {:class "btn ghost"
-                :on-click (fn [_] (store/clear-log!))}
-       "Clear log"]]]))
+      #_[:button {:class "btn ghost"
+                  :on-click (fn [_] (store/clear-log!))}
+         "Clear log"]
+
+      [:button {:class "btn icon"
+                :type "button"
+                :aria-label "Session settings"
+                :title "Session settings"
+                :on-click (fn [_]
+                            (when set-settings-open!
+                              (set-settings-open! (not (true? settings-open?)))))}
+       "⚙"]]]))
+
+(defn- session-settings-panel
+  "Single settings panel shown from the gear button.
+
+  It contains two tabs:
+  - Stream settings
+  - Webhooks
+
+  Inputs:
+  - {:keys [open? set-open!]} where:
+    - open?: boolean
+    - set-open!: (fn [boolean])
+
+  Returns: hiccup (or nil when closed)."
+  [{:keys [open? set-open!]}]
+  (let [tab* (react/useState :stream)
+        tab (aget tab* 0)
+        set-tab! (aget tab* 1)
+        set-open! (when (fn? set-open!) set-open!)]
+    (when (true? open?)
+      [:div {:class "controls stream-controls"}
+       [:div {:class "stream-controls-header"}
+        [:div {:class "stream-controls-title"}
+         [:div {:class "stream-controls-title-text"} "Session settings"]
+         [:div {:class "muted" :style {:fontSize "12px"}}
+          "Applies to newly created sessions."]]
+        [:button {:class "btn ghost"
+                  :type "button"
+                  :title "Close"
+                  :on-click (fn [_]
+                              (when set-open!
+                                (set-open! false)))}
+         "Close"]]
+
+       [:div {:class "tabs" :style {:marginBottom "0"}}
+        [:button {:class (str "tab " (when (= tab :stream) "active"))
+                  :type "button"
+                  :on-click (fn [_] (set-tab! :stream))}
+         "Stream"]
+        [:button {:class (str "tab " (when (= tab :webhooks) "active"))
+                  :type "button"
+                  :on-click (fn [_] (set-tab! :webhooks))}
+         "Webhooks"]
+        [:div {:class "spacer"}]]
+
+       (case tab
+         :webhooks [webhook-routing-panel]
+         [stream-controls-panel])]))))
 
 (defn- webhook-routing-panel
   "Advanced panel for per-session webhook routing overrides.
@@ -266,22 +335,22 @@
         [:div {:class "muted" :style {:marginTop "10px" :fontSize "12px"}}
          "Applies only when creating a new session. Existing sessions keep their routing snapshot."]])
 
-     (comment "Disabling the ability to disable events :) - even if a webhook (or even all available webhooks) does not support (enable) certain event, that event is still there ready to be checked, which is kind of confusing - we would have to know which events actually could be disabled before sensibly conveying that information to the user. Before we do that I am commenting out the next component.")
+     ;; NOTE: temporarily disabled per user request (see conversation).
      #_(when open?
-       [:div {:class "stream-controls-body"}
-        [:div {:class "label" :style {:marginTop "8px"}} "Disable event types for this session"]
-        [:div {:class "muted" :style {:marginTop "4px" :marginBottom "8px"}}
-         "These events will not be routed to any webhooks for this session."]
-        [:div {:style {:display "flex" :flexDirection "column" :gap "6px"}}
-         (for [{:keys [value label]} event-types]
-           [:div {:key (str "wh-disable-" value)}
-            [checkbox-row {:id (str "wh-disable-" value)
-                           :label [:span [:span {:class "mono"} label]]
-                           :checked (contains? disabled-event-types value)
-                           :on-change (fn [v]
-                                        (store/set-session-disable-event-type-selected! value v))}]])]
-        [:div {:class "muted" :style {:marginTop "8px" :fontSize "12px"}}
-         "Tip: refined segments are high volume; disable them if you only want final/recording events."]])]))
+         [:div {:class "stream-controls-body"}
+          [:div {:class "label" :style {:marginTop "8px"}} "Disable event types for this session"]
+          [:div {:class "muted" :style {:marginTop "4px" :marginBottom "8px"}}
+           "Select event types to suppress. Selected types will not be routed to any webhooks for this session."]
+          [:div {:style {:display "flex" :flexDirection "column" :gap "6px"}}
+           (for [{:keys [value label]} event-types]
+             [:div {:key (str "wh-disable-" value)}
+              [checkbox-row {:id (str "wh-disable-" value)
+                             :label [:span [:span {:class "mono"} label]]
+                             :checked (contains? disabled-event-types value)
+                             :on-change (fn [v]
+                                          (store/set-session-disable-event-type-selected! value v))}]])]
+          [:div {:class "muted" :style {:marginTop "8px" :fontSize "12px"}}
+           "Tip: refined segments are high volume; disable them if you only want final/recording events."]]))
 
 (defn- stream-controls-panel
   "Render per-stream output + realtime/refined knobs.
@@ -492,7 +561,11 @@
   []
   (let [tab* (react/useState :realtime)
         tab (aget tab* 0)
-        set-tab! (aget tab* 1)]
+        set-tab! (aget tab* 1)
+
+        settings-open?* (react/useState false)
+        settings-open? (aget settings-open?* 0)
+        set-settings-open! (aget settings-open?* 1)]
     [:div {:class "page"}
      [:div {:class "page-header"}
       [:div
@@ -503,11 +576,11 @@
                      :class "btn"}
         "Recordings"]]]
 
-     [controls]
+     [controls {:settings-open? settings-open?
+                :set-settings-open! set-settings-open!}]
 
-     [stream-controls-panel]
-
-     [webhook-routing-panel]
+     [session-settings-panel {:open? settings-open?
+                              :set-open! set-settings-open!}]
 
      [:div {:class "tabs"}
       [:button {:class (str "tab " (when (= tab :realtime) "active"))
