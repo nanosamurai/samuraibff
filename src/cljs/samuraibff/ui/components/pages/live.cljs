@@ -156,7 +156,11 @@
 
   Returns: hiccup."
   []
-  (let [session (hooks/use-atom store/session*)
+  (let [event-types [{:value "transcript.refined.segment" :label "transcript.refined.segment"}
+                     {:value "recording.finished" :label "recording.finished"}
+                     {:value "transcript.final.ready" :label "transcript.final.ready"}]
+
+        session (hooks/use-atom store/session*)
         webhooks-st (hooks/use-atom store/webhooks*)
         {:keys [items loading? error]} webhooks-st
         overrides (or (:webhook_overrides session) {})
@@ -164,6 +168,7 @@
                         (boolean (:use_defaults overrides))
                         true)
         selected-ids (set (or (:webhook_ids overrides) #{}))
+        disabled-event-types (set (or (:disable_event_types overrides) #{}))
         open?* (react/useState false)
         open? (aget open?* 0)
         set-open! (aget open?* 1)
@@ -259,7 +264,23 @@
                                             (store/set-session-webhook-id-selected! id v))}]]))])
 
         [:div {:class "muted" :style {:marginTop "10px" :fontSize "12px"}}
-         "Applies only when creating a new session. Existing sessions keep their routing snapshot."]])]))
+         "Applies only when creating a new session. Existing sessions keep their routing snapshot."]])
+
+     (when open?
+       [:div {:class "stream-controls-body"}
+        [:div {:class "label" :style {:marginTop "8px"}} "Disable event types for this session"]
+        [:div {:class "muted" :style {:marginTop "4px" :marginBottom "8px"}}
+         "These events will not be routed to any webhooks for this session."]
+        [:div {:style {:display "flex" :flexDirection "column" :gap "6px"}}
+         (for [{:keys [value label]} event-types]
+           [:div {:key (str "wh-disable-" value)}
+            [checkbox-row {:id (str "wh-disable-" value)
+                           :label [:span [:span {:class "mono"} label]]
+                           :checked (contains? disabled-event-types value)
+                           :on-change (fn [v]
+                                        (store/set-session-disable-event-type-selected! value v))}]])]
+        [:div {:class "muted" :style {:marginTop "8px" :fontSize "12px"}}
+         "Tip: refined segments are high volume; disable them if you only want final/recording events."]])]))
 
 (defn- stream-controls-panel
   "Render per-stream output + realtime/refined knobs.

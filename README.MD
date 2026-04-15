@@ -83,13 +83,15 @@ Supported fields (Phase 1 / RFC-0001):
   "title": "My session",
   "webhook_overrides": {
     "use_defaults": true,
-    "webhook_ids": ["<uuid>"]
+    "webhook_ids": ["<uuid>"],
+    "disable_event_types": ["transcript.refined.segment"]
   }
 }
 ```
 
 - `use_defaults` (boolean; default true) controls whether `tenant_webhook_defaults` are used.
 - `webhook_ids` is a list of additional webhooks to include for this session.
+- `disable_event_types` is a session-scoped **global filter** (events disabled here will not be routed to any webhooks for this session).
 
 The backend persists this payload in `sessions.webhook_overrides` (jsonb) and uses it to resolve the immutable routing snapshot published to Kafka (`sessions.meta`).
 
@@ -100,6 +102,7 @@ The backend persists this payload in `sessions.webhook_overrides` (jsonb) and us
 3) Go to **Live Recording → Webhook routing**:
    - toggle **Use tenant default webhooks**
    - select an additional webhook
+   - optionally disable an event type (e.g. `transcript.refined.segment`)
 4) Click **New session**.
 5) Verify:
    - DB: `sessions.webhook_overrides` contains the expected JSON.

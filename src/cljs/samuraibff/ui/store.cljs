@@ -97,6 +97,29 @@
                  (assoc-in st path ids'))))))
   nil)
 
+(defn set-session-disable-event-type-selected!
+  "Select/unselect a disabled webhook event type for the next session creation.
+
+  This mutates `session*` under `[:webhook_overrides :disable_event_types]`.
+
+  Inputs:
+  - event-type: string
+  - selected?: boolean (true => disable, false => enable)
+
+  Returns: nil."
+  [event-type selected?]
+  (let [et (str (or event-type ""))]
+    (when (seq et)
+      (swap! session*
+             (fn [st]
+               (let [path [:webhook_overrides :disable_event_types]
+                     xs (set (get-in st path #{}))
+                     xs' (if (true? selected?)
+                           (conj xs et)
+                           (disj xs et))]
+                 (assoc-in st path xs'))))))
+  nil)
+
 (defonce ws-status*
   (atom {:events {:status :disconnected :detail nil}
          :audio {:status :disconnected :detail nil}}))
