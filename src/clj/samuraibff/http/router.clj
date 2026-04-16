@@ -481,12 +481,6 @@
                      :middleware [wrap-multipart-params]
                      :handler (http.speakers/create-speaker-handler deps)}}]]
 
-            ;; NOTE: We intentionally do NOT constrain :speaker_id with a UUID regex.
-            ;; Reitit uses `{...}` in paths for parameter constraints and UUID regexes
-            ;; commonly contain quantifiers like `{8}` / `{4}`, which breaks parameter
-            ;; parsing (and yields request coercion errors like "missing required key").
-            ;;
-            ;; Instead we rely on Malli coercion (schemas/Uuid) to validate the param.
             ["/:speaker_id"
              {:delete {:summary "Delete enrolled speaker"
                        :description "Deletes an enrolled speaker and all associated stored data for the current tenant."
