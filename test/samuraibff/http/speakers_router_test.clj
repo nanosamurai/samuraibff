@@ -6,7 +6,7 @@
   that would break Reitit's `{...}` constraint syntax and therefore path param
   extraction/coercion."
   (:require
-    [clojure.test :refer :all]
+    [clojure.test :refer [deftest is testing]]
     [reitit.core :as reitit]))
 
 (deftest delete-speaker-route-extracts-path-param

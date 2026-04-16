@@ -18,7 +18,6 @@
   The `:multipart-params` key is expected in the Ring request." 
   (:require
     [clojure.string :as str]
-    [jsonista.core :as json]
     [org.corfield.logging4j2 :as log]
     [samuraibff.db.sessions :as db.sessions]
     [samuraibff.db.speakers :as db.speakers]
@@ -28,9 +27,6 @@
     (java.io InputStream)
     (java.util UUID)
     (software.amazon.awssdk.services.s3.model NoSuchBucketException S3Exception)))
-
-(def ^:private json-mapper
-  (json/object-mapper {:encode-key-fn name}))
 
 (defn- json-response
   "Return a JSON response map.

@@ -3,7 +3,8 @@
   "Integration tests for enrolled speaker HTTP endpoints (S3 + Postgres)." 
   (:require
     [cheshire.core :as cheshire]
-    [clojure.test :refer :all]
+    [clojure.test :refer [deftest is testing]]
+    [clojure.java.io :as io]
     [ring.mock.request :as mock]
     [next.jdbc :as jdbc]
     [next.jdbc.result-set :as rs]
@@ -59,7 +60,7 @@
       (nil? body) nil
       (map? body) body
       (string? body) (cheshire/parse-string body true)
-      (instance? java.io.InputStream body) (cheshire/parse-stream (clojure.java.io/reader body) true)
+      (instance? java.io.InputStream body) (cheshire/parse-stream (io/reader body) true)
       :else (cheshire/parse-string (str body) true))))
 
 (deftest speakers-create-list-delete-integration-test
