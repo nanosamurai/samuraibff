@@ -1,1 +1,0 @@
-["^ ","~$delete-speaker-route-extracts-path-param",["^ ","~:row",12,"~:col",1,"~:fixed-arities",["~#set",[0]],"~:name","^0","~:ns","~$samuraibff.http.speakers-router-test","~:top-ns","^7","~:arities",["^ ","~i0",["^ ","~:ret","~:boolean"]]],"~:filename","test/samuraibff/http/speakers_router_test.clj"]
