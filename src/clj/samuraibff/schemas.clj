@@ -616,7 +616,12 @@
   "Response body for DELETE /api/speakers/{speaker_id}."
   [:map
    [:ok :boolean]
-   [:speaker_id Uuid]])
+   [:speaker_id Uuid]
+   ;; Best-effort cleanup of S3 enrollment data (LocalStack may restart and lose
+   ;; buckets/objects). When cleanup fails, the speaker DB record may still be
+   ;; deleted and we surface this for observability.
+   [:s3_deleted_objects {:optional true} NonNegInt]
+   [:s3_delete_failed {:optional true} :boolean]])
 
 (def SessionStartRequest
   "Start a session.

@@ -26,7 +26,8 @@
     [samuraibff.util.uuid :as uuid])
   (:import
     (java.io InputStream)
-    (java.util UUID)))
+    (java.util UUID)
+    (software.amazon.awssdk.services.s3.model NoSuchBucketException S3Exception)))
 
 (def ^:private json-mapper
   (json/object-mapper {:encode-key-fn name}))
@@ -239,24 +240,46 @@
                              nil))]
         (if-not speaker-uuid
           (json-response 400 {:ok false :message "invalid-speaker-id"})
-          (let [s3 (s3.enrollment/build-s3-client config)]
-            (try
-              (log/info "Deleting speaker" {:tenant_id (str tenant-id)
-                                            :user_id (some-> req :auth/user :sub str)
-                                            :speaker_id (str speaker-uuid)})
-              (let [deleted-objects (s3.enrollment/delete-speaker-prefix! s3 config tenant-id speaker-uuid)
-                    ds (:ds db)
-                    deleted (when ds (db.speakers/delete-speaker! ds tenant-id speaker-uuid))]
-                (if (and ds (zero? (or deleted 0)))
-                  (json-response 404 {:ok false :message "speaker-not-found"})
-                  (do
-                    (log/info "Speaker deleted" {:tenant_id (str tenant-id)
-                                                 :user_id (some-> req :auth/user :sub str)
-                                                 :speaker_id speaker-id
-                                                 :s3_deleted_objects (long (or deleted-objects 0))})
-                    (json-response 200 {:ok true :speaker_id speaker-id}))))
-              (finally
-                (.close s3))))))
+          (let [ds (:ds db)
+                deleted (when ds (db.speakers/delete-speaker! ds tenant-id speaker-uuid))]
+            (if (and ds (zero? (or deleted 0)))
+              (json-response 404 {:ok false :message "speaker-not-found"})
+              (let [s3 (s3.enrollment/build-s3-client config)]
+                (try
+                  (log/info "Deleting speaker" {:tenant_id (str tenant-id)
+                                                :user_id (some-> req :auth/user :sub str)
+                                                :speaker_id (str speaker-uuid)})
+                  (let [s3-result
+                        (try
+                          {:s3_deleted_objects (long (or (s3.enrollment/delete-speaker-prefix! s3 config tenant-id speaker-uuid) 0))}
+                          (catch NoSuchBucketException e
+                            (log/info e "Speaker S3 bucket missing; treating as already-deleted" {:tenant_id (str tenant-id)
+                                                                                                 :speaker_id (str speaker-uuid)})
+                            {:s3_deleted_objects 0
+                             :s3_delete_failed true})
+                          (catch S3Exception e
+                            ;; LocalStack may lose data or restart; do not fail speaker deletion if DB record is gone.
+                            (let [status (some-> e .statusCode)]
+                              (if (or (= 404 status) (= 400 status))
+                                (do
+                                  (log/info e "Speaker S3 prefix missing; treating as already-deleted" {:tenant_id (str tenant-id)
+                                                                                                        :speaker_id (str speaker-uuid)
+                                                                                                        :status status})
+                                  {:s3_deleted_objects 0})
+                                (do
+                                  (log/warn e "Speaker S3 delete failed; continuing" {:tenant_id (str tenant-id)
+                                                                                     :speaker_id (str speaker-uuid)
+                                                                                     :status status})
+                                  {:s3_deleted_objects 0
+                                   :s3_delete_failed true})))))]
+                    (log/info "Speaker deleted" (merge {:tenant_id (str tenant-id)
+                                                        :user_id (some-> req :auth/user :sub str)
+                                                        :speaker_id speaker-id}
+                                                       s3-result))
+                    (json-response 200 (merge {:ok true :speaker_id speaker-id}
+                                             s3-result)))
+                  (finally
+                    (.close s3))))))))
       (catch clojure.lang.ExceptionInfo e
         (if (= :samuraibff.http/missing-tenant-id (:type (ex-data e)))
           (json-response 403 {:ok false :message "missing-tenant-id"})
