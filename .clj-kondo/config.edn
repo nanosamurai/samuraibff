@@ -1,0 +1,4 @@
+{:hooks
+ {:analyze-call
+  {samuraibff.testcontainers.localstack/with-localstack hooks.samuraibff.testcontainers/with-localstack
+   samuraibff.testcontainers.postgres/with-postgres hooks.samuraibff.testcontainers/with-postgres}}}

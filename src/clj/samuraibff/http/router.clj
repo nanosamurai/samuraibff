@@ -479,20 +479,23 @@
                                  403 {:body schemas/ApiErrorResponse}
                                  500 {:body schemas/ApiErrorResponse}}
                      :middleware [wrap-multipart-params]
-                     :handler (http.speakers/create-speaker-handler deps)}}]]
+                     :handler (http.speakers/create-speaker-handler deps)}}]
 
-;; NOTE: We constrain :speaker_id to UUID to avoid route conflicts with
-           ;; literal subpaths like /speakers/from-recording.
-           ["/speakers/:speaker_id{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}}"
-            {:delete {:summary "Delete enrolled speaker"
-                      :description "Deletes an enrolled speaker and all associated stored data for the current tenant."
-                      :parameters {:path [:map [:speaker_id :string]]}
-                      :responses {200 {:body schemas/DeleteSpeakerResponse}
-                                  400 {:body schemas/ApiErrorResponse}
-                                  403 {:body schemas/ApiErrorResponse}
-                                  404 {:body schemas/ApiErrorResponse}
-                                  500 {:body schemas/ApiErrorResponse}}
-                      :handler (http.speakers/delete-speaker-handler deps)}}]
+            ;; NOTE: We intentionally do NOT constrain :speaker_id with a UUID regex.
+            ;; Reitit uses `{...}` in paths for parameter constraints and UUID regexes
+            ;; commonly contain quantifiers like `{8}` / `{4}`, which breaks parameter
+            ;; parsing (and yields request coercion errors like "missing required key").
+            ;; Instead we rely on Malli coercion (schemas/Uuid) to validate the param.
+            ["/:speaker_id"
+             {:delete {:summary "Delete enrolled speaker"
+                       :description "Deletes an enrolled speaker and all associated stored data for the current tenant."
+                       :parameters {:path [:map [:speaker_id schemas/Uuid]]}
+                       :responses {200 {:body schemas/DeleteSpeakerResponse}
+                                   400 {:body schemas/ApiErrorResponse}
+                                   403 {:body schemas/ApiErrorResponse}
+                                   404 {:body schemas/ApiErrorResponse}
+                                   500 {:body schemas/ApiErrorResponse}}
+                       :handler (http.speakers/delete-speaker-handler deps)}}]]
 
            ;; Enrollment from a stored recording (final transcript bubble selection)
            ["/speaker-enrollment/from-recording"

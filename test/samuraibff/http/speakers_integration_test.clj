@@ -3,7 +3,8 @@
   "Integration tests for enrolled speaker HTTP endpoints (S3 + Postgres)." 
   (:require
     [cheshire.core :as cheshire]
-    [clojure.test :refer :all]
+    [clojure.test :refer [deftest is testing]]
+    [clojure.java.io :as io]
     [ring.mock.request :as mock]
     [next.jdbc :as jdbc]
     [next.jdbc.result-set :as rs]
@@ -59,7 +60,7 @@
       (nil? body) nil
       (map? body) body
       (string? body) (cheshire/parse-string body true)
-      (instance? java.io.InputStream body) (cheshire/parse-stream (clojure.java.io/reader body) true)
+      (instance? java.io.InputStream body) (cheshire/parse-stream (io/reader body) true)
       :else (cheshire/parse-string (str body) true))))
 
 (deftest speakers-create-list-delete-integration-test
@@ -96,11 +97,11 @@
                                    ["SELECT id, label FROM speakers WHERE id = ?" (UUID/fromString speaker-id)]
                                    {:builder-fn rs/as-unqualified-lower-maps})
               delete-resp (delete-handler
-                            (-> (mock/request :delete (str "/api/speakers/" speaker-id))
-                                ;; When calling the handler directly, Reitit's path-params
-                                ;; are not populated automatically.
-                                (assoc :path-params {:speaker_id speaker-id})
-                                (auth-req)))
+                           (-> (mock/request :delete (str "/api/speakers/" speaker-id))
+                               ;; When calling the handler directly, Reitit's path-params
+                               ;; are not populated automatically.
+                               (assoc :path-params {:speaker_id speaker-id})
+                               (auth-req)))
                   delete-body (parse-json-body delete-resp)
                   post-delete-row (jdbc/execute-one!
                                     ds
@@ -124,3 +125,35 @@
                   (.delete wav-file)
                   (catch Exception _
                     nil))))))))))
+
+(deftest speakers-delete-succeeds-when-s3-data-missing
+  (testing "DELETE still succeeds when LocalStack bucket is missing (best-effort S3 cleanup)"
+    (tc.localstack/with-localstack [localstack]
+      (tc.pg/with-postgres [pg]
+        (let [jdbc-url (tc.pg/jdbc-url pg)
+              ds (tc.pg/datasource jdbc-url "drsynth" "drsynth")
+              _ (tc.pg/apply-schema! ds)
+              _ (insert-tenant! ds)
+              config (build-config localstack)
+              deps {:config config :db {:ds ds}}
+              delete-handler (http.speakers/delete-speaker-handler deps)
+              speaker-id (UUID/randomUUID)
+              _ (jdbc/execute! ds
+                              ["INSERT INTO speakers (id, tenant_id, label, audio_url, created_at) VALUES (?, ?, ?, ?, now())"
+                               speaker-id
+                               (UUID/fromString tenant-id)
+                               "Ghost speaker"
+                               "s3://xamurai-enrollment/enrollment/.../speaker.json"])
+              ;; Intentionally DO NOT create the bucket in LocalStack.
+              delete-resp (delete-handler
+                           (-> (mock/request :delete (str "/api/speakers/" speaker-id))
+                               (assoc :path-params {:speaker_id (str speaker-id)})
+                               (auth-req)))
+              delete-body (parse-json-body delete-resp)
+              post-delete-row (jdbc/execute-one!
+                               ds
+                               ["SELECT id FROM speakers WHERE id = ?" speaker-id]
+                               {:builder-fn rs/as-unqualified-lower-maps})]
+          (is (= 200 (:status delete-resp)))
+          (is (= (str speaker-id) (:speaker_id delete-body)))
+          (is (nil? post-delete-row)))))))

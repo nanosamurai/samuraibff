@@ -327,7 +327,10 @@ in S3 and persisted in Postgres.
 - `POST /api/speakers` – multipart upload with fields:
   - `label` (string)
   - `sample` (WAV file)
-- `DELETE /api/speakers/:speaker_id` – delete speaker (S3 + DB)
+- `DELETE /api/speakers/:speaker_id` – delete speaker (DB + best-effort S3 cleanup)
+  - in local dev, LocalStack may be restarted and lose buckets/objects while DB rows remain.
+    In that case the API still returns **200** if the DB record was deleted successfully,
+    and may include `s3_delete_failed=true` for observability.
 
 ### Enrollment from recordings (preferred UX)
 
