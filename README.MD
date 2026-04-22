@@ -12,6 +12,8 @@ Nanosamurai solution currently consists of
 - **nanodeploy** - Helm charts for local k8s  and aws EKS deployments and also local docker compose setup (https://github.com/mikub/nanodeploy ; locally usually at `%USERPROFILE%\PycharmProjects\nanodeploy`)
 - **nanplatform** - Pulumi infra setup in AWS (https://github.com/mikub/nanplatform ; locally usually at `%USERPROFILE%\PycharmProjects\nanplatform`)
 - **nanosamurai-sdk** - A python sdk client for nanosamur.ai (uses client credentials for m2m access) (https://github.com/mikub/nanosamurai-sdk ; locally usually at `%USERPROFILE%\PycharmProjects\nanosamurai-sdk`)
+- **webhook-router** - java service for filtering kafka message which should trigger webhooks configured by a user (see `%USERPROFILE%\IdeaProjects\webhook-router`)
+- **webhook-dispatcher** - java service for dispatching webhooks (see `%USERPROFILE%\IdeaProjects\webhook-dispatcher`)
 
 ---
 
