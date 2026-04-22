@@ -139,32 +139,51 @@
               session-id
               {:lang "en" :sample-rate 16000})
 
-            (let [registry-a (get sys-a :samuraibff/ws-registry)
+             (let [registry-a (get sys-a :samuraibff/ws-registry)
                   session-a (samuraibff.ws.registry/get-session registry-a "tenant-a" session-id)
                   out (async/chan 8)]
               (samuraibff.ws.registry/tap-events! session-a out)
               (try
                 (with-open [p (producer bootstrap)]
-                  (let [ev (-> (RefinedEvent/newBuilder)
-                               (.setSessionId session-id)
-                               (.setTenantId "tenant-a")
-                               (.setStartS 0.0)
-                               (.setEndS 1.0)
-                               (.setText "hello from kafka")
-                               (.setLang "en")
-                               (.setBffOriginUri (str "http://127.0.0.1:" port-a))
-                               (.build))
-                        record (ProducerRecord. topic session-id (.toByteArray ev))]
+                   (let [seg1 (-> (samuraibff.proto.SessionTranscriptSegment/newBuilder)
+                                  (.setStartS 0.0)
+                                  (.setEndS 0.5)
+                                  (.setText "hello")
+                                  (.setSpeaker "SPEAKER_00")
+                                  (.build))
+                         seg2 (-> (samuraibff.proto.SessionTranscriptSegment/newBuilder)
+                                  (.setStartS 0.5)
+                                  (.setEndS 1.0)
+                                  (.setText "from kafka")
+                                  (.setSpeaker "SPEAKER_01")
+                                  (.build))
+                         ev (-> (RefinedEvent/newBuilder)
+                                (.setSessionId session-id)
+                                (.setTenantId "tenant-a")
+                                (.setStartS 0.0)
+                                (.setEndS 1.0)
+                                (.setText "hello from kafka")
+                                (.setLang "en")
+                                (.setBffOriginUri (str "http://127.0.0.1:" port-a))
+                                (.addSegments seg1)
+                                (.addSegments seg2)
+                                (.build))
+                         record (ProducerRecord. topic session-id (.toByteArray ev))]
                     (.send p record)
                     (.flush p)))
 
                 ;; Wait for the forwarded refined event to appear on A.
-                (let [[msg ch] (async/alts!! [out (async/timeout 12000)] :priority true)]
-                  (is (= out ch) "Expected refined event before timeout")
-                  (is (= "refined" (:type msg)))
-                  (is (= session-id (:session_id msg)))
-                  (is (= "en" (:lang msg)))
-                  (is (= "hello from kafka" (:text msg))))
+                 (let [[m1 ch1] (async/alts!! [out (async/timeout 12000)] :priority true)
+                       [m2 ch2] (async/alts!! [out (async/timeout 12000)] :priority true)]
+                   (is (= out ch1) "Expected refined event before timeout")
+                   (is (= out ch2) "Expected refined event before timeout")
+                   (is (= "refined" (:type m1)))
+                   (is (= "refined" (:type m2)))
+                   (is (= session-id (:session_id m1)))
+                   (is (= session-id (:session_id m2)))
+                   (is (= "en" (:lang m1)))
+                   (is (= "en" (:lang m2)))
+                   (is (= ["hello" "from kafka"] (mapv :text [m1 m2]))))
 
                 (finally
                   (samuraibff.ws.registry/untap-events! session-a out)

@@ -53,34 +53,72 @@
         session-id
         {:lang "en" :sample-rate 16000})
 
-      ;; Tap BEFORE posting, otherwise we might miss the event.
+       ;; Tap BEFORE posting, otherwise we might miss the event(s).
       (let [registry (get sys :samuraibff/ws-registry)
             session (samuraibff.ws.registry/get-session registry "tenant-a" session-id)
             out (async/chan 4)]
         (samuraibff.ws.registry/tap-events! session out)
         (try
-          (let [ev (-> (RefinedEvent/newBuilder)
-                       (.setSessionId session-id)
-                       (.setTenantId "tenant-a")
-                       (.setStartS 0.0)
-                       (.setEndS 1.0)
-                       (.setText "hello")
-                       (.setLang "en")
-                       (.build))
-                url (str "http://localhost:" port "/internal/refined")
-                {:keys [status error]} @(http/post url
-                                                   {:headers {"content-type" "application/x-protobuf"}
-                                                    :body (.toByteArray ev)
-                                                    :timeout 2000})]
-            (is (nil? error) (str "Expected no http error, got: " error))
-            (is (= 200 status)))
+           (testing "Backwards compatibility: scalar-only refined event yields one WS message"
+             (let [ev (-> (RefinedEvent/newBuilder)
+                          (.setSessionId session-id)
+                          (.setTenantId "tenant-a")
+                          (.setStartS 0.0)
+                          (.setEndS 1.0)
+                          (.setText "hello")
+                          (.setLang "en")
+                          (.build))
+                   url (str "http://localhost:" port "/internal/refined")
+                   {:keys [status error]} @(http/post url
+                                                      {:headers {"content-type" "application/x-protobuf"}
+                                                       :body (.toByteArray ev)
+                                                       :timeout 2000})]
+               (is (nil? error) (str "Expected no http error, got: " error))
+               (is (= 200 status)))
 
-          (let [[msg ch] (async/alts!! [out (async/timeout 2000)] :priority true)]
-            (is (= out ch) "Expected refined event before timeout")
-            (is (= "refined" (:type msg)))
-            (is (= session-id (:session_id msg)))
-            (is (= "en" (:lang msg)))
-            (is (= "hello" (:text msg))))
+             (let [[msg ch] (async/alts!! [out (async/timeout 2000)] :priority true)]
+               (is (= out ch) "Expected refined event before timeout")
+               (is (= "refined" (:type msg)))
+               (is (= session-id (:session_id msg)))
+               (is (= "en" (:lang msg)))
+               (is (= "hello" (:text msg)))))
+
+           (testing "New semantics: segments fan out into multiple WS refined messages"
+             (let [seg1 (-> (samuraibff.proto.SessionTranscriptSegment/newBuilder)
+                            (.setStartS 0.0)
+                            (.setEndS 0.5)
+                            (.setText "hi")
+                            (.setSpeaker "SPEAKER_00")
+                            (.build))
+                   seg2 (-> (samuraibff.proto.SessionTranscriptSegment/newBuilder)
+                            (.setStartS 0.5)
+                            (.setEndS 1.0)
+                            (.setText "there")
+                            (.setSpeaker "SPEAKER_01")
+                            (.build))
+                   ev (-> (RefinedEvent/newBuilder)
+                          (.setSessionId session-id)
+                          (.setTenantId "tenant-a")
+                          (.setStartS 0.0)
+                          (.setEndS 1.0)
+                          (.setText "hi there")
+                          (.setLang "en")
+                          (.addSegments seg1)
+                          (.addSegments seg2)
+                          (.build))
+                   url (str "http://localhost:" port "/internal/refined")
+                   {:keys [status error]} @(http/post url
+                                                      {:headers {"content-type" "application/x-protobuf"}
+                                                       :body (.toByteArray ev)
+                                                       :timeout 2000})]
+               (is (nil? error) (str "Expected no http error, got: " error))
+               (is (= 200 status)))
+
+             (let [[m1 ch1] (async/alts!! [out (async/timeout 2000)] :priority true)
+                   [m2 ch2] (async/alts!! [out (async/timeout 2000)] :priority true)]
+               (is (= out ch1) "Expected first refined segment before timeout")
+               (is (= out ch2) "Expected second refined segment before timeout")
+               (is (= ["hi" "there"] (mapv :text [m1 m2])))))
 
           (finally
             (samuraibff.ws.registry/untap-events! session out)
