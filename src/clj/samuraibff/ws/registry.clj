@@ -319,7 +319,7 @@
   - `RefinedEvent` represents a refinement window slice.
   - The worker may emit multiple speaker turns as `segments`.
   - The BFF fans out a single protobuf event into N WS events (one per segment)
-    so the UI can keep its existing "message per segment" model.
+    so the UI can keep its existing message-per-segment model.
 
   Backwards compatibility:
   - If `segments` is empty, we fall back to the legacy scalar fields.
