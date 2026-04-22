@@ -719,110 +719,108 @@
   Returns: session map."
   [registry grpc-client session]
   (if (compare-and-set! (:running?* session) false true)
-    (do
-      (let [session-id (:session-id session)
-            tenant-id (:tenant-id session)]
-        (publish! registry session (status-event session-id (:seq* session) "started" nil))
+    (let [session-id (:session-id session)
+          tenant-id (:tenant-id session)]
+      (publish! registry session (status-event session-id (:seq* session) "started" nil))
 
-        (when-not (:want-realtime? session)
-          (log/info "Realtime output disabled; not starting gRPC" {:session-id session-id
-                                                                   :tenant-id tenant-id}))
+      (when-not (:want-realtime? session)
+        (log/info "Realtime output disabled; not starting gRPC" {:session-id session-id
+                                                                 :tenant-id tenant-id}))
 
-        (let [metadata (cond-> {}
-                         (some? (:rt-window-sec session))
-                         (assoc "x-rt-window-sec" (grpc.metadata/header-double (:rt-window-sec session)))
+      (let [metadata (cond-> {}
+                       (some? (:rt-window-sec session))
+                       (assoc "x-rt-window-sec" (grpc.metadata/header-double (:rt-window-sec session)))
 
-                         (some? (:rt-overlap-sec session))
-                         (assoc "x-rt-overlap-sec" (grpc.metadata/header-double (:rt-overlap-sec session)))
+                       (some? (:rt-overlap-sec session))
+                       (assoc "x-rt-overlap-sec" (grpc.metadata/header-double (:rt-overlap-sec session)))
 
-                         (some? (:rt-emit-every-sec session))
-                         (assoc "x-rt-emit-every-sec" (grpc.metadata/header-double (:rt-emit-every-sec session)))
+                       (some? (:rt-emit-every-sec session))
+                       (assoc "x-rt-emit-every-sec" (grpc.metadata/header-double (:rt-emit-every-sec session)))
 
-                         (some? (:rt-partial-enable? session))
-                         (assoc "x-rt-partial-enable" (if (:rt-partial-enable? session) "true" "false")))
-              metadata (into {} (remove (fn [[_k v]] (nil? v)) metadata))
-              stream (when (:want-realtime? session)
-                       (do
-                         (log/info "Starting realtime gRPC stream" {:session-id session-id :tenant-id tenant-id})
-                         (when (seq metadata)
-                           (log/info "Attaching rtservice gRPC metadata" {:session-id session-id
-                                                                          :tenant-id tenant-id
-                                                                          :metadata (keys metadata)}))
-                         (try
-                           (grpc/start-stream!
-                            grpc-client
-                            {:on-next (fn [event]
-                                        (publish! registry session (asr-event->map (:seq* session) event)))
-                             :on-error (fn [t]
-                                         (log/error t "gRPC stream error" {:session-id session-id :tenant-id tenant-id})
-                                         (publish! registry session
-                                                   (error-event session-id (:seq* session) "grpc-error" (.getMessage t)))
-                                         (close-session! registry tenant-id session-id "grpc-error"))
-                             :on-complete (fn []
-                                            (log/info "gRPC stream completed" {:session-id session-id :tenant-id tenant-id})
-                                            (publish! registry session
-                                                      (status-event session-id (:seq* session)
-                                                                    "stopped" "grpc-stream-completed")))
-                             :metadata metadata})
-                           (catch Throwable t
-                             ;; If startup fails, allow retry + make failure obvious.
-                             (reset! (:running?* session) false)
-                             (log/error t "Failed to start realtime gRPC stream" {:session-id session-id :tenant-id tenant-id})
-                             (publish! registry session
-                                       (error-event session-id (:seq* session) "grpc-start-failed" (.getMessage t)))
-                             (throw t)))))]
-          (reset! (:grpc-stream* session) stream)
-          (async/go-loop []
-            (let [[v ch] (async/alts! [(:stop-ch session) (:audio-ch session)] :priority true)]
-              (cond
-                (= ch (:stop-ch session))
-                (do
-                  (log/info "Stopping audio forward loop" {:session-id session-id :tenant-id tenant-id})
+                       (some? (:rt-partial-enable? session))
+                       (assoc "x-rt-partial-enable" (if (:rt-partial-enable? session) "true" "false")))
+            metadata (into {} (remove (fn [[_k v]] (nil? v)) metadata))
+            stream (when (:want-realtime? session)
+                     (log/info "Starting realtime gRPC stream" {:session-id session-id :tenant-id tenant-id})
+                     (when (seq metadata)
+                       (log/info "Attaching rtservice gRPC metadata" {:session-id session-id
+                                                                      :tenant-id tenant-id
+                                                                      :metadata (keys metadata)}))
+                     (try
+                       (grpc/start-stream!
+                        grpc-client
+                        {:on-next (fn [event]
+                                    (publish! registry session (asr-event->map (:seq* session) event)))
+                         :on-error (fn [t]
+                                     (log/error t "gRPC stream error" {:session-id session-id :tenant-id tenant-id})
+                                     (publish! registry session
+                                               (error-event session-id (:seq* session) "grpc-error" (.getMessage t)))
+                                     (close-session! registry tenant-id session-id "grpc-error"))
+                         :on-complete (fn []
+                                        (log/info "gRPC stream completed" {:session-id session-id :tenant-id tenant-id})
+                                        (publish! registry session
+                                                  (status-event session-id (:seq* session)
+                                                                "stopped" "grpc-stream-completed")))
+                         :metadata metadata})
+                       (catch Throwable t
+                         ;; If startup fails, allow retry + make failure obvious.
+                         (reset! (:running?* session) false)
+                         (log/error t "Failed to start realtime gRPC stream" {:session-id session-id :tenant-id tenant-id})
+                         (publish! registry session
+                                   (error-event session-id (:seq* session) "grpc-start-failed" (.getMessage t)))
+                         (throw t))))]
+        (reset! (:grpc-stream* session) stream)
+        (async/go-loop []
+          (let [[v ch] (async/alts! [(:stop-ch session) (:audio-ch session)] :priority true)]
+            (cond
+              (= ch (:stop-ch session))
+              (do
+                (log/info "Stopping audio forward loop" {:session-id session-id :tenant-id tenant-id})
+                (when stream
+                  (grpc/close! stream)))
+
+              (nil? v)
+              (do
+                (log/info "Audio channel closed" {:session-id session-id :tenant-id tenant-id})
+                (when stream
+                  (grpc/close! stream)))
+
+              :else
+              (let [chunk-id (next-seq! (:chunk-seq* session))
+                    bff-origin-uri (resolve-bff-origin-uri (:config registry))
+                    audio-chunk (build-chunk
+                                 session-id
+                                 tenant-id
+                                 (:lang session)
+                                 (:sample-rate session)
+                                 chunk-id
+                                 v
+                                 bff-origin-uri)]
+                ;; Ensure a stable trace context (trace_id == normalized session_id)
+                ;; is current for both Kafka and gRPC. The OTEL Java agent will
+                ;; inject W3C trace context automatically.
+                (session-trace/with-session-trace session-id
+                  ;; Publish to Kafka only when refined/final are requested.
+                  (when (and (or (:want-refined? session) (:want-final? session))
+                             (some? (:kafka-producer registry)))
+                    (kafka.producer/send-audio-chunk!
+                     (:kafka-producer registry)
+                     session-id
+                     audio-chunk
+                     {:tenant-id tenant-id
+                      :headers (:kafka-headers session)}))
+
+                  ;; Forward to realtime gRPC ASR service (when enabled).
                   (when stream
-                    (grpc/close! stream)))
-
-                (nil? v)
-                (do
-                  (log/info "Audio channel closed" {:session-id session-id :tenant-id tenant-id})
-                  (when stream
-                    (grpc/close! stream)))
-
-                :else
-                (let [chunk-id (next-seq! (:chunk-seq* session))
-                      bff-origin-uri (resolve-bff-origin-uri (:config registry))
-                      audio-chunk (build-chunk
-                                   session-id
-                                   tenant-id
-                                   (:lang session)
-                                   (:sample-rate session)
-                                   chunk-id
-                                   v
-                                   bff-origin-uri)]
-                  ;; Ensure a stable trace context (trace_id == normalized session_id)
-                  ;; is current for both Kafka and gRPC. The OTEL Java agent will
-                  ;; inject W3C trace context automatically.
-                  (session-trace/with-session-trace session-id
-                    ;; Publish to Kafka only when refined/final are requested.
-                    (when (and (or (:want-refined? session) (:want-final? session))
-                               (some? (:kafka-producer registry)))
-                      (kafka.producer/send-audio-chunk!
-                       (:kafka-producer registry)
-                       session-id
-                       audio-chunk
-                       {:tenant-id tenant-id
-                        :headers (:kafka-headers session)}))
-
-                    ;; Forward to realtime gRPC ASR service (when enabled).
-                    (when stream
-                      (try
-                        ((:send! stream) audio-chunk)
-                        (catch Exception e
-                          (log/error e "gRPC send failed" {:session-id session-id :tenant-id tenant-id})
-                          (publish! registry session
-                                    (error-event session-id (:seq* session) "grpc-send-failed" (.getMessage e)))
-                          (close-session! registry tenant-id session-id "grpc-send-failed")))))
-                  (recur)))))
-          session)))
+                    (try
+                      ((:send! stream) audio-chunk)
+                      (catch Exception e
+                        (log/error e "gRPC send failed" {:session-id session-id :tenant-id tenant-id})
+                        (publish! registry session
+                                  (error-event session-id (:seq* session) "grpc-send-failed" (.getMessage e)))
+                        (close-session! registry tenant-id session-id "grpc-send-failed")))))
+                (recur)))))
+        session))
     session))
 
 (defmethod ig/init-key :samuraibff/ws-registry
