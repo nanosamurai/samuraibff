@@ -91,7 +91,7 @@
    [samuraibff.schemas :as schemas])
   (:import
    (com.google.protobuf ByteString)
-   (samuraibff.proto AsrType AudioChunk RefinedEvent)))
+    (samuraibff.proto AsrType AudioChunk RefinedEvent SessionTranscriptSegment)))
 
 (defn- ensure-bytes-header-map
   "Ensure a kafka header map has string keys and byte[] values.
@@ -229,35 +229,121 @@
         (when port
           (str "http://" host ":" port)))))
 
-(defn- refined-event->map
-  "Convert a protobuf RefinedEvent message into a WS event map.
+(defn- warn-suspicious-refined-times!
+  "Log a warning when a refined segment has suspicious start/end timings.
+
+  Inputs:
+  - ctx: map of extra log context
+  - start: double
+  - end: double
+
+  Returns: nil."
+  [ctx start end]
+  (when (and (number? start) (number? end) (<= (double end) (double start)))
+    (log/warn "Suspicious refined times (start/end)" (assoc ctx :start_s start :end_s end)))
+  nil)
+
+(defn- refined-scalar->ws-event
+  "Convert a protobuf RefinedEvent scalar payload into a single WS event map.
+
+  This is a backwards-compat path. New workers SHOULD populate `segments`, but
+  older workers may still send only start/end/text/speaker.
 
   Output matches (and is validated against) `samuraibff.schemas/RefinedEvent`.
 
   Debugging note:
   - In protobuf3, missing doubles default to 0.0.
-  - If WhisperX worker forgets to populate start/end, the UI will see 0..0.
-    We log that here so it’s obvious on the backend side."
-  [seq* ^RefinedEvent ev]
+  - If the worker forgets to populate start/end, the UI will see 0..0."
+  [seq* ts-ms ^RefinedEvent ev]
   (let [start (.getStartS ev)
-        end (.getEndS ev)]
-    (when (and (number? start) (number? end) (<= (double end) (double start)))
-      (log/warn "Suspicious refined times (start/end)" {:session-id (.getSessionId ev)
-                                                        :start_s start
-                                                        :end_s end
-                                                        :supersedes_seq (vec (.getSupersedesSeqList ev))
-                                                        :text-len (count (str (.getText ev)))
-                                                        :lang (.getLang ev)}))
+        end (.getEndS ev)
+        supersedes (mapv long (.getSupersedesSeqList ev))]
+    (warn-suspicious-refined-times!
+     {:session-id (.getSessionId ev)
+      :lang (.getLang ev)
+      :supersedes_seq supersedes
+      :text-len (count (str (.getText ev)))}
+     start
+     end)
     {:type "refined"
      :session_id (.getSessionId ev)
      :seq (next-seq! seq*)
-     :ts_ms (now-ms)
+     :ts_ms ts-ms
      :start_s start
      :end_s end
      :text (.getText ev)
      :lang (.getLang ev)
      :speaker (.getSpeaker ev)
-     :supersedes_seq (mapv long (.getSupersedesSeqList ev))}))
+     :supersedes_seq supersedes}))
+
+(defn- segment->ws-event
+  "Convert a `SessionTranscriptSegment` into a WS refined event map.
+
+  Inputs:
+  - seq*: atom int (session WS sequence)
+  - ts-ms: epoch milliseconds (shared across all derived segments)
+  - session-id: string
+  - lang: string
+  - supersedes: vector<long>
+  - seg: protobuf `samuraibff.proto.SessionTranscriptSegment`
+
+  Returns: map matching `samuraibff.schemas/RefinedEvent`."
+  [seq* ts-ms session-id lang supersedes ^SessionTranscriptSegment seg]
+  (let [start (.getStartS seg)
+        end (.getEndS seg)
+        text (.getText seg)
+        speaker (.getSpeaker seg)]
+    (warn-suspicious-refined-times!
+     {:session-id session-id
+      :lang lang
+      :supersedes_seq supersedes
+      :speaker speaker
+      :text-len (count (str text))}
+     start
+     end)
+    {:type "refined"
+     :session_id session-id
+     :seq (next-seq! seq*)
+     :ts_ms ts-ms
+     :start_s start
+     :end_s end
+     :text text
+     :lang lang
+     :speaker speaker
+     :supersedes_seq supersedes}))
+
+(defn- refined-event->ws-events
+  "Convert a protobuf `RefinedEvent` into one or more WS refined events.
+
+  New semantics:
+  - `RefinedEvent` represents a refinement window slice.
+  - The worker may emit multiple speaker turns as `segments`.
+  - The BFF fans out a single protobuf event into N WS events (one per segment)
+    so the UI can keep its existing message-per-segment model.
+
+  Backwards compatibility:
+  - If `segments` is empty, we fall back to the legacy scalar fields.
+
+  Returns: vector of event maps compatible with `samuraibff.schemas/RefinedEvent`."
+  [seq* ^RefinedEvent ev]
+  (let [ts-ms (now-ms)
+        session-id (.getSessionId ev)
+        supersedes (mapv long (.getSupersedesSeqList ev))]
+    (if (pos? (.getSegmentsCount ev))
+      (let [segments (->> (.getSegmentsList ev)
+                          (sort-by (fn [^SessionTranscriptSegment s] (double (.getStartS s))))
+                          vec)]
+        (when (and (seq (str (.getText ev)))
+                   (seq segments))
+          (log/info "RefinedEvent contains segments; legacy scalar fields will be ignored" {:session-id session-id
+                                                                                           :segments (count segments)
+                                                                                           :slice_index (.getSliceIndex ev)
+                                                                                           :window_sec (.getWindowSec ev)
+                                                                                           :flush_reason (.getFlushReason ev)}))
+        (mapv (fn [seg]
+                (segment->ws-event seq* ts-ms session-id (.getLang ev) supersedes seg))
+              segments))
+      [(refined-scalar->ws-event seq* ts-ms ev)])))
 
 (defn publish-refined-proto!
   "Publish a refined transcript event to the local WS session (if present).
@@ -274,7 +360,9 @@
   Behavior:
   - requires `RefinedEvent.tenant_id` to be non-blank
 
-  Returns: boolean (true if delivered to a local session, false otherwise)."
+  Returns: boolean.
+  - true if the session exists locally (even if some events are dropped due to backpressure)
+  - false if the session is not present locally or tenant_id is missing."
   [{:keys [sessions] :as ws-registry} ^RefinedEvent ev]
   (let [session-id (.getSessionId ev)
         tenant-id (let [t (.getTenantId ev)]
@@ -285,7 +373,17 @@
         false)
       (let [session (get-in @sessions [tenant-id session-id])]
         (when session
-          (publish! ws-registry session (refined-event->map (:seq* session) ev)))))))
+          (let [events (refined-event->ws-events (:seq* session) ev)
+                results (mapv (fn [event]
+                                (publish! ws-registry session event))
+                              events)
+                dropped (count (remove true? results))]
+            (when (pos? dropped)
+              (log/warn "Dropped refined WS events due to backpressure" {:session-id session-id
+                                                                         :tenant-id tenant-id
+                                                                         :dropped dropped
+                                                                         :total (count events)}))
+            true))))))
 
 (defn- new-session
   "Create a new in-memory session state entry.
@@ -621,110 +719,108 @@
   Returns: session map."
   [registry grpc-client session]
   (if (compare-and-set! (:running?* session) false true)
-    (do
-      (let [session-id (:session-id session)
-            tenant-id (:tenant-id session)]
-        (publish! registry session (status-event session-id (:seq* session) "started" nil))
+    (let [session-id (:session-id session)
+          tenant-id (:tenant-id session)]
+      (publish! registry session (status-event session-id (:seq* session) "started" nil))
 
-        (when-not (:want-realtime? session)
-          (log/info "Realtime output disabled; not starting gRPC" {:session-id session-id
-                                                                   :tenant-id tenant-id}))
+      (when-not (:want-realtime? session)
+        (log/info "Realtime output disabled; not starting gRPC" {:session-id session-id
+                                                                 :tenant-id tenant-id}))
 
-        (let [metadata (cond-> {}
-                         (some? (:rt-window-sec session))
-                         (assoc "x-rt-window-sec" (grpc.metadata/header-double (:rt-window-sec session)))
+      (let [metadata (cond-> {}
+                       (some? (:rt-window-sec session))
+                       (assoc "x-rt-window-sec" (grpc.metadata/header-double (:rt-window-sec session)))
 
-                         (some? (:rt-overlap-sec session))
-                         (assoc "x-rt-overlap-sec" (grpc.metadata/header-double (:rt-overlap-sec session)))
+                       (some? (:rt-overlap-sec session))
+                       (assoc "x-rt-overlap-sec" (grpc.metadata/header-double (:rt-overlap-sec session)))
 
-                         (some? (:rt-emit-every-sec session))
-                         (assoc "x-rt-emit-every-sec" (grpc.metadata/header-double (:rt-emit-every-sec session)))
+                       (some? (:rt-emit-every-sec session))
+                       (assoc "x-rt-emit-every-sec" (grpc.metadata/header-double (:rt-emit-every-sec session)))
 
-                         (some? (:rt-partial-enable? session))
-                         (assoc "x-rt-partial-enable" (if (:rt-partial-enable? session) "true" "false")))
-              metadata (into {} (remove (fn [[_k v]] (nil? v)) metadata))
-              stream (when (:want-realtime? session)
-                       (do
-                         (log/info "Starting realtime gRPC stream" {:session-id session-id :tenant-id tenant-id})
-                         (when (seq metadata)
-                           (log/info "Attaching rtservice gRPC metadata" {:session-id session-id
-                                                                          :tenant-id tenant-id
-                                                                          :metadata (keys metadata)}))
-                         (try
-                           (grpc/start-stream!
-                            grpc-client
-                            {:on-next (fn [event]
-                                        (publish! registry session (asr-event->map (:seq* session) event)))
-                             :on-error (fn [t]
-                                         (log/error t "gRPC stream error" {:session-id session-id :tenant-id tenant-id})
-                                         (publish! registry session
-                                                   (error-event session-id (:seq* session) "grpc-error" (.getMessage t)))
-                                         (close-session! registry tenant-id session-id "grpc-error"))
-                             :on-complete (fn []
-                                            (log/info "gRPC stream completed" {:session-id session-id :tenant-id tenant-id})
-                                            (publish! registry session
-                                                      (status-event session-id (:seq* session)
-                                                                    "stopped" "grpc-stream-completed")))
-                             :metadata metadata})
-                           (catch Throwable t
-                             ;; If startup fails, allow retry + make failure obvious.
-                             (reset! (:running?* session) false)
-                             (log/error t "Failed to start realtime gRPC stream" {:session-id session-id :tenant-id tenant-id})
-                             (publish! registry session
-                                       (error-event session-id (:seq* session) "grpc-start-failed" (.getMessage t)))
-                             (throw t)))))]
-          (reset! (:grpc-stream* session) stream)
-          (async/go-loop []
-            (let [[v ch] (async/alts! [(:stop-ch session) (:audio-ch session)] :priority true)]
-              (cond
-                (= ch (:stop-ch session))
-                (do
-                  (log/info "Stopping audio forward loop" {:session-id session-id :tenant-id tenant-id})
+                       (some? (:rt-partial-enable? session))
+                       (assoc "x-rt-partial-enable" (if (:rt-partial-enable? session) "true" "false")))
+            metadata (into {} (remove (fn [[_k v]] (nil? v)) metadata))
+            stream (when (:want-realtime? session)
+                     (log/info "Starting realtime gRPC stream" {:session-id session-id :tenant-id tenant-id})
+                     (when (seq metadata)
+                       (log/info "Attaching rtservice gRPC metadata" {:session-id session-id
+                                                                      :tenant-id tenant-id
+                                                                      :metadata (keys metadata)}))
+                     (try
+                       (grpc/start-stream!
+                        grpc-client
+                        {:on-next (fn [event]
+                                    (publish! registry session (asr-event->map (:seq* session) event)))
+                         :on-error (fn [t]
+                                     (log/error t "gRPC stream error" {:session-id session-id :tenant-id tenant-id})
+                                     (publish! registry session
+                                               (error-event session-id (:seq* session) "grpc-error" (.getMessage t)))
+                                     (close-session! registry tenant-id session-id "grpc-error"))
+                         :on-complete (fn []
+                                        (log/info "gRPC stream completed" {:session-id session-id :tenant-id tenant-id})
+                                        (publish! registry session
+                                                  (status-event session-id (:seq* session)
+                                                                "stopped" "grpc-stream-completed")))
+                         :metadata metadata})
+                       (catch Throwable t
+                         ;; If startup fails, allow retry + make failure obvious.
+                         (reset! (:running?* session) false)
+                         (log/error t "Failed to start realtime gRPC stream" {:session-id session-id :tenant-id tenant-id})
+                         (publish! registry session
+                                   (error-event session-id (:seq* session) "grpc-start-failed" (.getMessage t)))
+                         (throw t))))]
+        (reset! (:grpc-stream* session) stream)
+        (async/go-loop []
+          (let [[v ch] (async/alts! [(:stop-ch session) (:audio-ch session)] :priority true)]
+            (cond
+              (= ch (:stop-ch session))
+              (do
+                (log/info "Stopping audio forward loop" {:session-id session-id :tenant-id tenant-id})
+                (when stream
+                  (grpc/close! stream)))
+
+              (nil? v)
+              (do
+                (log/info "Audio channel closed" {:session-id session-id :tenant-id tenant-id})
+                (when stream
+                  (grpc/close! stream)))
+
+              :else
+              (let [chunk-id (next-seq! (:chunk-seq* session))
+                    bff-origin-uri (resolve-bff-origin-uri (:config registry))
+                    audio-chunk (build-chunk
+                                 session-id
+                                 tenant-id
+                                 (:lang session)
+                                 (:sample-rate session)
+                                 chunk-id
+                                 v
+                                 bff-origin-uri)]
+                ;; Ensure a stable trace context (trace_id == normalized session_id)
+                ;; is current for both Kafka and gRPC. The OTEL Java agent will
+                ;; inject W3C trace context automatically.
+                (session-trace/with-session-trace session-id
+                  ;; Publish to Kafka only when refined/final are requested.
+                  (when (and (or (:want-refined? session) (:want-final? session))
+                             (some? (:kafka-producer registry)))
+                    (kafka.producer/send-audio-chunk!
+                     (:kafka-producer registry)
+                     session-id
+                     audio-chunk
+                     {:tenant-id tenant-id
+                      :headers (:kafka-headers session)}))
+
+                  ;; Forward to realtime gRPC ASR service (when enabled).
                   (when stream
-                    (grpc/close! stream)))
-
-                (nil? v)
-                (do
-                  (log/info "Audio channel closed" {:session-id session-id :tenant-id tenant-id})
-                  (when stream
-                    (grpc/close! stream)))
-
-                :else
-                (let [chunk-id (next-seq! (:chunk-seq* session))
-                      bff-origin-uri (resolve-bff-origin-uri (:config registry))
-                      audio-chunk (build-chunk
-                                   session-id
-                                   tenant-id
-                                   (:lang session)
-                                   (:sample-rate session)
-                                   chunk-id
-                                   v
-                                   bff-origin-uri)]
-                  ;; Ensure a stable trace context (trace_id == normalized session_id)
-                  ;; is current for both Kafka and gRPC. The OTEL Java agent will
-                  ;; inject W3C trace context automatically.
-                  (session-trace/with-session-trace session-id
-                    ;; Publish to Kafka only when refined/final are requested.
-                    (when (and (or (:want-refined? session) (:want-final? session))
-                               (some? (:kafka-producer registry)))
-                      (kafka.producer/send-audio-chunk!
-                       (:kafka-producer registry)
-                       session-id
-                       audio-chunk
-                       {:tenant-id tenant-id
-                        :headers (:kafka-headers session)}))
-
-                    ;; Forward to realtime gRPC ASR service (when enabled).
-                    (when stream
-                      (try
-                        ((:send! stream) audio-chunk)
-                        (catch Exception e
-                          (log/error e "gRPC send failed" {:session-id session-id :tenant-id tenant-id})
-                          (publish! registry session
-                                    (error-event session-id (:seq* session) "grpc-send-failed" (.getMessage e)))
-                          (close-session! registry tenant-id session-id "grpc-send-failed")))))
-                  (recur)))))
-          session)))
+                    (try
+                      ((:send! stream) audio-chunk)
+                      (catch Exception e
+                        (log/error e "gRPC send failed" {:session-id session-id :tenant-id tenant-id})
+                        (publish! registry session
+                                  (error-event session-id (:seq* session) "grpc-send-failed" (.getMessage e)))
+                        (close-session! registry tenant-id session-id "grpc-send-failed")))))
+                (recur)))))
+        session))
     session))
 
 (defmethod ig/init-key :samuraibff/ws-registry

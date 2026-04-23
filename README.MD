@@ -45,6 +45,11 @@ from `start_s`) to avoid leaving “dangling partial bubbles”.
   - `POST /internal/refined` with `application/x-protobuf`
 - push refined transcript segments to the UI over `/ws/events` as `{"type":"refined", ...}` events
 
+RefinedEvent semantics (important):
+- A single `RefinedEvent` protobuf represents one refinement window slice (e.g. 60s).
+- The worker can emit **multiple speaker turns** as `RefinedEvent.segments`.
+- The BFF fans out one protobuf `RefinedEvent` into **N WS `refined` events** (one per segment) so the UI can keep its existing “one message == one segment” model.
+
 ### 3) Refined transcripts handling (UI semantics)
 The UI receives both realtime and refined transcript events over `/ws/events`:
 - realtime ASR: `{"type":"asr", "start_s": <double>, "end_s": <double>, "final": <bool>, ...}`
