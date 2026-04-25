@@ -102,6 +102,59 @@ Supported fields (Phase 1 / RFC-0001):
 
 The backend persists this payload in `sessions.webhook_overrides` (jsonb) and uses it to resolve the immutable routing snapshot published to Kafka (`sessions.meta`).
 
+---
+
+## Refined transcript consolidation (rolling tail)
+
+Some downstream consumers (initially webhook/event-router; later internal workflows / LLM post-processing) need a **cumulative transcript tail** rather than only the latest refined window.
+
+At session creation time, the client can enable consolidated refined transcript production by providing a session-scoped setting in `POST /api/sessions`.
+
+### Request shape
+
+```json
+{
+  "title": "My session",
+  "session_settings": {
+    "refined_transcript": {
+      "consolidation": {
+        "enabled": true
+      }
+    }
+  }
+}
+```
+
+### Persistence
+
+The backend stores this payload snapshot in `sessions.session_settings` (jsonb).
+
+### sessions.meta publishing
+
+When a session is created, the BFF publishes a compacted `sessions.meta` value keyed by `session_id`.
+
+For compatibility, during transition we publish both routing keys:
+- `routing` (legacy)
+- `webhook_routing` (new)
+
+The BFF also publishes `refined_transcript.consolidation` so downstream processors can gate consolidation:
+
+```json
+{
+  "refined_transcript": {
+    "consolidation": {
+      "enabled": true,
+      "max_bytes": 262144,
+      "topic": "transcripts.refined.consolidated",
+      "include_full_text": true
+    }
+  }
+}
+```
+
+Important:
+- The BFF must **never log transcript contents**; logs should only mention booleans/ids.
+
 ### Manual verification
 
 1) Create 1-2 webhooks under **Settings → Webhooks** and subscribe them to at least one event type.
