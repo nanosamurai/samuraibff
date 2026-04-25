@@ -219,6 +219,24 @@
   [:map
    [:title {:optional true}
     [:maybe [:and :string [:fn (fn [s] (<= (count s) 200))]]]]
+
+    ;; Generic session-scoped settings (webhook-agnostic).
+    ;; This is intentionally a nested map so it can grow over time without
+    ;; cluttering the top-level session create payload.
+    ;;
+    ;; v1 supported setting:
+    ;; - {:refined_transcript {:consolidation {:enabled true|false}}}
+    [:session_settings {:optional true}
+     [:maybe
+      [:map
+       [:refined_transcript {:optional true}
+        [:maybe
+         [:map
+          [:consolidation {:optional true}
+           [:maybe
+            [:map
+             [:enabled {:optional true} :boolean]]]]]]]]]]
+
    [:webhook_overrides {:optional true}
     [:maybe
      [:map
