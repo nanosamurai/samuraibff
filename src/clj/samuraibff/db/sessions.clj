@@ -58,7 +58,7 @@
 
   Inputs:
   - ds: javax.sql.DataSource
-  - {:keys [id tenant-id user-id session-key status title webhook-overrides]}
+  - {:keys [id tenant-id user-id session-key status title webhook-overrides session-settings]}
       id          => java.util.UUID
       tenant-id   => java.util.UUID
       user-id     => java.util.UUID or nil
@@ -66,6 +66,7 @@
       title       => string or nil
       status      => string (defaults to active)
       webhook-overrides => map or nil (stored as jsonb)
+      session-settings  => map or nil (stored as jsonb)
 
   Side effects:
   - INSERT into sessions
@@ -73,13 +74,15 @@
   Returns:
   - map with inserted identifiers:
       {:id <uuid> :session-key <string>}"
-  [^DataSource ds {:keys [id tenant-id user-id session-key status title webhook-overrides]
+  [^DataSource ds {:keys [id tenant-id user-id session-key status title webhook-overrides session-settings]
                    :or {status "active"}}]
   (when-not (and ds (instance? UUID id) (instance? UUID tenant-id) (seq (str session-key)))
     (throw (ex-info "insert-session! missing required params"
                     {:id id :tenant-id tenant-id :session-key session-key})))
   (let [wo-json (when (some? webhook-overrides)
                   (cheshire/generate-string webhook-overrides))
+        ss-json (when (some? session-settings)
+                  (cheshire/generate-string session-settings))
         values (cond-> {:id id
                         :tenant_id tenant-id
                         :session_key (str session-key)
@@ -87,11 +90,14 @@
                  (some? user-id) (assoc :user_id user-id)
                  (some? title) (assoc :title (str title))
                  (some? webhook-overrides) (assoc :webhook_overrides
-                                                  [:raw "(?::jsonb)"]))
+                                                  [:raw "(?::jsonb)"])
+                 (some? session-settings) (assoc :session_settings
+                                                 [:raw "(?::jsonb)"]))
         q (-> (h/insert-into :sessions)
               (h/values [values]))
         sqlvec (cond-> (sql/format q)
-                 (some? webhook-overrides) (conj wo-json))]
+                 (some? webhook-overrides) (conj wo-json)
+                 (some? session-settings) (conj ss-json))]
     (jdbc/execute-one! ds sqlvec)
     {:id id :session-key (str session-key)}))
 
