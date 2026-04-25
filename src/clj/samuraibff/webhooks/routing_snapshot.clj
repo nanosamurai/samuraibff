@@ -18,8 +18,7 @@
   "
   (:require
    [clojure.set :as set]
-   [samuraibff.db.webhooks :as db.webhooks]
-   [samuraibff.util.uuid :as util.uuid])
+   [samuraibff.db.webhooks :as db.webhooks])
   (:import
    (java.util UUID)))
 
@@ -100,7 +99,7 @@
   - routing map (JSON-friendly):
     {:targets_by_event_type {event-type [target ...] ...}}
   "
-  [ds ^UUID tenant-id ^UUID session-id webhook-overrides]
+  [ds ^UUID tenant-id ^UUID _session-id webhook-overrides]
   (let [{:keys [use-defaults? webhook-ids disable-event-types]} (normalize-overrides (or webhook-overrides {}))
         {:keys [webhook_ids]} (if use-defaults?
                                 (db.webhooks/get-defaults ds tenant-id)
