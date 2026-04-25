@@ -9,35 +9,11 @@
    [samuraibff.ui.hooks :as hooks]
    [samuraibff.ui.langs :as langs]
    [samuraibff.ui.router :as router]
+   [samuraibff.ui.session-request :as session.req]
    [samuraibff.ui.store :as store]
    [samuraibff.ui.util :as util]
    [samuraibff.ui.ws :as ws]
    ["react" :as react]))
-
-(defn- resolved-webhook-overrides
-  "Compute the `webhook_overrides` request body for `POST /api/sessions`.
-
-  Inputs:
-  - session: map from `store/session*`
-
-  Returns:
-  - nil when the UI is at the default state (so we omit the field entirely)
-  - otherwise a JSON-friendly map matching schemas/CreateSessionRequest"
-  [session]
-  (let [ov (or (:webhook_overrides session) {})
-        use-defaults? (if (contains? ov :use_defaults)
-                        (boolean (:use_defaults ov))
-                        true)
-        webhook-ids (set (or (:webhook_ids ov) #{}))
-        disable-event-types (set (or (:disable_event_types ov) #{}))
-        default? (and (true? use-defaults?)
-                      (empty? webhook-ids)
-                      (empty? disable-event-types))]
-    (when-not default?
-      (cond-> {:use_defaults use-defaults?
-               :webhook_ids (vec (sort webhook-ids))}
-        (seq disable-event-types)
-        (assoc :disable_event_types (vec (sort disable-event-types)))))))
 
 (defn- status-dot-class
   "Translate websocket status keyword to CSS class name."
@@ -85,9 +61,8 @@
       [:button {:class "btn"
                 :on-click (fn [_]
                             (store/append-log! "[ui] creating session...")
-                            (let [overrides (resolved-webhook-overrides @store/session*)]
-                              (-> (api/create-session! {:title (get @store/session* :title "")
-                                                        :webhook_overrides overrides})
+                            (let [req (session.req/create-session-request-body @store/session*)]
+                              (-> (api/create-session! req)
                                   (.then (fn [{:keys [session_id title]}]
                                            (store/set-session-id! session_id)
                                            (store/set-session-title! (or title ""))
@@ -228,23 +203,63 @@
   Returns: hiccup."
   []
   (let [session (hooks/use-atom store/session*)
+        controls (or (:controls session) {})
+        refined-output? (true? (:refined controls))
+
         webhooks-st (hooks/use-atom store/webhooks*)
         {:keys [items loading? error]} webhooks-st
+
+        defaults-st (hooks/use-atom store/webhook-defaults*)
+        defaults-ids (set (map str (or (:webhook_ids defaults-st) [])))
+        defaults-loading? (true? (:loading? defaults-st))
+        defaults-error (:error defaults-st)
+
         overrides (or (:webhook_overrides session) {})
         use-defaults? (if (contains? overrides :use_defaults)
                         (boolean (:use_defaults overrides))
                         true)
         selected-ids (set (or (:webhook_ids overrides) #{}))
+
+        effective-ids (cond-> #{}
+                        (true? use-defaults?) (into defaults-ids)
+                        true (into selected-ids))
+        effective-webhooks (->> (vec (or items []))
+                                (filter (fn [w]
+                                          (and (true? (:enabled w))
+                                               (contains? effective-ids (str (:id w))))))
+                                vec)
+        refined-webhook-selected?
+        (boolean
+         (some (fn [w]
+                 (let [subs (set (map str (or (:subscriptions w) [])))]
+                   (contains? subs "transcript.refined.segment")))
+               effective-webhooks))
+        show-consolidation?
+        (and refined-output? refined-webhook-selected?)
+
+        refresh-webhooks! (fn []
+                            (store/set-webhooks-loading! true)
+                            (store/set-webhooks-error! nil)
+                            (-> (api/list-webhooks!)
+                                (.then (fn [resp]
+                                         (store/set-webhooks-items! (:items resp))))
+                                (.catch (fn [e]
+                                          (store/set-webhooks-error! (shared/safe-http-error e))))
+                                (.finally (fn []
+                                            (store/set-webhooks-loading! false)))))
+        refresh-defaults! (fn []
+                            (store/set-webhook-defaults-loading! true)
+                            (store/set-webhook-defaults-error! nil)
+                            (-> (api/get-webhook-defaults!)
+                                (.then (fn [resp]
+                                         (store/set-webhook-defaults-ids! (:webhook_ids resp))))
+                                (.catch (fn [e]
+                                          (store/set-webhook-defaults-error! (shared/safe-http-error e))))
+                                (.finally (fn []
+                                            (store/set-webhook-defaults-loading! false)))))
         refresh! (fn []
-                   (store/set-webhooks-loading! true)
-                   (store/set-webhooks-error! nil)
-                   (-> (api/list-webhooks!)
-                       (.then (fn [resp]
-                                (store/set-webhooks-items! (:items resp))))
-                       (.catch (fn [e]
-                                 (store/set-webhooks-error! (shared/safe-http-error e))))
-                       (.finally (fn []
-                                   (store/set-webhooks-loading! false)))))
+                   (refresh-webhooks!)
+                   (refresh-defaults!))
         checkbox-row (fn [{:keys [id label checked disabled? on-change]}]
                        [:div {:class "checkbox-row"}
                         [:input {:id id
@@ -260,13 +275,27 @@
      (fn []
        (when (and (empty? (or items []))
                   (not (true? loading?)))
-         (refresh!))
+         (refresh-webhooks!))
+       (when (and (empty? (or (:webhook_ids defaults-st) []))
+                  (not (true? defaults-loading?)))
+         (refresh-defaults!))
        js/undefined)
      #js [])
+
+    ;; If consolidation UI is not applicable, force-disable it in store.
+    (react/useEffect
+     (fn []
+       (when-not show-consolidation?
+         (store/set-session-refined-consolidation-enabled! false))
+       js/undefined)
+     #js [show-consolidation?])
 
     [:div {:class "stream-controls-body"}
      (when (seq error)
        [:div {:class "error" :style {:marginBottom "8px"}} error])
+
+     (when (seq defaults-error)
+       [:div {:class "error" :style {:marginBottom "8px"}} defaults-error])
 
      [checkbox-row {:id "wh-use-defaults"
                     :label "Use tenant default webhooks"
@@ -279,9 +308,9 @@
      [:div {:style {:display "flex" :gap "8px" :marginBottom "8px"}}
       [:button {:class "btn"
                 :type "button"
-                :disabled (boolean loading?)
+                :disabled (boolean (or loading? defaults-loading?))
                 :on-click (fn [_] (refresh!))}
-       (if loading? "Loading…" "Refresh")]]
+       (if (or loading? defaults-loading?) "Loading…" "Refresh")]]
 
      (cond
        (true? loading?)
@@ -309,6 +338,19 @@
                             :checked checked?
                             :on-change (fn [v]
                                          (store/set-session-webhook-id-selected! id v))}]]))])
+
+     (when show-consolidation?
+       (let [enabled? (true? (get-in session [:session_settings :refined_transcript :consolidation :enabled]))]
+         [:div {:style {:marginTop "14px"}}
+          [:div {:class "label" :style {:marginBottom "6px"}}
+           "Refined transcript delivery"]
+          [checkbox-row {:id "wh-refined-consolidation"
+                         :label "Send cumulative refined transcript (rolling tail)"
+                         :checked enabled?
+                         :on-change (fn [v]
+                                      (store/set-session-refined-consolidation-enabled! v))}]
+          [:div {:class "hint" :style {:marginTop "6px"}}
+           "Only applies to webhooks subscribed to transcript.refined.segment."]]))
 
      [:div {:class "muted" :style {:marginTop "10px" :fontSize "12px"}}
       "Applies only when creating a new session. Existing sessions keep their routing snapshot."]]))

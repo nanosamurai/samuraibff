@@ -8,6 +8,7 @@
    [samuraibff.ui.components.shared :as shared]
    [samuraibff.ui.hooks :as hooks]
    [samuraibff.ui.router :as router]
+   [samuraibff.ui.session-request :as session.req]
    [samuraibff.ui.store :as store]
    [samuraibff.ui.util :as util]
    ["react" :as react]))
@@ -246,7 +247,8 @@
                        (.finally (fn [] (set-loading! false)))))
         new-live! (fn []
                     (store/append-log! "[ui] creating session...")
-                    (-> (api/create-session! {:title (get @store/session* :title "")})
+                    (let [req (session.req/create-session-request-body @store/session*)]
+                      (-> (api/create-session! req)
                         (.then (fn [{:keys [session_id title]}]
                                  (store/set-session-id! session_id)
                                  (store/set-session-title! (or title ""))
@@ -256,7 +258,7 @@
                                  (router/navigate! {:page :live :params {}})
                                  (store/append-log! (str "[ui] new session " session_id))))
                         (.catch (fn [e]
-                                  (store/append-log! (str "[ui] failed creating session: " e))))))]
+                                  (store/append-log! (str "[ui] failed creating session: " e)))))))]
     (react/useEffect
      (fn []
        (refresh!)

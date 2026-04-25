@@ -47,14 +47,17 @@
   - Promise resolving to {:session_id <string> :title <string>}"
   ([]
    (create-session! {}))
-  ([{:keys [title webhook_overrides]}]
+  ([{:keys [title webhook_overrides session_settings]}]
    (-> (js/fetch "/api/sessions"
                  #js {:method "POST"
                       :headers #js {"content-type" "application/json"}
                       :body (.stringify js/JSON
-                                        (clj->js (cond-> {:title (or title "")}
+                                         (clj->js (cond-> {:title (or title "")}
                                                    (some? webhook_overrides)
-                                                   (assoc :webhook_overrides webhook_overrides))))})
+                                                   (assoc :webhook_overrides webhook_overrides)
+
+                                                   (some? session_settings)
+                                                   (assoc :session_settings session_settings))))})
        (.then ensure-ok!)
        (.then (fn [res] (.json res)))
        (.then (fn [body]

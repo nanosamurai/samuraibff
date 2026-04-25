@@ -39,6 +39,11 @@
          :webhook_overrides {:use_defaults true
                              :webhook_ids #{}
                              :disable_event_types #{}}
+
+          ;; Session-level, webhook-agnostic settings.
+          ;;
+          ;; Shape matches schemas/CreateSessionRequest :session_settings.
+         :session_settings {:refined_transcript {:consolidation {:enabled false}}}
          ;; Stream controls (sent at /ws/audio connect).
          :controls {:realtime true
                     :refined true
@@ -50,6 +55,21 @@
                     :rt_overlap_sec nil
                     :rt_emit_every_sec nil
                     :refinement_window_sec nil}}))
+
+(defn set-session-refined-consolidation-enabled!
+  "Enable/disable refined transcript consolidation for newly created sessions.
+
+  This mutates `session*` under:
+  [:session_settings :refined_transcript :consolidation :enabled]
+
+  Inputs:
+  - enabled?: boolean
+
+  Returns: nil."
+  [enabled?]
+  (swap! session* assoc-in [:session_settings :refined_transcript :consolidation :enabled]
+         (boolean enabled?))
+  nil)
 
 (defn set-session-control!
   "Set a single stream control field under `session*`.
