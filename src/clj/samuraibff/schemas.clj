@@ -490,16 +490,51 @@
    [:full_text :string]
    [:segments [:sequential TranscriptSegment]]])
 
+(def WebhookDeliveryOutcomeItem
+  "Latest webhook delivery outcome per dispatch_id (plus attempts count).
+
+  This is used by:
+  - GET /api/recordings/{session_id}
+  - GET /api/sessions/{session_id}/webhook-delivery-outcomes
+
+  Notes:
+  - `attempts_count` is derived (max attempt_no) and represents how many delivery
+    attempts were made for the dispatch.
+  - `error_detail` may be present for failures; do not put secrets there." 
+  [:map
+   [:id Uuid]
+   [:created_at :string]
+   [:webhook_id :string]
+   [:dispatch_id Uuid]
+   [:event_id {:optional true} [:maybe :string]]
+   [:event_type :string]
+   [:attempt_no NonNegInt]
+   [:attempts_count NonNegInt]
+   [:status :string]
+   [:http_status {:optional true} [:maybe :int]]
+   [:error_code {:optional true} [:maybe :string]]
+   [:error_detail {:optional true} [:maybe :string]]
+   [:latency_ms {:optional true} [:maybe :int]]])
+
 (def RecordingDetailResponse
   "Response body for GET /api/recordings/{session_id}."
   [:map
    [:ok :boolean]
    [:tenant_id Uuid]
    [:session RecordingDetailSession]
+   [:webhook_delivery_outcomes {:optional true} [:sequential WebhookDeliveryOutcomeItem]]
    [:transcripts
     [:map
      [:refined [:sequential TranscriptRecord]]
      [:final [:sequential TranscriptRecord]]]]])
+
+(def WebhookDeliveryOutcomesResponse
+  "Response body for GET /api/sessions/{session_id}/webhook-delivery-outcomes." 
+  [:map
+   [:ok :boolean]
+   [:tenant_id Uuid]
+   [:session_id Uuid]
+   [:items [:sequential WebhookDeliveryOutcomeItem]]])
 
 (def DeleteRecordingResponse
   "Response body for DELETE /api/recordings/{session_id}."

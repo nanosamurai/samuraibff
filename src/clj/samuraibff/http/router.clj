@@ -23,6 +23,7 @@
    [samuraibff.ws.events :as ws.events]
    [samuraibff.http.auth :as http.auth]
    [samuraibff.http.recordings :as http.recordings]
+   [samuraibff.http.webhook-delivery-outcomes :as http.wh.outcomes]
    [samuraibff.http.api-credentials :as http.api-creds]
    [samuraibff.http.internal :as http.internal]
    [samuraibff.http.speaker-enrollment :as http.speaker-enrollment]
@@ -455,6 +456,17 @@
                                  503 {:body schemas/ApiErrorResponse}
                                  500 {:body schemas/ApiErrorResponse}}
                      :handler (http.ui/rename-session-handler deps)}}]
+
+           ["/sessions/:session_id/webhook-delivery-outcomes"
+            {:get {:summary "List webhook delivery outcomes"
+                   :description "Returns the latest webhook delivery outcome per dispatch_id for the given session (includes attempts_count)."
+                   :parameters {:path [:map [:session_id schemas/Uuid]]}
+                   :responses {200 {:body schemas/WebhookDeliveryOutcomesResponse}
+                               400 {:body schemas/ApiErrorResponse}
+                               403 {:body schemas/ApiErrorResponse}
+                               404 {:body schemas/ApiErrorResponse}
+                               503 {:body schemas/ApiErrorResponse}}
+                   :handler (http.wh.outcomes/list-webhook-delivery-outcomes-handler deps)}}]
 
            ["/speakers"
             {}

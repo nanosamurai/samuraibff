@@ -18,6 +18,7 @@
    [clojure.string :as str]
    [org.corfield.logging4j2 :as log]
    [samuraibff.db.recordings :as db.recordings]
+   [samuraibff.db.webhook-delivery-outcomes :as db.wh.outcomes]
    [samuraibff.s3.client :as s3.client]
    [samuraibff.schemas :as schemas])
   (:import
@@ -607,6 +608,7 @@
             (let [recording (db.recordings/find-latest-recording ds tenant-uuid session-uuid)
                   refined (db.recordings/list-transcript-records ds tenant-uuid session-uuid {:type "refined" :limit 2000})
                   final (db.recordings/list-transcript-records ds tenant-uuid session-uuid {:type "final" :limit 20})
+                   webhook-outcomes (db.wh.outcomes/list-latest-outcomes-for-session ds tenant-uuid session-uuid {:limit 50})
                   has-recording? (boolean recording)
                   has-final? (boolean (seq final))
                   ;; Normalize keys for UI JSON.
@@ -627,6 +629,21 @@
                      :full_text (:full_text r)
                      ;; segments is jsonb; decode to vector so clients don't need JSON.parse.
                      :segments (segments-jsonb->segments (:segments r))})
+                   normalize-outcome
+                   (fn [o]
+                     {:id (str (:id o))
+                      :created_at (some-> (:created_at o) str)
+                      :webhook_id (:webhook_id o)
+                      :dispatch_id (str (:dispatch_id o))
+                      :event_id (:event_id o)
+                      :event_type (:event_type o)
+                      :attempt_no (long (or (:attempt_no o) 0))
+                      :attempts_count (long (or (:attempts_count o) 0))
+                      :status (:status o)
+                      :http_status (:http_status o)
+                      :error_code (:error_code o)
+                      :error_detail (:error_detail o)
+                      :latency_ms (:latency_ms o)})
                   body {:ok true
                         :tenant_id (str tenant-uuid)
                         :session {:id (str (:id session))
@@ -639,6 +656,7 @@
                                   :stream_controls (stream-controls-jsonb->clj (:stream_controls session))
                                   :has_recording has-recording?
                                   :has_final_transcript has-final?}
+                         :webhook_delivery_outcomes (mapv normalize-outcome webhook-outcomes)
                         :transcripts {:refined (mapv normalize-record refined)
                                       :final (mapv normalize-record final)}}]
               (when (#{:dev :test} (:env config))
