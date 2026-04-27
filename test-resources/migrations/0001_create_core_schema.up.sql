@@ -40,6 +40,9 @@ CREATE TABLE sessions (
 
     -- Session-scoped webhook override request body snapshot (used to compute sessions.meta)
     webhook_overrides jsonb,
+
+    -- Session-scoped settings snapshot (webhook-agnostic; workflows/LLM/etc.)
+    session_settings jsonb,
     created_at     timestamptz NOT NULL DEFAULT now()
 );
 

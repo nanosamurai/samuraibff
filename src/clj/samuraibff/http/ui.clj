@@ -13,19 +13,20 @@
 
   Note: for MVP, sessions are stored only in memory (ws registry)."
   (:require
-    [clojure.java.io :as io]
-    [clojure.string :as str]
-    [org.corfield.logging4j2 :as log]
-    [ring.util.response :as resp]
-    [samuraibff.auth.oidc :as oidc]
-    [samuraibff.db.sessions :as db.sessions]
-    [samuraibff.kafka.producer :as kafka.producer]
-    [samuraibff.schemas :as schemas]
-    [samuraibff.util.uuid :as uuid]
-    [samuraibff.webhooks.routing-snapshot :as webhooks.snapshot]
-    [samuraibff.ws.registry :as ws.registry])
+   [clojure.java.io :as io]
+   [clojure.string :as str]
+   [org.corfield.logging4j2 :as log]
+   [ring.util.response :as resp]
+   [samuraibff.auth.oidc :as oidc]
+   [samuraibff.db.sessions :as db.sessions]
+   [samuraibff.kafka.producer :as kafka.producer]
+   [samuraibff.schemas :as schemas]
+   [samuraibff.sessions.meta :as sessions.meta]
+   [samuraibff.util.uuid :as uuid]
+   [samuraibff.webhooks.routing-snapshot :as webhooks.snapshot]
+   [samuraibff.ws.registry :as ws.registry])
   (:import
-    (java.util UUID)))
+   (java.util UUID)))
 
 (defn- json-response
   "Return a response with a data body.
@@ -40,7 +41,7 @@
   - status int
   - body map
 
-  Returns: Ring response map." 
+  Returns: Ring response map."
   [status body]
   {:status status
    :body body})
@@ -74,11 +75,11 @@
   without authentication.
 
   Note: your DB must contain a row in `tenants` with this id if you want
-  persistence to work in unauthenticated mode." 
+  persistence to work in unauthenticated mode."
   (UUID/fromString "00000000-0000-0000-0000-000000000000"))
 
 (def ^:private guest-user-external-id
-  "External id used when auth is disabled." 
+  "External id used when auth is disabled."
   "guest")
 
 (defn- tenant-uuid
@@ -92,7 +93,7 @@
   - java.util.UUID
 
   Throws:
-  - ex-info when auth required and tenant-id missing." 
+  - ex-info when auth required and tenant-id missing."
   [config tenant-id]
   (cond
     (and (oidc/auth-required? config) (nil? tenant-id))
@@ -118,7 +119,7 @@
   - req: ring request
 
   Returns:
-  - UUID or nil" 
+  - UUID or nil"
   [ds tenant-id-uuid req]
   (let [external-id (or (some-> req :auth/user :sub)
                         guest-user-external-id)]
@@ -143,17 +144,17 @@
   - Ring response (200 application/json) with body:
     `{ :session_id \"<uuid>\" }`.
   - On missing tenant-id when auth required: 403 JSON.
-  - On DB failure: 500 JSON." 
+  - On DB failure: 500 JSON."
   [{:keys [config ws-registry db kafka-producer]}]
   (fn [req]
     (let [tenant-id (:auth/tenant-id req)]
       (try
         (let [body (or (:body-params req) (:body req) {})
               ;; Request body is optional for backward compatibility.
-              {:keys [title webhook_overrides]} (try
-                               (schemas/decode-and-validate! schemas/CreateSessionRequest body)
-                               (catch Exception _
-                                 {}))
+              {:keys [title webhook_overrides session_settings]} (try
+                                                                   (schemas/decode-and-validate! schemas/CreateSessionRequest body)
+                                                                   (catch Exception _
+                                                                     {}))
               title (some-> title str str/trim)
               title (when-not (str/blank? (str title)) title)
               default-title (format "Session %1$tF %1$tR" (java.time.ZonedDateTime/now))
@@ -172,14 +173,15 @@
           (when ds
             (let [user-id (resolve-user-id ds tenant-id-uuid req)]
               (db.sessions/insert-session!
-                ds
-                {:id session-uuid
-                 :tenant-id tenant-id-uuid
-                 :user-id user-id
-                 :session-key session-key
-                 :title title'
-                 :status "created"
-                 :webhook-overrides webhook_overrides})))
+               ds
+               {:id session-uuid
+                :tenant-id tenant-id-uuid
+                :user-id user-id
+                :session-key session-key
+                :title title'
+                :status "created"
+                :webhook-overrides webhook_overrides
+                :session-settings session_settings})))
 
           ;; Create/bind session in registry immediately so WS endpoints can be
           ;; strict and disallow session creation via WS when auth is required.
@@ -192,17 +194,19 @@
           (when (and ds kafka-producer)
             (try
               (log/info "Resolving sessions.meta routing snapshot" {:tenant_id (str tenant-id-uuid)
-                                                                   :session_id session-id
-                                                                   :webhook_overrides_present? (some? webhook_overrides)})
-              (let [meta (webhooks.snapshot/resolve-routing-snapshot ds tenant-id-uuid session-uuid webhook_overrides)
-                    targets (get-in meta [:routing :targets_by_event_type])
+                                                                    :session_id session-id
+                                                                    :webhook_overrides_present? (some? webhook_overrides)})
+              (let [routing (webhooks.snapshot/resolve-routing-snapshot ds tenant-id-uuid session-uuid webhook_overrides)
+                    meta (sessions.meta/build-sessions-meta config tenant-id-uuid session-uuid routing session_settings)
+                    targets (or (get-in routing [:targets_by_event_type]) {})
                     targets-count (when (map? targets)
                                     (reduce + 0 (map (comp count val) targets)))]
                 (log/info "Publishing sessions.meta" {:tenant_id (str tenant-id-uuid)
-                                                     :session_id session-id
-                                                     :schema_version (:schema_version meta)
-                                                     :event_types_count (count (keys (or targets {})))
-                                                     :targets_count (or targets-count 0)})
+                                                      :session_id session-id
+                                                      :schema_version (:schema_version meta)
+                                                      :refined_consolidation_enabled (boolean (get-in meta [:refined_transcript :consolidation :enabled]))
+                                                      :event_types_count (count (keys (or targets {})))
+                                                      :targets_count (or targets-count 0)})
                 (kafka.producer/send-sessions-meta! kafka-producer session-id meta {:tenant-id (str tenant-id-uuid)}))
               (catch Exception e
                 (log/warn e "Failed publishing sessions.meta" {:tenant_id (str tenant-id-uuid)

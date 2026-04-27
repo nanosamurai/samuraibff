@@ -18,13 +18,12 @@
   "
   (:require
    [clojure.set :as set]
-   [samuraibff.db.webhooks :as db.webhooks]
-   [samuraibff.util.uuid :as util.uuid])
+   [samuraibff.db.webhooks :as db.webhooks])
   (:import
    (java.util UUID)))
 
 (def ^:private supported-event-types
-  "Event types supported in v1 per RFC." 
+  "Event types supported in v1 per RFC."
   #{"transcript.refined.segment"
     "recording.finished"
     "transcript.final.ready"})
@@ -40,7 +39,7 @@
   Returns:
   {:use-defaults? boolean
    :webhook-ids (set UUID)
-   :disable-event-types (set string)}" 
+   :disable-event-types (set string)}"
   [overrides]
   (let [use-defaults? (if (contains? overrides :use_defaults)
                         (boolean (:use_defaults overrides))
@@ -73,16 +72,16 @@
      :enabled (boolean (:enabled w))
      :auth (cond
              (= auth-type "hmac") {:type "hmac"
-                                    :secret_ref (:hmac_secret_ref w)}
+                                   :secret_ref (:hmac_secret_ref w)}
              (= auth-type "oauth") {:type "oauth"
-                                     :token_url (:oauth_token_url w)
-                                     :client_id (:oauth_client_id w)
-                                     :scopes (:oauth_scopes w)
-                                     :client_secret_ref (:oauth_client_secret_ref w)}
+                                    :token_url (:oauth_token_url w)
+                                    :client_id (:oauth_client_id w)
+                                    :scopes (:oauth_scopes w)
+                                    :client_secret_ref (:oauth_client_secret_ref w)}
              (= auth-type "api_key") {:type "api_key"
-                                       :header_name (:api_key_header_name w)
-                                       :prefix (:api_key_prefix w)
-                                       :secret_ref (:api_key_ref w)}
+                                      :header_name (:api_key_header_name w)
+                                      :prefix (:api_key_prefix w)
+                                      :secret_ref (:api_key_ref w)}
              :else {:type "none"})
      ;; optional static headers for dispatcher (non-secret)
      :static_headers (or (:static_headers w) {})}))
@@ -97,17 +96,14 @@
   - webhook-overrides: map or nil (shape per schemas/CreateSessionRequest)
 
   Returns:
-  - sessions.meta value map:
-    {:session_id <uuid>
-     :tenant_id <uuid>
-     :schema_version 1
-     :routing {:targets_by_event_type {event-type [target ...] ...}}}
+  - routing map (JSON-friendly):
+    {:targets_by_event_type {event-type [target ...] ...}}
   "
-  [ds ^UUID tenant-id ^UUID session-id webhook-overrides]
+  [ds ^UUID tenant-id ^UUID _session-id webhook-overrides]
   (let [{:keys [use-defaults? webhook-ids disable-event-types]} (normalize-overrides (or webhook-overrides {}))
         {:keys [webhook_ids]} (if use-defaults?
-                               (db.webhooks/get-defaults ds tenant-id)
-                               {:webhook_ids []})
+                                (db.webhooks/get-defaults ds tenant-id)
+                                {:webhook_ids []})
         default-ids (set webhook_ids)
         selected-ids (set/union default-ids webhook-ids)
         ;; Load only selected webhooks (if none -> empty routing)
@@ -135,9 +131,4 @@
         targets-by-event (reduce (fn [m et] (update m et #(vec (or % []))))
                                  targets-by-event
                                  supported-event-types)]
-    {:session_id (str session-id)
-     :tenant_id (str tenant-id)
-     :schema_version 1
-     :routing {:targets_by_event_type targets-by-event}
-     ;; emit event_id too so router/dispatcher can correlate meta revisions
-     :event_id (str (util.uuid/uuid7))}))
+    {:targets_by_event_type targets-by-event}))
