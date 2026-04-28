@@ -499,15 +499,7 @@
                          :gap "12px"}}
            [ui.wh.outcomes/webhook-dispatches-card
             {:items (vec (or (:webhook_delivery_outcomes detail) []))
-             :title "Webhook dispatches"}]
-
-           [:div {:class "card"}
-            [:div {:class "card-title"} "Log"]
-            (if (seq cached-log-lines)
-              [:div {:class "log"}
-               (for [[idx line] (map-indexed vector cached-log-lines)]
-                 [:div {:class "log-line" :key (str "logc-" idx)} line])]
-              [:div {:class "muted"} "No log available for this session (not persisted)."])]]]
+             :title "Webhook dispatches"}]]]
 
          [:div {:class "card"}
           [:div {:class "card-title"}
