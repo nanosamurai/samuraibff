@@ -295,9 +295,9 @@
         follow?* (react/useState false)
         follow? (aget follow?* 0)
         set-follow! (aget follow?* 1)
-        show-log?* (react/useState true)
-        show-log? (aget show-log?* 0)
-        set-show-log! (aget show-log?* 1)
+        show-workflows?* (react/useState true)
+        show-workflows? (aget show-workflows?* 0)
+        set-show-workflows! (aget show-workflows?* 1)
 
         loading* (react/useState true)
         loading? (aget loading* 0)
@@ -309,7 +309,6 @@
 
         cached-asr (store/cached-asr-segments session-id)
         cached-refined (store/cached-refined-segments session-id)
-        cached-log-lines (store/cached-log session-id)
 
         refresh! (fn []
                    (set-loading! true)
@@ -471,11 +470,22 @@
                   :on-click (fn [_] (set-tab! :final))}
          "Final transcript"]
         [:div {:class "spacer"}]
-        [:button {:class "btn ghost"
-                  :on-click (fn [_] (set-show-log! (not show-log?)))}
-         (if show-log? "Hide log" "Show log")]]
+        [:button {:class "btn ghost icon"
+                  :type "button"
+                  :aria-label (if show-workflows?
+                                "Hide workflows panel"
+                                "Show workflows panel")
+                  :title (if show-workflows?
+                           "Hide workflows panel"
+                           "Show workflows panel")
+                  :on-click (fn [_]
+                              (set-show-workflows! (not show-workflows?)))}
+         (shared/icon (if show-workflows? "❯" "❮")
+                      {:title (if show-workflows?
+                                "Hide workflows panel"
+                                "Show workflows panel")})]]
 
-       (if show-log?
+       (if show-workflows?
          [:div {:class "grid-2"}
           [:div {:class "card"}
            [:div {:class "card-title"}
@@ -496,10 +506,13 @@
 
           [:div {:style {:display "flex"
                          :flexDirection "column"
-                         :gap "12px"}}
+                         :gap "12px"
+                         :height "100%"
+                         :minHeight 0}}
            [ui.wh.outcomes/webhook-dispatches-card
             {:items (vec (or (:webhook_delivery_outcomes detail) []))
-             :title "Webhook dispatches"}]]]
+             :title "Webhooks / workflows"
+             :fill? true}]]]
 
          [:div {:class "card"}
           [:div {:class "card-title"}

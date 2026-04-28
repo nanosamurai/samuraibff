@@ -91,10 +91,15 @@
     - title: string (optional)
 
   Returns: hiccup."
-  [{:keys [items loading? error title]}]
+  [{:keys [items loading? error title fill?]}]
   (let [items (vec (or items []))
         title (or title "Webhook dispatches")]
-    [:div {:class "card"}
+    [:div (cond-> {:class "card"}
+            (true? fill?)
+            (assoc :style {:display "flex"
+                           :flexDirection "column"
+                           :height "100%"
+                           :minHeight 0}))
      [:div {:class "card-title"} title]
      (cond
        (true? loading?)
@@ -107,7 +112,14 @@
        [:div {:class "muted"} "No webhook dispatches recorded for this session."]
 
        :else
-       [:div {:style {:display "flex" :flexDirection "column" :gap "10px"}}
+       [:div (cond-> {:style {:display "flex" :flexDirection "column" :gap "10px"}}
+               (true? fill?)
+               (assoc :style {:display "flex"
+                              :flexDirection "column"
+                              :gap "10px"
+                              :flex 1
+                              :minHeight 0
+                              :overflow "auto"}))
         (for [o items]
           ^{:key (str "wh-out-" (:dispatch_id o) "-" (:id o))}
           [render-outcome-panel o])])]))
