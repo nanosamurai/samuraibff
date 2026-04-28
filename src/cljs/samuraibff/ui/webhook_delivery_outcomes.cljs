@@ -54,6 +54,7 @@
 
      [:div {:class "muted" :style {:fontSize "12px"}}
       (str "Event: " (or event_type "(unknown)")
+           " • Attempts: " attempts-count
            " • Retries: " retries-count)]
 
      (when (or (seq (str webhook_name)) (seq (str webhook_id)))
