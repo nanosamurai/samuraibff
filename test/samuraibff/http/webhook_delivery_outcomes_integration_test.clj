@@ -1,5 +1,5 @@
 (ns samuraibff.http.webhook-delivery-outcomes-integration-test
-  "Integration test for /api/sessions/:session_id/webhook-delivery-outcomes." 
+  "Integration test for /api/sessions/:session_id/webhook-delivery-outcomes."
   (:require
    [clojure.test :refer :all]
    [next.jdbc :as jdbc]
@@ -7,6 +7,7 @@
    [samuraibff.testcontainers.postgres :as tc.pg])
   (:import
    (java.time Instant)
+   (java.sql Timestamp)
    (java.util UUID)))
 
 (deftest list-webhook-delivery-outcomes-handler-tenant-scoped-test
@@ -28,7 +29,7 @@
                               ) VALUES (?, ?, ?, ?, 'wh-1', ?, NULL, 'recording.finished', 1, 'delivered', 200,
                                        NULL, NULL, NULL,
                                        't', 0, 0)"
-                               (UUID/randomUUID) (Instant/parse "2026-01-01T00:00:00Z") tenant-a session-a dispatch-id])
+                               (UUID/randomUUID) (Timestamp/from (Instant/parse "2026-01-01T00:00:00Z")) tenant-a session-a dispatch-id])
           deps {:db {:ds ds}
                 :config {:env :test}}
           handler (http.wh.outcomes/list-webhook-delivery-outcomes-handler deps)

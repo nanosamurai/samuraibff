@@ -1,5 +1,5 @@
 (ns samuraibff.db.webhook-delivery-outcomes-test
-  "Integration-style tests for webhook delivery outcome DB queries." 
+  "Integration-style tests for webhook delivery outcome DB queries."
   (:require
    [clojure.test :refer :all]
    [next.jdbc :as jdbc]
@@ -7,7 +7,19 @@
    [samuraibff.testcontainers.postgres :as tc.pg])
   (:import
    (java.time Instant)
+   (java.sql Timestamp)
    (java.util UUID)))
+
+(defn- instant->timestamp
+  "Convert a java.time.Instant (or nil) to java.sql.Timestamp.
+
+  Inputs:
+  - inst: java.time.Instant?
+
+  Returns:
+  - java.sql.Timestamp?"
+  [inst]
+  (when inst (Timestamp/from inst)))
 
 (defn- insert-outcome!
   [ds {:keys [id created_at tenant_id session_id webhook_id dispatch_id event_type attempt_no status http_status]
@@ -21,7 +33,7 @@
         kafka_topic, kafka_partition, kafka_offset
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     id
-    created_at
+    (instant->timestamp created_at)
     tenant_id
     session_id
     webhook_id

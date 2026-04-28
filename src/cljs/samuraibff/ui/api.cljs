@@ -24,6 +24,8 @@
   - GET /api/webhooks/defaults
   - PUT /api/webhooks/defaults
 
+  - GET /api/sessions/:session_id/webhook-delivery-outcomes
+
   All functions return JS Promises."
   (:require
    [clojure.string :as str]))
@@ -40,6 +42,30 @@
     (throw (js/Error. (str "HTTP error " (.-status res)))))
   res)
 
+(defn list-webhook-delivery-outcomes!
+  "List latest webhook delivery outcomes for a session.
+
+  Endpoint:
+  - GET /api/sessions/:session_id/webhook-delivery-outcomes
+
+  Inputs:
+  - session-id: string
+
+  Returns:
+  - Promise resolving to map (keyword keys):
+      {:ok true
+       :tenant_id <uuid>
+       :session_id <uuid>
+       :items [ ... ]}"
+  [session-id]
+  (-> (js/fetch (str "/api/sessions/"
+                     (js/encodeURIComponent (or session-id ""))
+                     "/webhook-delivery-outcomes"))
+      (.then ensure-ok!)
+      (.then (fn [res] (.json res)))
+      (.then (fn [body]
+               (js->clj body :keywordize-keys true)))))
+
 (defn create-session!
   "Create a new session via backend.
 
@@ -52,7 +78,7 @@
                  #js {:method "POST"
                       :headers #js {"content-type" "application/json"}
                       :body (.stringify js/JSON
-                                         (clj->js (cond-> {:title (or title "")}
+                                        (clj->js (cond-> {:title (or title "")}
                                                    (some? webhook_overrides)
                                                    (assoc :webhook_overrides webhook_overrides)
 

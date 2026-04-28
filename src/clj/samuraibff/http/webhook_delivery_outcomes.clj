@@ -27,7 +27,7 @@
 
   Throws:
   - ex-info with :type :samuraibff.http/missing-tenant-id
-  - ex-info with :type :samuraibff.http/invalid-tenant-id" 
+  - ex-info with :type :samuraibff.http/invalid-tenant-id"
   [req]
   (let [tid (or (:auth/tenant-id req)
                 (get-in req [:auth :tenant-id]))]
@@ -44,7 +44,7 @@
 (defn- parse-session-uuid
   "Parse :session_id path parameter into UUID.
 
-  Throws ex-info with :type :samuraibff.http/invalid-session-id." 
+  Throws ex-info with :type :samuraibff.http/invalid-session-id."
   [req]
   (let [sid-str (or (get-in req [:path-params :session_id])
                     (get-in req [:path-params "session_id"]))]
@@ -65,7 +65,7 @@
   - 200 {:ok true :tenant_id ... :session_id ... :items [...]}
   - 403/400 on tenant issues
   - 400 on invalid session_id
-  - 503 when datasource missing" 
+  - 503 when datasource missing"
   [{:keys [db config]}]
   (fn [req]
     (let [^DataSource ds (:ds db)]
@@ -100,7 +100,7 @@
                         :items (mapv normalize rows)}]
               (when (#{:dev :test} (:env config))
                 (schemas/validate! schemas/WebhookDeliveryOutcomesResponse body))
-              (json-response 200 body)))))
+              (json-response 200 body))))
         (catch clojure.lang.ExceptionInfo e
           (let [{:keys [type]} (ex-data e)]
             (case type
