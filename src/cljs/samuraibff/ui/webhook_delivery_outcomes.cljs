@@ -1,5 +1,5 @@
 (ns samuraibff.ui.webhook-delivery-outcomes
-  "UI helpers for rendering webhook delivery outcomes." 
+  "UI helpers for rendering webhook delivery outcomes."
   (:require
    [clojure.string :as str]))
 
@@ -7,10 +7,10 @@
   "Return CSS badge class for an outcome status string.
 
   Inputs:
-  - status: string? (e.g. "delivered", "failed")
+  - status: string? (e.g. 'delivered', 'failed')
 
   Returns:
-  - string CSS class name." 
+  - string CSS class name."
   [status]
   (let [s (some-> status str str/lower-case)]
     (cond
@@ -25,10 +25,11 @@
   - o: map with keys from the API (keywordized):
       :status :http_status :created_at :event_type :attempts_count :attempt_no
 
-  Returns: hiccup." 
+  Returns: hiccup."
   [o]
-  (let [{:keys [status http_status created_at event_type attempts_count attempt_no webhook_id error_code error_detail latency_ms]} o
-        attempts-count (or attempts_count attempt_no 0)
+  (let [{:keys [status http_status created_at event_type attempts_count attempt_no webhook_id webhook_name error_code error_detail latency_ms]} o
+        attempts-count (long (max 1 (or attempts_count attempt_no 0)))
+        retries-count (max 0 (dec attempts-count))
         show-error? (and (seq (str error_code)) (not (str/blank? (str error_code))))
         show-detail? (and (seq (str error_detail)) (not (str/blank? (str error_detail))))
         http-part (when (some? http_status)
@@ -53,11 +54,15 @@
 
      [:div {:class "muted" :style {:fontSize "12px"}}
       (str "Event: " (or event_type "(unknown)")
-           " • Attempts: " attempts-count)]
+           " • Retries: " retries-count)]
 
-     (when (seq (str webhook_id))
+     (when (or (seq (str webhook_name)) (seq (str webhook_id)))
        [:div {:class "muted" :style {:fontSize "12px"}}
-        [:span {:class "mono"} (str "Webhook: " webhook_id)]])
+        [:span {:class "mono"}
+         (str "Webhook: "
+              (or (some-> webhook_name str)
+                  (some-> webhook_id str)
+                  "(unknown)"))]])
 
      (when (seq ts)
        [:div {:class "muted" :style {:fontSize "12px"}}
@@ -84,7 +89,7 @@
     - error: string?
     - title: string (optional)
 
-  Returns: hiccup." 
+  Returns: hiccup."
   [{:keys [items loading? error title]}]
   (let [items (vec (or items []))
         title (or title "Webhook dispatches")]

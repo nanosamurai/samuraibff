@@ -226,16 +226,16 @@
     ;;
     ;; v1 supported setting:
     ;; - {:refined_transcript {:consolidation {:enabled true|false}}}
-    [:session_settings {:optional true}
-     [:maybe
-      [:map
-       [:refined_transcript {:optional true}
-        [:maybe
-         [:map
-          [:consolidation {:optional true}
-           [:maybe
-            [:map
-             [:enabled {:optional true} :boolean]]]]]]]]]]
+   [:session_settings {:optional true}
+    [:maybe
+     [:map
+      [:refined_transcript {:optional true}
+       [:maybe
+        [:map
+         [:consolidation {:optional true}
+          [:maybe
+           [:map
+            [:enabled {:optional true} :boolean]]]]]]]]]]
 
    [:webhook_overrides {:optional true}
     [:maybe
@@ -296,7 +296,7 @@
 (def StaticHeaders
   "Optional static headers (non-secret) attached to webhook requests.
 
-  Shape: map string->string." 
+  Shape: map string->string."
   [:map-of :string :string])
 
 (def CreateWebhookRequest
@@ -305,7 +305,7 @@
   Secrets are write-only fields:
   - :hmac_secret
   - :api_key
-  - :oauth_client_secret" 
+  - :oauth_client_secret"
   [:map
    [:name NonEmptyString]
    [:url NonEmptyString]
@@ -319,7 +319,7 @@
    [:oauth_client_secret {:optional true} [:maybe :string]]])
 
 (def CreateWebhookResponse
-  "Response body for POST /api/webhooks." 
+  "Response body for POST /api/webhooks."
   [:map
    [:ok :boolean]
    [:webhook_id Uuid]])
@@ -369,7 +369,7 @@
    [:created_at :string]])
 
 (def WebhooksListResponse
-  "Response body for GET /api/webhooks." 
+  "Response body for GET /api/webhooks."
   [:map
    [:ok :boolean]
    [:tenant_id Uuid]
@@ -379,12 +379,12 @@
   "Request body for PUT /api/webhooks/defaults.
 
   Shape:
-  - {:webhook_ids [<uuid> ...]}" 
+  - {:webhook_ids [<uuid> ...]}"
   [:map
    [:webhook_ids [:sequential Uuid]]])
 
 (def WebhookDefaultsResponse
-  "Response body for GET /api/webhooks/defaults." 
+  "Response body for GET /api/webhooks/defaults."
   [:map
    [:ok :boolean]
    [:tenant_id Uuid]
@@ -500,11 +500,12 @@
   Notes:
   - `attempts_count` is derived (max attempt_no) and represents how many delivery
     attempts were made for the dispatch.
-  - `error_detail` may be present for failures; do not put secrets there." 
+  - `error_detail` may be present for failures; do not put secrets there."
   [:map
    [:id Uuid]
    [:created_at :string]
    [:webhook_id :string]
+   [:webhook_name {:optional true} [:maybe :string]]
    [:dispatch_id Uuid]
    [:event_id {:optional true} [:maybe :string]]
    [:event_type :string]
@@ -529,7 +530,7 @@
      [:final [:sequential TranscriptRecord]]]]])
 
 (def WebhookDeliveryOutcomesResponse
-  "Response body for GET /api/sessions/{session_id}/webhook-delivery-outcomes." 
+  "Response body for GET /api/sessions/{session_id}/webhook-delivery-outcomes."
   [:map
    [:ok :boolean]
    [:tenant_id Uuid]

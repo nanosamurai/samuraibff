@@ -84,6 +84,7 @@
                     {:id (str (:id o))
                      :created_at (some-> (:created_at o) str)
                      :webhook_id (:webhook_id o)
+                     :webhook_name (:webhook_name o)
                      :dispatch_id (str (:dispatch_id o))
                      :event_id (:event_id o)
                      :event_type (:event_type o)

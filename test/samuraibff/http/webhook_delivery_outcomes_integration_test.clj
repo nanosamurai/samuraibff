@@ -18,6 +18,10 @@
           tenant-a (UUID/fromString "00000000-0000-0000-0000-000000000000")
           tenant-b (UUID/fromString "00000000-0000-0000-0000-000000000001")
           _ (jdbc/execute! ds ["INSERT INTO tenants (id, name) VALUES (?, ?), (?, ?)" tenant-a "A" tenant-b "B"])
+          wh-1 (UUID/randomUUID)
+          _ (jdbc/execute! ds ["INSERT INTO webhooks (id, tenant_id, name, url, enabled, auth_type, created_at)
+                               VALUES (?, ?, 'Webhook 1', 'http://example.invalid', true, 'none', now())"
+                               wh-1 tenant-a])
           session-a (UUID/randomUUID)
           _ (jdbc/execute! ds ["INSERT INTO sessions (id, tenant_id, session_key) VALUES (?, ?, ?)" session-a tenant-a (str session-a)])
           dispatch-id (UUID/randomUUID)
@@ -26,10 +30,10 @@
                                 event_id, event_type, attempt_no, status, http_status,
                                 error_code, error_detail, latency_ms,
                                 kafka_topic, kafka_partition, kafka_offset
-                              ) VALUES (?, ?, ?, ?, 'wh-1', ?, NULL, 'recording.finished', 1, 'delivered', 200,
+                              ) VALUES (?, ?, ?, ?, ?, ?, NULL, 'recording.finished', 0, 'delivered', 200,
                                        NULL, NULL, NULL,
                                        't', 0, 0)"
-                               (UUID/randomUUID) (Timestamp/from (Instant/parse "2026-01-01T00:00:00Z")) tenant-a session-a dispatch-id])
+                               (UUID/randomUUID) (Timestamp/from (Instant/parse "2026-01-01T00:00:00Z")) tenant-a session-a (str wh-1) dispatch-id])
           deps {:db {:ds ds}
                 :config {:env :test}}
           handler (http.wh.outcomes/list-webhook-delivery-outcomes-handler deps)
@@ -41,6 +45,7 @@
       (is (= true (get-in resp-ok [:body :ok])))
       (is (= 1 (count (get-in resp-ok [:body :items]))))
       (is (= 200 (get-in resp-ok [:body :items 0 :http_status])))
+      (is (= "Webhook 1" (get-in resp-ok [:body :items 0 :webhook_name])))
 
       ;; Tenant scoping: session doesn't exist for tenant-b.
       (is (= 404 (:status resp-cross)))

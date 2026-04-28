@@ -31,6 +31,7 @@
   Output shape:
   - vector of maps with unqualified lower-case keys:
       :id :created_at :tenant_id :session_id :webhook_id :dispatch_id
+      :webhook_name
       :event_id :event_type :attempt_no :status :http_status :error_code
       :error_detail :latency_ms
       :attempts_count
@@ -41,7 +42,7 @@
     session_id matches the given session-id.
   - Latest is determined by created_at DESC, attempt_no DESC (best-effort)."
   [^DataSource ds ^UUID tenant-id ^UUID session-id {:keys [limit]
-                                                   :or {limit 50}}]
+                                                    :or {limit 50}}]
   (when-not (and ds (instance? UUID tenant-id) (instance? UUID session-id))
     (throw (ex-info "list-latest-outcomes-for-session missing required params"
                     {:tenant-id tenant-id
@@ -52,18 +53,24 @@
          "WITH per_dispatch AS (\n"
          "  SELECT\n"
          "    *,\n"
-         "    MAX(attempt_no) OVER (PARTITION BY dispatch_id) AS attempts_count,\n"
+         "    (\n"
+         "      MAX(attempt_no) OVER (PARTITION BY dispatch_id)\n"
+         "      + CASE WHEN MIN(attempt_no) OVER (PARTITION BY dispatch_id) = 0 THEN 1 ELSE 0 END\n"
+         "    ) AS attempts_count,\n"
          "    ROW_NUMBER() OVER (PARTITION BY dispatch_id ORDER BY created_at DESC, attempt_no DESC) AS rn\n"
          "  FROM webhook_delivery_outcomes\n"
          "  WHERE tenant_id = ? AND session_id = ?\n"
          ")\n"
          "SELECT\n"
-         "  id, created_at, tenant_id, session_id, webhook_id, dispatch_id,\n"
-         "  event_id, event_type, attempt_no, status, http_status, error_code, error_detail, latency_ms,\n"
-         "  attempts_count\n"
-         "FROM per_dispatch\n"
-         "WHERE rn = 1\n"
-         "ORDER BY created_at DESC\n"
+         "  p.id, p.created_at, p.tenant_id, p.session_id, p.webhook_id, w.name AS webhook_name, p.dispatch_id,\n"
+         "  p.event_id, p.event_type, p.attempt_no, p.status, p.http_status, p.error_code, p.error_detail, p.latency_ms,\n"
+         "  p.attempts_count\n"
+         "FROM per_dispatch p\n"
+         "LEFT JOIN webhooks w\n"
+         "  ON w.tenant_id = p.tenant_id\n"
+         " AND w.id::text = p.webhook_id\n"
+         "WHERE p.rn = 1\n"
+         "ORDER BY p.created_at DESC\n"
          "LIMIT ?")
         sqlvec [sqlstr tenant-id session-id limit]]
     (try

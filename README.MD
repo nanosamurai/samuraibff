@@ -118,6 +118,8 @@ Implementation notes:
 - API endpoint: `GET /api/sessions/:session_id/webhook-delivery-outcomes`
 - Recording detail embeds the same data inside `GET /api/recordings/:session_id` response under `:webhook_delivery_outcomes`.
 
+The UI displays the configured **webhook name** (from `webhooks.name`) when available.
+
 ---
 
 ## Refined transcript consolidation (rolling tail)
