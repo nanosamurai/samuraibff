@@ -12,6 +12,7 @@
    [samuraibff.ui.session-request :as session.req]
    [samuraibff.ui.store :as store]
    [samuraibff.ui.util :as util]
+   [samuraibff.ui.webhook-delivery-outcomes :as ui.wh.outcomes]
    [samuraibff.ui.ws :as ws]
    ["react" :as react]))
 
@@ -505,17 +506,79 @@
        (for [[idx line] (map-indexed vector lines)]
          [:div {:class "log-line" :key (str "log-" idx)} line]))]))
 
+(defn- webhooks-view
+  "Webhook delivery outcomes view (latest per dispatch) for live session.
+
+  Fetches:
+  - GET /api/sessions/:session_id/webhook-delivery-outcomes
+
+  Returns: hiccup."
+  []
+  (let [session (hooks/use-atom store/session*)
+        session-id (str (or (:id session) ""))
+
+        loading?* (react/useState false)
+        loading? (aget loading?* 0)
+        set-loading! (aget loading?* 1)
+
+        error* (react/useState nil)
+        error (aget error* 0)
+        set-error! (aget error* 1)
+
+        items* (react/useState [])
+        items (aget items* 0)
+        set-items! (aget items* 1)
+
+        refresh!
+        (fn []
+          (when (seq session-id)
+            (set-loading! true)
+            (set-error! nil)
+            (-> (api/list-webhook-delivery-outcomes! session-id)
+                (.then (fn [resp]
+                         (set-items! (vec (or (:items resp) [])))))
+                (.catch (fn [e]
+                          (set-error! (shared/safe-http-error e))))
+                (.finally (fn []
+                            (set-loading! false))))))]
+
+    (react/useEffect
+     (fn []
+       (refresh!)
+       js/undefined)
+     #js [session-id])
+
+    [:div {:style {:display "flex" :flexDirection "column" :gap "10px"}}
+     [:div {:class "row"}
+      [:div {:class "spacer"}]
+      [:button {:class "btn ghost"
+                :disabled (or loading? (empty? session-id))
+                :on-click (fn [_] (refresh!))}
+       (if loading? "Refreshing…" "Refresh")]]
+
+     [ui.wh.outcomes/webhook-dispatches-card
+      {:items items
+       :loading? loading?
+       :error error
+       :title "Webhook dispatches"}]]))
+
 (defn right-panel
   "Right-side panel for Live Recording.
 
   Contains tabs (for now: Log only)."
   []
-  (let [active :log
+  (let [active* (react/useState :log)
+        active (aget active* 0)
+        set-active! (aget active* 1)
         debug-asr? (hooks/use-atom store/debug-asr-log?*)]
     [:div {:class "right-panel"}
      [:div {:class "tabs"}
-      [:button {:class (str "tab " (when (= active :log) "active"))}
-       "Log"]]
+      [:button {:class (str "tab " (when (= active :log) "active"))
+                :on-click (fn [_] (set-active! :log))}
+       "Log"]
+      [:button {:class (str "tab " (when (= active :webhooks) "active"))
+                :on-click (fn [_] (set-active! :webhooks))}
+       "Webhooks"]]
      [:div {:class "right-panel-body"}
       [ws-indicator]
       [:label {:class "muted"
@@ -528,7 +591,10 @@
                 :on-change (fn [e]
                              (store/set-debug-asr-log! (.. e -target -checked)))}]
        "Log ASR events"]
-      [log-view]]]))
+
+      (case active
+        :webhooks [webhooks-view]
+        [log-view])]]))
 
 (defn- live-transcript
   "Transcript component bound to the live session store."

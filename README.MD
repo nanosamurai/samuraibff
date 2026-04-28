@@ -102,6 +102,24 @@ Supported fields (Phase 1 / RFC-0001):
 
 The backend persists this payload in `sessions.webhook_overrides` (jsonb) and uses it to resolve the immutable routing snapshot published to Kafka (`sessions.meta`).
 
+### Webhook dispatch audit (outcomes)
+
+When using the webhook stack (webhook-router + webhook-dispatcher + samuraipersistor), the samuraipersistor writes a delivery audit log into Postgres table:
+
+- `webhook_delivery_outcomes`
+
+The BFF exposes these outcomes tenant-scoped (by `tenant_id` + `session_id`) and the UI can display them:
+
+- Live Recording: **Webhooks** tab in the Session settings panel (right-side)
+- Recording Detail: right-side panel shows **Webhook dispatches** stacked above **Log**
+
+Implementation notes:
+
+- API endpoint: `GET /api/sessions/:session_id/webhook-delivery-outcomes`
+- Recording detail embeds the same data inside `GET /api/recordings/:session_id` response under `:webhook_delivery_outcomes`.
+
+The UI displays the configured **webhook name** (from `webhooks.name`) when available.
+
 ---
 
 ## Refined transcript consolidation (rolling tail)

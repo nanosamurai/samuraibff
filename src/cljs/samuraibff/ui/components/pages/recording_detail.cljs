@@ -6,13 +6,14 @@
   (:require
    [clojure.string :as str]
    [samuraibff.ui.api :as api]
-    [samuraibff.ui.components.shared :as shared]
+   [samuraibff.ui.components.shared :as shared]
    [samuraibff.ui.components.transcript :as components.transcript]
    [samuraibff.ui.recording-detail :as recording-detail]
    [samuraibff.ui.router :as router]
    [samuraibff.ui.store :as store]
    [samuraibff.ui.transcript :as transcript]
    [samuraibff.ui.util :as util]
+   [samuraibff.ui.webhook-delivery-outcomes :as ui.wh.outcomes]
    ["react" :as react]))
 
 (defn- enroll-speaker-modal
@@ -29,7 +30,7 @@
   - Lets user enter speaker label and submits to backend
   - On success, prepends speaker into `store/speakers*`
 
-  Returns: hiccup node or nil." 
+  Returns: hiccup node or nil."
   [{:keys [open? session-id start-s end-s on-close]}]
   (let [open? (true? open?)
         label* (react/useState "")
@@ -429,12 +430,12 @@
                  :empty-hint (if final-record "(no segments)" "No final transcript stored")
                  :message-actions enroll-action}]))]]
 
-       [:div {:class "page"}
-        [enroll-speaker-modal {:open? enroll-open?
-                               :session-id session-id
-                               :start-s (get enroll-range :start_s)
-                               :end-s (get enroll-range :end_s)
-                               :on-close close-enroll!}]
+      [:div {:class "page"}
+       [enroll-speaker-modal {:open? enroll-open?
+                              :session-id session-id
+                              :start-s (get enroll-range :start_s)
+                              :end-s (get enroll-range :end_s)
+                              :on-close close-enroll!}]
        [:div {:class "page-header"}
         [:div
          [:div {:class "page-title"} (or title-display "Recording")]
@@ -493,13 +494,12 @@
                :empty-title "Real-time transcript"
                :empty-hint "No realtime transcript available"}])]
 
-          [:div {:class "card"}
-           [:div {:class "card-title"} "Log"]
-           (if (seq cached-log-lines)
-             [:div {:class "log"}
-              (for [[idx line] (map-indexed vector cached-log-lines)]
-                [:div {:class "log-line" :key (str "logc-" idx)} line])]
-             [:div {:class "muted"} "No log available for this session (not persisted)."])]]
+          [:div {:style {:display "flex"
+                         :flexDirection "column"
+                         :gap "12px"}}
+           [ui.wh.outcomes/webhook-dispatches-card
+            {:items (vec (or (:webhook_delivery_outcomes detail) []))
+             :title "Webhook dispatches"}]]]
 
          [:div {:class "card"}
           [:div {:class "card-title"}

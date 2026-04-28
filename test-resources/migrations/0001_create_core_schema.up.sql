@@ -170,3 +170,41 @@ CREATE TABLE tenant_webhook_defaults (
     webhook_ids uuid[] NOT NULL DEFAULT '{}'::uuid[],
     updated_at  timestamptz NOT NULL DEFAULT now()
 );
+
+-- Webhook delivery outcomes (audit log of dispatched webhooks)
+-- Mirrors samuraipersistor migration 003-webhook-delivery-outcomes.up.sql.
+CREATE TABLE webhook_delivery_outcomes (
+    id              uuid PRIMARY KEY,
+    created_at      timestamptz NOT NULL,
+    tenant_id       uuid NOT NULL,
+    session_id      uuid NULL,
+    webhook_id      text NOT NULL,
+    dispatch_id     uuid NOT NULL,
+    event_id        text NULL,
+    event_type      text NOT NULL,
+    attempt_no      integer NOT NULL,
+    status          text NOT NULL,
+    http_status     integer NULL,
+    error_code      text NULL,
+    error_detail    text NULL,
+    latency_ms      bigint NULL,
+    kafka_topic     text NULL,
+    kafka_partition integer NULL,
+    kafka_offset    bigint NULL
+);
+
+ALTER TABLE webhook_delivery_outcomes
+    ADD CONSTRAINT webhook_delivery_outcomes_dispatch_attempt_uniq
+    UNIQUE (dispatch_id, attempt_no);
+
+CREATE INDEX idx_webhook_delivery_outcomes_tenant_created_at
+    ON webhook_delivery_outcomes (tenant_id, created_at DESC);
+
+CREATE INDEX idx_webhook_delivery_outcomes_webhook_created_at
+    ON webhook_delivery_outcomes (webhook_id, created_at DESC);
+
+CREATE INDEX idx_webhook_delivery_outcomes_session_created_at
+    ON webhook_delivery_outcomes (session_id, created_at DESC);
+
+CREATE INDEX idx_webhook_delivery_outcomes_dispatch
+    ON webhook_delivery_outcomes (dispatch_id);

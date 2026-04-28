@@ -62,6 +62,18 @@
                                ) VALUES (?, ?, ?, 'refined', 'worker', 'whisperx', 'hello refined', '[]'::jsonb, now())"
                                 (UUID/fromString "00000000-0000-0000-0000-000000000101") tenant-a session-a])
 
+            ;; attach webhook delivery outcomes to session-a
+            dispatch-id (UUID/fromString "00000000-0000-0000-0000-000000000901")
+            _ (jdbc/execute! ds ["INSERT INTO webhook_delivery_outcomes (
+                                  id, created_at, tenant_id, session_id, webhook_id, dispatch_id,
+                                  event_id, event_type, attempt_no, status, http_status,
+                                  error_code, error_detail, latency_ms,
+                                  kafka_topic, kafka_partition, kafka_offset
+                                ) VALUES (?, now(), ?, ?, 'wh-1', ?, NULL, 'recording.finished', 1, 'delivered', 200,
+                                         NULL, NULL, 12,
+                                         't', 0, 0)"
+                                 (UUID/fromString "00000000-0000-0000-0000-000000000900") tenant-a session-a dispatch-id])
+
             deps {:db {:ds ds}
                   :config {:env :test}}
             list-handler (http.recordings/list-recordings-handler deps)
@@ -104,6 +116,11 @@
         (is (true? (get-in detail-body-a [:session :has_final_transcript])))
         (is (= 1 (count (get-in detail-body-a [:transcripts :refined]))))
         (is (= 1 (count (get-in detail-body-a [:transcripts :final]))))
+
+        (is (vector? (get-in detail-body-a [:webhook_delivery_outcomes])))
+        (is (= 1 (count (get-in detail-body-a [:webhook_delivery_outcomes]))))
+        (is (= "recording.finished" (get-in detail-body-a [:webhook_delivery_outcomes 0 :event_type])))
+        (is (= 1 (get-in detail-body-a [:webhook_delivery_outcomes 0 :attempts_count])))
 
         ;; Transcript records must expose segments as a decoded vector (JSON array).
         (is (vector? (get-in detail-body-a [:transcripts :refined 0 :segments])))
