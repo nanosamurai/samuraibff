@@ -84,11 +84,14 @@
   "Render a card containing webhook dispatch outcomes.
 
   Inputs:
-  - {:keys [items loading? error title]}
+  - {:keys [items loading? error title fill?]}
     - items: vector of outcome maps
     - loading?: boolean
     - error: string?
     - title: string (optional)
+    - fill?: boolean (optional)
+      When true, the card will stretch to fill its parent height and the body
+      becomes scrollable (useful for side panels next to long transcript feeds).
 
   Returns: hiccup."
   [{:keys [items loading? error title fill?]}]
