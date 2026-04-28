@@ -111,7 +111,7 @@ When using the webhook stack (webhook-router + webhook-dispatcher + samuraipersi
 The BFF exposes these outcomes tenant-scoped (by `tenant_id` + `session_id`) and the UI can display them:
 
 - Live Recording: **Webhooks** tab in the Session settings panel (right-side)
-- Recording Detail: right-side panel shows **Webhook dispatches** stacked above **Log**
+- Recording Detail: right-side panel shows **Webhooks / workflows** (collapsible)
 
 Implementation notes:
 
