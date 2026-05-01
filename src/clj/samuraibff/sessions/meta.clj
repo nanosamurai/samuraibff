@@ -44,6 +44,7 @@
   - session-id: UUID
   - webhook-routing: map {:targets_by_event_type {...}}
   - session-settings: map or nil (shape per schemas/CreateSessionRequest :session_settings)
+  - workflow-targets: vector of resolved workflow targets (for sessions.meta.workflows.targets)
 
   Behavior:
   - Publishes both `routing` (legacy) and `webhook_routing` (new) for now.
@@ -51,7 +52,7 @@
 
   Returns:
   - sessions.meta map (JSON-friendly)."
-  [config tenant-id session-id webhook-routing session-settings]
+  [config tenant-id session-id webhook-routing session-settings workflow-targets]
   (let [enabled? (boolean (get-in (or session-settings {}) [:refined_transcript :consolidation :enabled]))
         cfg (or (get-in config [:sessions-meta :refined-transcript :consolidation])
                 (get-in config [:sessions_meta :refined_transcript :consolidation])
@@ -64,7 +65,8 @@
                               (boolean (:include_full_text cfg))
                               default-include-full-text))
         routing-map (or webhook-routing {:targets_by_event_type {}})
-        schema-version 1]
+        workflow-targets (vec (or workflow-targets []))
+        schema-version 2]
     {:session_id (str session-id)
      :tenant_id (str tenant-id)
      :schema_version schema-version
@@ -81,4 +83,7 @@
       {:enabled enabled?
        :max_bytes (long max-bytes)
        :topic (str topic)
-       :include_full_text (boolean include-full-text)}}}))
+       :include_full_text (boolean include-full-text)}}
+
+     :workflows
+     {:targets workflow-targets}}))

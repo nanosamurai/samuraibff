@@ -205,7 +205,8 @@
 
   Shape:
   - {:title <string?>
-     :webhook_overrides <WebhookOverrides?>}
+     :webhook_overrides <WebhookOverrides?>
+     :workflow_overrides <WorkflowOverrides?>}
 
   Notes:
   - Title is optional and may be nil/blank (server will generate a default).
@@ -237,6 +238,14 @@
            [:map
             [:enabled {:optional true} :boolean]]]]]]]]]]
 
+    ;; Workflow overrides (session-level binding at inception).
+    ;; Mirrors webhook_overrides semantics (defaults + additions).
+   [:workflow_overrides {:optional true}
+    [:maybe
+     [:map
+      [:use_defaults {:optional true} :boolean]
+      [:workflow_ids {:optional true} [:sequential Uuid]]]]]
+
    [:webhook_overrides {:optional true}
     [:maybe
      [:map
@@ -248,6 +257,131 @@
          "transcript.refined.segment"
          "recording.finished"
          "transcript.final.ready"]]]]]]])
+
+;; ---------------------------------------------------------------------
+;; Workflows (tenant-configured LLM post-processing definitions)
+;; ---------------------------------------------------------------------
+
+(def WorkflowTriggerType
+  "Workflow trigger type string.
+
+  v1 values:
+  - transcript.refined.segment
+  - recording.finished
+  - transcript.final.ready"
+  [:enum
+   "transcript.refined.segment"
+   "recording.finished"
+   "transcript.final.ready"])
+
+(def WorkflowTrigger
+  "Workflow trigger configuration.
+
+  Shape:
+  - {:type <WorkflowTriggerType>}"
+  [:map
+   [:type WorkflowTriggerType]])
+
+(def WorkflowProvider
+  "Workflow provider configuration.
+
+  v1 provider is bedrock.
+
+  Shape:
+  - {:type bedrock :model_id <string> :params <map?>}"
+  [:map
+   [:type [:enum "bedrock"]]
+   [:model_id NonEmptyString]
+   [:params {:optional true} [:maybe :map]]])
+
+(def WorkflowPrompt
+  "Workflow prompt.
+
+  Shape:
+  - {:text <string>}"
+  [:map
+   [:text NonEmptyString]])
+
+(def WorkflowIncremental
+  "Incremental debounce config.
+
+  Shape:
+  - {:enabled <boolean?> :min_interval_sec <int?>}"
+  [:map
+   [:enabled {:optional true} :boolean]
+   [:min_interval_sec {:optional true} [:maybe NonNegInt]]])
+
+(def CreateWorkflowRequest
+  "Request body for POST /api/workflows.
+
+  Shape:
+  - {:name <string>
+     :enabled <boolean?>
+     :trigger {:type <WorkflowTriggerType>}
+     :provider {:type bedrock :model_id <string> :params <map?>}
+     :prompt {:text <string>}
+     :incremental {:enabled <boolean?> :min_interval_sec <int?>}?}"
+  [:map
+   [:name NonEmptyString]
+   [:enabled {:optional true} :boolean]
+   [:trigger WorkflowTrigger]
+   [:provider WorkflowProvider]
+   [:prompt WorkflowPrompt]
+   [:incremental {:optional true} [:maybe WorkflowIncremental]]])
+
+(def UpdateWorkflowRequest
+  "Request body for PUT /api/workflows/{id}.
+
+  All fields optional; provided fields replace stored values."
+  [:map
+   [:name {:optional true} [:maybe :string]]
+   [:enabled {:optional true} [:maybe :boolean]]
+   [:trigger {:optional true} [:maybe WorkflowTrigger]]
+   [:provider {:optional true} [:maybe WorkflowProvider]]
+   [:prompt {:optional true} [:maybe WorkflowPrompt]]
+   [:incremental {:optional true} [:maybe WorkflowIncremental]]])
+
+(def WorkflowItem
+  "Workflow list item returned by GET /api/workflows."
+  [:map
+   [:id Uuid]
+   [:tenant_id Uuid]
+   [:name :string]
+   [:enabled :boolean]
+   [:trigger WorkflowTrigger]
+   [:provider WorkflowProvider]
+   [:prompt WorkflowPrompt]
+   [:incremental {:optional true} [:maybe WorkflowIncremental]]
+   [:created_at :string]
+   [:updated_at :string]])
+
+(def WorkflowsListResponse
+  "Response body for GET /api/workflows."
+  [:map
+   [:ok :boolean]
+   [:tenant_id Uuid]
+   [:items [:sequential WorkflowItem]]])
+
+(def CreateWorkflowResponse
+  "Response body for POST /api/workflows."
+  [:map
+   [:ok :boolean]
+   [:workflow_id Uuid]])
+
+(def WorkflowDefaultsRequest
+  "Request body for PUT /api/workflows/defaults.
+
+  Shape:
+  - {:workflow_ids [<uuid> ...]}"
+  [:map
+   [:workflow_ids [:sequential Uuid]]])
+
+(def WorkflowDefaultsResponse
+  "Response body for GET /api/workflows/defaults."
+  [:map
+   [:ok :boolean]
+   [:tenant_id Uuid]
+   [:workflow_ids [:sequential Uuid]]])
 
 ;; ---------------------------------------------------------------------
 ;; Webhooks (tenant-configured outbound endpoints)
