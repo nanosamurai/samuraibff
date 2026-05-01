@@ -40,6 +40,13 @@
                              :webhook_ids #{}
                              :disable_event_types #{}}
 
+          ;; Session-scoped workflow routing overrides.
+          ;; Shape matches schemas/CreateSessionRequest :workflow_overrides.
+          ;; {:use_defaults boolean
+          ;;  :workflow_ids #{<uuid-string> ...}}
+          :workflow_overrides {:use_defaults true
+                               :workflow_ids #{}}
+
           ;; Session-level, webhook-agnostic settings.
           ;;
           ;; Shape matches schemas/CreateSessionRequest :session_settings.
@@ -55,6 +62,99 @@
                     :rt_overlap_sec nil
                     :rt_emit_every_sec nil
                     :refinement_window_sec nil}}))
+
+(defn set-session-workflow-overrides-use-defaults!
+  "Set whether tenant workflow defaults should be used for newly created sessions.
+
+  Inputs:
+  - use-defaults?: boolean
+
+  Returns: nil." 
+  [use-defaults?]
+  (swap! session* assoc-in [:workflow_overrides :use_defaults] (boolean use-defaults?))
+  nil)
+
+(defn set-session-workflow-id-selected!
+  "Select/unselect a workflow id for the next session creation.
+
+  Inputs:
+  - workflow-id: string UUID
+  - selected?: boolean
+
+  Returns: nil." 
+  [workflow-id selected?]
+  (let [sid (str (or workflow-id ""))]
+    (when (seq sid)
+      (swap! session*
+             (fn [st]
+               (let [path [:workflow_overrides :workflow_ids]
+                     ids (set (get-in st path #{}))
+                     ids' (if (true? selected?)
+                            (conj ids sid)
+                            (disj ids sid))]
+                 (assoc-in st path ids'))))))
+  nil)
+
+;; --- Workflows (tenant-scoped definitions) ---
+
+(defonce workflows*
+  (atom {:items []
+         :loading? false
+         :error nil}))
+
+(defonce workflow-defaults*
+  (atom {:workflow_ids []
+         :loading? false
+         :error nil}))
+
+(defn set-workflows-loading!
+  "Set loading flag for workflows list." 
+  [loading?]
+  (swap! workflows* assoc :loading? (boolean loading?))
+  nil)
+
+(defn set-workflows-error!
+  "Set workflows list error string (nil clears)." 
+  [err]
+  (swap! workflows* assoc :error err)
+  nil)
+
+(defn set-workflows-items!
+  "Replace workflows list items." 
+  [items]
+  (swap! workflows* assoc :items (vec (or items [])))
+  nil)
+
+(defn remove-workflow-item!
+  "Remove a workflow item from current list." 
+  [workflow-id]
+  (swap! workflows*
+         (fn [st]
+           (update st :items
+                   (fn [items]
+                     (->> (vec (or items []))
+                          (remove (fn [w]
+                                    (= (str workflow-id) (str (:id w)))))
+                          vec)))))
+  nil)
+
+(defn set-workflow-defaults-loading!
+  "Set loading flag for workflow defaults." 
+  [loading?]
+  (swap! workflow-defaults* assoc :loading? (boolean loading?))
+  nil)
+
+(defn set-workflow-defaults-error!
+  "Set workflow defaults error string (nil clears)." 
+  [err]
+  (swap! workflow-defaults* assoc :error err)
+  nil)
+
+(defn set-workflow-defaults-ids!
+  "Replace default workflow ids." 
+  [workflow-ids]
+  (swap! workflow-defaults* assoc :workflow_ids (vec (or workflow-ids [])))
+  nil)
 
 (defn set-session-refined-consolidation-enabled!
   "Enable/disable refined transcript consolidation for newly created sessions.

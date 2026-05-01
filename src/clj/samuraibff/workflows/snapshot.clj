@@ -58,7 +58,7 @@
   (let [trigger-type (some-> (:trigger_type w) str)
         trigger-type (when (contains? supported-trigger-types trigger-type) trigger-type)
         provider-type (some-> (:provider_type w) str)
-        incremental-enabled? (boolean (:incremental_enabled w))
+        incremental-enabled? (:incremental_enabled w)
         min-interval (some-> (:incremental_min_interval_sec w) long)]
     (when (and trigger-type
                (seq (str (:prompt_text w)))

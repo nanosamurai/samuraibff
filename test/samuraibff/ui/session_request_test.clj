@@ -6,7 +6,7 @@
   a browser/JS runtime.
   "
   (:require
-   [clojure.test :refer :all]
+   [clojure.test :refer [deftest is testing]]
    [samuraibff.ui.session-request :as session.req]))
 
 (deftest resolved-webhook-overrides-defaults-to-nil
@@ -28,6 +28,24 @@
            (session.req/resolved-session-settings
             {:controls {:refined true}
              :session_settings {:refined_transcript {:consolidation {:enabled true}}}})))))
+
+(deftest resolved-workflow-overrides-defaults-to-nil
+  (testing "Default workflow_overrides state returns nil (field can be omitted)"
+    (is (nil?
+         (session.req/resolved-workflow-overrides
+          {:workflow_overrides {:use_defaults true
+                                :workflow_ids #{}}})))))
+
+(deftest create-session-request-body-includes-workflow-overrides-when-non-default
+  (testing "workflow_overrides is included when non-default"
+    (let [body (session.req/create-session-request-body
+                {:title "t"
+                 :controls {:refined true}
+                 :workflow_overrides {:use_defaults false
+                                      :workflow_ids #{"11111111-1111-1111-1111-111111111111"}}})]
+      (is (= {:use_defaults false
+              :workflow_ids ["11111111-1111-1111-1111-111111111111"]}
+             (:workflow_overrides body))))))
 
 (deftest create-session-request-body-includes-settings-when-enabled
   (testing "create-session-request-body includes webhook_overrides and session_settings when non-default"
