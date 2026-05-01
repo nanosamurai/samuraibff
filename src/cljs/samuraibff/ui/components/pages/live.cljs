@@ -144,14 +144,15 @@
                               (set-settings-open! (not (true? settings-open?)))))}
        "⚙"]]]))
 
-(declare webhook-routing-panel stream-controls-panel)
+(declare webhook-routing-panel workflow-routing-panel stream-controls-panel)
 
 (defn- session-settings-panel
   "Single settings panel shown from the gear button.
 
-  It contains two tabs:
-  - Stream settings
-  - Webhooks
+   It contains tabs:
+   - Stream settings
+   - Webhooks
+   - Workflows
 
   Inputs:
   - {:keys [open? set-open!]} where:
@@ -179,7 +180,7 @@
                                 (set-open! false)))}
          "Close"]]
 
-       [:div {:class "tabs" :style {:marginBottom "0"}}
+        [:div {:class "tabs" :style {:marginBottom "0"}}
         [:button {:class (str "tab " (when (= tab :stream) "active"))
                   :type "button"
                   :on-click (fn [_] (set-tab! :stream))}
@@ -188,11 +189,146 @@
                   :type "button"
                   :on-click (fn [_] (set-tab! :webhooks))}
          "Webhooks"]
+         [:button {:class (str "tab " (when (= tab :workflows) "active"))
+                   :type "button"
+                   :on-click (fn [_] (set-tab! :workflows))}
+          "Workflows"]
         [:div {:class "spacer"}]]
 
        (case tab
          :webhooks [webhook-routing-panel]
+          :workflows [workflow-routing-panel]
          [stream-controls-panel])])))
+
+(defn- workflow-routing-panel
+  "Advanced panel for per-session workflow routing overrides.
+
+  This panel controls `workflow_overrides` sent to `POST /api/sessions`.
+
+  Returns: hiccup." 
+  []
+  (let [session (hooks/use-atom store/session*)
+
+        workflows-st (hooks/use-atom store/workflows*)
+        {:keys [items loading? error]} workflows-st
+
+        defaults-st (hooks/use-atom store/workflow-defaults*)
+        defaults-ids (set (map str (or (:workflow_ids defaults-st) [])))
+        defaults-loading? (true? (:loading? defaults-st))
+        defaults-error (:error defaults-st)
+
+        overrides (or (:workflow_overrides session) {})
+        use-defaults? (if (contains? overrides :use_defaults)
+                        (boolean (:use_defaults overrides))
+                        true)
+        selected-ids (set (or (:workflow_ids overrides) #{}))
+
+        refresh-workflows! (fn []
+                             (store/set-workflows-loading! true)
+                             (store/set-workflows-error! nil)
+                             (-> (api/list-workflows!)
+                                 (.then (fn [resp]
+                                          (store/set-workflows-items! (:items resp))))
+                                 (.catch (fn [e]
+                                           (store/set-workflows-error! (shared/safe-http-error e))))
+                                 (.finally (fn []
+                                             (store/set-workflows-loading! false)))))
+
+        refresh-defaults! (fn []
+                            (store/set-workflow-defaults-loading! true)
+                            (store/set-workflow-defaults-error! nil)
+                            (-> (api/get-workflow-defaults!)
+                                (.then (fn [resp]
+                                         (store/set-workflow-defaults-ids! (:workflow_ids resp))))
+                                (.catch (fn [e]
+                                          (store/set-workflow-defaults-error! (shared/safe-http-error e))))
+                                (.finally (fn []
+                                            (store/set-workflow-defaults-loading! false)))))
+
+        refresh! (fn []
+                   (refresh-workflows!)
+                   (refresh-defaults!))
+
+        checkbox-row (fn [{:keys [id label checked disabled? on-change]}]
+                       [:div {:class "checkbox-row"}
+                        [:input {:id id
+                                 :type "checkbox"
+                                 :disabled (boolean disabled?)
+                                 :checked (boolean checked)
+                                 :on-change (fn [e]
+                                              (when (fn? on-change)
+                                                (on-change (.. e -target -checked))))}]
+                        [:label {:htmlFor id} label]])]
+
+    (react/useEffect
+     (fn []
+       (when (and (empty? (vec (or items [])))
+                  (not (true? loading?)))
+         (refresh-workflows!))
+       (when (and (empty? (or (:workflow_ids defaults-st) []))
+                  (not (true? defaults-loading?)))
+         (refresh-defaults!))
+       js/undefined)
+     #js [])
+
+    [:div {:class "stream-controls-body"}
+     (when (seq error)
+       [:div {:class "error" :style {:marginBottom "8px"}} error])
+
+     (when (seq defaults-error)
+       [:div {:class "error" :style {:marginBottom "8px"}} defaults-error])
+
+     [checkbox-row {:id "wf-use-defaults"
+                    :label "Use tenant default workflows"
+                    :checked (true? use-defaults?)
+                    :on-change (fn [v] (store/set-session-workflow-overrides-use-defaults! v))}]
+
+     [:div {:class "muted" :style {:marginTop "6px" :marginBottom "8px"}}
+      "Select additional workflows for this session (or disable defaults)."]
+
+     [:div {:style {:display "flex" :gap "8px" :marginBottom "8px"}}
+      [:button {:class "btn"
+                :type "button"
+                :disabled (boolean (or loading? defaults-loading?))
+                :on-click (fn [_] (refresh!))}
+       (if (or loading? defaults-loading?) "Loading…" "Refresh")]]
+
+     (cond
+       (true? loading?)
+       [:div {:class "muted"} "Loading workflows…"]
+
+       (empty? (vec (or items [])))
+       [:div {:class "muted"}
+        "No workflows configured yet. Create one under Settings → Workflows."]
+
+       :else
+       (let [default-selected? (fn [id]
+                                 (and (true? use-defaults?)
+                                      (contains? defaults-ids (str id))))
+             additional-selected? (fn [id]
+                                    (contains? selected-ids (str id)))]
+         [:div {:style {:display "flex" :flexDirection "column" :gap "6px"}}
+          (for [{:keys [id name enabled trigger]} (vec (or items []))]
+            (let [id (str (or id ""))
+                  enabled? (true? enabled)
+                  checked? (or (default-selected? id)
+                               (additional-selected? id))
+                  label [:span
+                         [:span (or name "")]
+                         (when-not enabled?
+                           [:span {:class "muted" :style {:marginLeft "6px"}} "(disabled)"])
+                         [:span {:class "muted" :style {:marginLeft "8px"}}
+                          (or (get-in trigger [:type]) "")]]]
+              [:div {:key (str "wf-ov-" id)}
+               [checkbox-row {:id (str "wf-ov-" id)
+                              :label label
+                              :disabled? (not enabled?)
+                              :checked checked?
+                              :on-change (fn [v]
+                                           (store/set-session-workflow-id-selected! id v))}]]))]))
+
+     [:div {:class "muted" :style {:marginTop "10px" :fontSize "12px"}}
+      "Applies only when creating a new session. Existing sessions keep their routing snapshot."]]))
 
 (defn- webhook-routing-panel
   "Advanced panel for per-session webhook routing overrides.
