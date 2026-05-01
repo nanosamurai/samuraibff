@@ -160,6 +160,28 @@ Notes:
    - `sessions.workflow_overrides` contains the JSON payload when non-default
 5) Verify downstream: webhook-router/workflow-runner should see `sessions.meta.workflows.targets`.
 
+### Refined trigger: rolling tail + dispatch throttling
+
+For workflows triggered by `transcript.refined.segment`, you may want:
+
+- **Send cumulative transcript (rolling tail)**
+  - UI wording: *“Send cumulative transcript (rolling tail)”*
+  - API/sessions.meta field (for compatibility with webhook-router):
+    - `workflows.targets[].incremental.enabled = true`
+
+When this is enabled for any workflow target, the BFF will automatically force:
+
+- `sessions.meta.refined_transcript.consolidation.enabled = true`
+
+so that webhook-router will route **consolidated refined transcript** (rolling tail)
+events downstream.
+
+Optional rate limiting:
+
+- `workflows.targets[].incremental.min_interval_sec` is a **dispatch throttling interval**
+  (debounce) applied by webhook-router per `(session_id, workflow_id)`.
+  It is *not* related to the session refinement window size.
+
 ### Webhook dispatch audit (outcomes)
 
 When using the webhook stack (webhook-router + webhook-dispatcher + samuraipersistor), the samuraipersistor writes a delivery audit log into Postgres table:
