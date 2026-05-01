@@ -43,6 +43,9 @@ CREATE TABLE sessions (
 
     -- Session-scoped settings snapshot (webhook-agnostic; workflows/LLM/etc.)
     session_settings jsonb,
+
+    -- Session-scoped workflow override request body snapshot (used to compute sessions.meta)
+    workflow_overrides jsonb,
     created_at     timestamptz NOT NULL DEFAULT now()
 );
 
@@ -208,3 +211,33 @@ CREATE INDEX idx_webhook_delivery_outcomes_session_created_at
 
 CREATE INDEX idx_webhook_delivery_outcomes_dispatch
     ON webhook_delivery_outcomes (dispatch_id);
+
+-- Workflows (tenant-scoped LLM post-processing definitions)
+CREATE TABLE workflows (
+    id            uuid PRIMARY KEY,
+    tenant_id     uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+
+    name          text NOT NULL,
+    enabled       boolean NOT NULL DEFAULT true,
+    trigger_type  text NOT NULL,
+    prompt_text   text NOT NULL,
+
+    provider_type      text NOT NULL,
+    provider_model_id  text NOT NULL,
+    provider_params    jsonb,
+
+    incremental_enabled           boolean NOT NULL DEFAULT false,
+    incremental_min_interval_sec  integer,
+
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    updated_at    timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_workflows_tenant ON workflows(tenant_id);
+CREATE UNIQUE INDEX idx_workflows_tenant_name ON workflows(tenant_id, name);
+
+CREATE TABLE workflow_defaults (
+    tenant_id     uuid PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+    workflow_ids  uuid[] NOT NULL DEFAULT '{}'::uuid[],
+    updated_at    timestamptz NOT NULL DEFAULT now()
+);
