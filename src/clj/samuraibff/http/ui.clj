@@ -201,14 +201,20 @@
                                                                     :webhook_overrides_present? (some? webhook_overrides)})
                (let [routing (webhooks.snapshot/resolve-routing-snapshot ds tenant-id-uuid session-uuid webhook_overrides)
                      wf-targets (workflows.snapshot/resolve-targets ds tenant-id-uuid session-uuid workflow_overrides)
-                     meta (sessions.meta/build-sessions-meta config tenant-id-uuid session-uuid routing session_settings wf-targets)
+                     workflow-needs-consolidation?
+                     (workflows.snapshot/any-target-requires-refined-consolidation? wf-targets)
+                     session-settings'
+                     (cond-> (or session_settings {})
+                       workflow-needs-consolidation?
+                       (assoc-in [:refined_transcript :consolidation :enabled] true))
+                     meta (sessions.meta/build-sessions-meta config tenant-id-uuid session-uuid routing session-settings' wf-targets)
                     targets (or (get-in routing [:targets_by_event_type]) {})
                     targets-count (when (map? targets)
                                     (reduce + 0 (map (comp count val) targets)))]
                 (log/info "Publishing sessions.meta" {:tenant_id (str tenant-id-uuid)
                                                       :session_id session-id
                                                       :schema_version (:schema_version meta)
-                                                      :refined_consolidation_enabled (boolean (get-in meta [:refined_transcript :consolidation :enabled]))
+                                                       :refined_consolidation_enabled (boolean (get-in meta [:refined_transcript :consolidation :enabled]))
                                                       :event_types_count (count (keys (or targets {})))
                                                       :targets_count (or targets-count 0)
                                                       :workflow_targets_count (count (or wf-targets []))})

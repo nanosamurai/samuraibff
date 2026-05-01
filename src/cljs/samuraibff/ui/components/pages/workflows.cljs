@@ -13,6 +13,10 @@
    {:value "transcript.final.ready" :label "transcript.final.ready"}
    {:value "recording.finished" :label "recording.finished"}])
 
+(def ^:private refined-trigger-type
+  "Event type representing refined transcript segments (frequent events)."
+  "transcript.refined.segment")
+
 (defn- checkbox
   [{:keys [checked? on-change]}]
   [:input {:type "checkbox"
@@ -70,13 +74,15 @@
           prompt (aget prompt* 0)
           set-prompt! (aget prompt* 1)
 
-          incr-enabled?* (react/useState (boolean (get-in initial [:incremental :enabled] false)))
-          incr-enabled? (aget incr-enabled?* 0)
-          set-incr-enabled! (aget incr-enabled?* 1)
+          cumulative-enabled?*
+          (react/useState (boolean (get-in initial [:incremental :enabled] false)))
+          cumulative-enabled? (aget cumulative-enabled?* 0)
+          set-cumulative-enabled! (aget cumulative-enabled?* 1)
 
-          min-interval* (react/useState (str (or (get-in initial [:incremental :min_interval_sec]) "")))
-          min-interval (aget min-interval* 0)
-          set-min-interval! (aget min-interval* 1)
+          dispatch-throttle-interval-sec-raw*
+          (react/useState (str (or (get-in initial [:incremental :min_interval_sec]) "")))
+          dispatch-throttle-interval-sec-raw (aget dispatch-throttle-interval-sec-raw* 0)
+          set-dispatch-throttle-interval-sec-raw! (aget dispatch-throttle-interval-sec-raw* 1)
 
           saving?* (react/useState false)
           saving? (aget saving?* 0)
@@ -92,7 +98,7 @@
                   (try
                     (let [params-js (try-parse-json params-raw)
                           params (js->clj params-js :keywordize-keys true)
-                          min-int (let [s (some-> min-interval str str/trim)]
+                          min-int (let [s (some-> dispatch-throttle-interval-sec-raw str str/trim)]
                                     (when (seq s)
                                       (js/parseInt s 10)))
                           payload {:name (str/trim (str name))
@@ -102,7 +108,11 @@
                                               :model_id (str/trim (str model-id))
                                               :params params}
                                    :prompt {:text (str prompt)}
-                                   :incremental {:enabled (boolean incr-enabled?)
+
+                                   ;; Note: the field is called :incremental for compatibility with
+                                   ;; webhook-router sessions.meta model, but the UI intentionally
+                                   ;; presents it as cumulative transcript + dispatch throttling.
+                                   :incremental {:enabled (boolean cumulative-enabled?)
                                                  :min_interval_sec (when (and (number? min-int) (<= 0 min-int)) min-int)}}
                           p (if (= mode :edit)
                               (api/update-workflow! (:id initial) payload)
@@ -129,9 +139,9 @@
         (when (seq err)
           [:div {:class "badge bad" :style {:marginBottom "10px"}} err])
 
-        [:div {:class "card"}
-         [:div {:class "card-title"} "Basics"]
-         [:div {:class "row"}
+         [:div {:class "card"}
+          [:div {:class "card-title"} "Basics"]
+          [:div {:class "row"}
           [:input {:placeholder "Name"
                    :value name
                    :on-change (fn [e] (set-name! (.. e -target -value)))}]
@@ -140,6 +150,27 @@
            (for [{:keys [value label]} trigger-types]
              ^{:key (str "tr-" value)}
              [:option {:value value} label])]]
+
+          (when (= trigger refined-trigger-type)
+            [:div {:style {:marginTop "10px"}}
+             [:div {:class "label" :style {:marginBottom "6px"}}
+              "Refined transcript"]
+             [:div {:class "muted" :style {:fontSize "12px" :marginBottom "8px"}}
+              "Controls how this workflow is triggered from refined transcript segments."]
+
+             [:label {:class "muted" :style {:display "flex" :gap "8px" :alignItems "center"}}
+              [checkbox {:checked? cumulative-enabled? :on-change set-cumulative-enabled!}]
+              "Send cumulative transcript (rolling tail)"]
+
+             [:div {:class "row" :style {:marginTop "8px"}}
+              [:input {:placeholder "Dispatch throttling interval (sec) (e.g. 15)"
+                       :disabled (not cumulative-enabled?)
+                       :value dispatch-throttle-interval-sec-raw
+                       :on-change (fn [e]
+                                    (set-dispatch-throttle-interval-sec-raw! (.. e -target -value)))}]]
+             [:div {:class "hint" :style {:marginTop "6px"}}
+              "Optional. When set, webhook-router will avoid triggering this workflow more often than the given interval (per session)."]])
+
          [:label {:class "muted" :style {:display "flex" :gap "8px" :alignItems "center" :marginTop "8px"}}
           [checkbox {:checked? enabled? :on-change set-enabled!}]
           "Enabled"]]
@@ -164,16 +195,6 @@
                      :placeholder "Prompt text…"
                      :value prompt
                      :on-change (fn [e] (set-prompt! (.. e -target -value)))}]]
-
-        [:div {:class "card"}
-         [:div {:class "card-title"} "Incremental"]
-         [:label {:class "muted" :style {:display "flex" :gap "8px" :alignItems "center"}}
-          [checkbox {:checked? incr-enabled? :on-change set-incr-enabled!}]
-          "Enabled"]
-         [:div {:class "row" :style {:marginTop "8px"}}
-          [:input {:placeholder "min_interval_sec (e.g. 15)"
-                   :value min-interval
-                   :on-change (fn [e] (set-min-interval! (.. e -target -value)))}]]]
 
         [:div {:class "row" :style {:justifyContent "flex-end" :marginTop "10px"}}
          [:button {:class "btn"

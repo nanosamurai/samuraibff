@@ -303,7 +303,17 @@
    [:text NonEmptyString]])
 
 (def WorkflowIncremental
-  "Incremental debounce config.
+  "Workflow refined-trigger behavior.
+
+  This sub-object is named `incremental` for compatibility with webhook-router's
+  `sessions.meta.workflows.targets[].incremental` contract.
+
+  Semantics:
+  - `enabled`: when true, the workflow wants to consume the *consolidated* refined
+    transcript input (rolling tail) instead of per-window refined segments.
+  - `min_interval_sec`: optional dispatch throttling interval (debounce) applied by
+    webhook-router per (session_id, workflow_id) to avoid triggering the workflow
+    too frequently.
 
   Shape:
   - {:enabled <boolean?> :min_interval_sec <int?>}"

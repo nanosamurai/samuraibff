@@ -63,7 +63,7 @@
     (when (and trigger-type
                (seq (str (:prompt_text w)))
                (seq (str (:provider_model_id w))))
-      {:workflow_id (str (:id w))
+       {:workflow_id (str (:id w))
        :name (str (or (:name w) ""))
        :enabled (boolean (:enabled w))
        :trigger {:type trigger-type}
@@ -75,6 +75,23 @@
                      :min_interval_sec (when (and incremental-enabled?
                                                   (pos? (long (or min-interval 0))))
                                          (long min-interval))}})))
+
+(defn any-target-requires-refined-consolidation?
+  "Return true if any workflow target indicates it needs consolidated refined transcript.
+
+  In our sessions.meta contract, this is represented by:
+  - target.incremental.enabled == true
+
+  Note:
+  - Despite the name `incremental`, webhook-router uses this section both for:
+    - dispatch throttling (`min_interval_sec`), and
+    - selecting consolidated refined transcript input for workflow-runner.
+  "
+  [targets]
+  (boolean
+   (some (fn [t]
+           (true? (get-in t [:incremental :enabled])))
+         (or targets []))))
 
 (defn resolve-targets
   "Resolve workflow targets for a newly created session.
