@@ -40,6 +40,31 @@
         (seq disable-event-types)
         (assoc :disable_event_types (vec (sort disable-event-types)))))))
 
+(defn resolved-workflow-overrides
+  "Compute the `workflow_overrides` request body for `POST /api/sessions`.
+
+  Inputs:
+  - session: map
+
+  Returns:
+  - nil when the UI is at the default state (so we omit the field entirely)
+  - otherwise a JSON-friendly map matching schemas/CreateSessionRequest.
+
+  Shape:
+  - {:use_defaults <boolean>
+     :workflow_ids [<uuid-string> ...]}"
+  [session]
+  (let [ov (or (:workflow_overrides session) {})
+        use-defaults? (if (contains? ov :use_defaults)
+                        (boolean (:use_defaults ov))
+                        true)
+        workflow-ids (set (or (:workflow_ids ov) #{}))
+        default? (and (true? use-defaults?)
+                      (empty? workflow-ids))]
+    (when-not default?
+      {:use_defaults use-defaults?
+       :workflow_ids (vec (sort workflow-ids))})))
+
 (defn refined-output-enabled?
   "Return true when the refined pipeline output is enabled for the session.
 
@@ -80,7 +105,9 @@
         title (some-> (:title session) str)
         title (when (seq (str/trim (str title))) title)
         webhook-overrides (resolved-webhook-overrides session)
+        workflow-overrides (resolved-workflow-overrides session)
         session-settings (resolved-session-settings session)]
     (cond-> {:title (or title "")}
       (some? webhook-overrides) (assoc :webhook_overrides webhook-overrides)
+      (some? workflow-overrides) (assoc :workflow_overrides workflow-overrides)
       (some? session-settings) (assoc :session_settings session-settings))))

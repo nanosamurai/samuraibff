@@ -28,7 +28,22 @@
    [next.jdbc.result-set :as rs])
   (:import
    (java.util UUID)
-   (javax.sql DataSource)))
+   (javax.sql DataSource)
+   (org.postgresql.util PGobject)))
+
+(defn- ->jsonb-pgobject
+  "Convert a Clojure value into a Postgres jsonb PGobject.
+
+  Inputs:
+  - x: any JSON-serializable value
+
+  Returns:
+  - PGobject with type jsonb" 
+  ^PGobject
+  [x]
+  (doto (PGobject.)
+    (.setType "jsonb")
+    (.setValue (cheshire/generate-string x))))
 
 (defn find-user-id-by-external-id
   "Find app_users.id for a given tenant + external id.
@@ -58,15 +73,16 @@
 
   Inputs:
   - ds: javax.sql.DataSource
-  - {:keys [id tenant-id user-id session-key status title webhook-overrides session-settings]}
+  - {:keys [id tenant-id user-id session-key status title webhook-overrides session-settings workflow-overrides]}
       id          => java.util.UUID
       tenant-id   => java.util.UUID
       user-id     => java.util.UUID or nil
       session-key => string
       title       => string or nil
       status      => string (defaults to active)
-      webhook-overrides => map or nil (stored as jsonb)
-      session-settings  => map or nil (stored as jsonb)
+      webhook-overrides  => map or nil (stored as jsonb)
+      session-settings   => map or nil (stored as jsonb)
+      workflow-overrides => map or nil (stored as jsonb)
 
   Side effects:
   - INSERT into sessions
@@ -74,30 +90,26 @@
   Returns:
   - map with inserted identifiers:
       {:id <uuid> :session-key <string>}"
-  [^DataSource ds {:keys [id tenant-id user-id session-key status title webhook-overrides session-settings]
+  [^DataSource ds {:keys [id tenant-id user-id session-key status title webhook-overrides session-settings workflow-overrides]
                    :or {status "active"}}]
   (when-not (and ds (instance? UUID id) (instance? UUID tenant-id) (seq (str session-key)))
     (throw (ex-info "insert-session! missing required params"
                     {:id id :tenant-id tenant-id :session-key session-key})))
-  (let [wo-json (when (some? webhook-overrides)
-                  (cheshire/generate-string webhook-overrides))
-        ss-json (when (some? session-settings)
-                  (cheshire/generate-string session-settings))
-        values (cond-> {:id id
+  (let [values (cond-> {:id id
                         :tenant_id tenant-id
                         :session_key (str session-key)
                         :status (str status)}
                  (some? user-id) (assoc :user_id user-id)
                  (some? title) (assoc :title (str title))
-                 (some? webhook-overrides) (assoc :webhook_overrides
-                                                  [:raw "(?::jsonb)"])
-                 (some? session-settings) (assoc :session_settings
-                                                 [:raw "(?::jsonb)"]))
+
+                 ;; IMPORTANT: use PGobject jsonb rather than raw casts + manual param conj.
+                 ;; That avoids fragile placeholder ordering when optional keys are present.
+                 (some? webhook-overrides) (assoc :webhook_overrides (->jsonb-pgobject webhook-overrides))
+                 (some? session-settings) (assoc :session_settings (->jsonb-pgobject session-settings))
+                 (some? workflow-overrides) (assoc :workflow_overrides (->jsonb-pgobject workflow-overrides)))
         q (-> (h/insert-into :sessions)
               (h/values [values]))
-        sqlvec (cond-> (sql/format q)
-                 (some? webhook-overrides) (conj wo-json)
-                 (some? session-settings) (conj ss-json))]
+        sqlvec (sql/format q)]
     (jdbc/execute-one! ds sqlvec)
     {:id id :session-key (str session-key)}))
 

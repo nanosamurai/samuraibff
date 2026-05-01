@@ -102,6 +102,86 @@ Supported fields (Phase 1 / RFC-0001):
 
 The backend persists this payload in `sessions.webhook_overrides` (jsonb) and uses it to resolve the immutable routing snapshot published to Kafka (`sessions.meta`).
 
+---
+
+## Workflows (RFC-0003): tenant configuration + session overrides
+
+Workflows are tenant-scoped LLM post-processing definitions (prompt + model + trigger).
+
+At session creation time, the BFF resolves **tenant defaults + per-session overrides**
+into an immutable `sessions.meta.workflows.targets` snapshot.
+
+### Endpoints
+
+Tenant-scoped CRUD:
+
+- `GET /api/workflows`
+- `POST /api/workflows`
+- `PUT /api/workflows/:id`
+- `DELETE /api/workflows/:id`
+
+Tenant defaults:
+
+- `GET /api/workflows/defaults`
+- `PUT /api/workflows/defaults`
+
+### Request shapes
+
+Create session with workflow overrides:
+
+```json
+{
+  "title": "My session",
+  "workflow_overrides": {
+    "use_defaults": true,
+    "workflow_ids": ["<uuid>"]
+  }
+}
+```
+
+Notes:
+
+- `use_defaults` (boolean; default true) controls whether `tenant_workflow_defaults` are used.
+- `workflow_ids` is a list of additional workflows to include for this session.
+
+### Where in UI
+
+- Settings → **Workflows** (CRUD)
+- Settings → **Workflow Defaults**
+
+### Manual verification
+
+1) Create 1-2 workflows under **Settings → Workflows**.
+2) Set at least one default under **Settings → Workflow Defaults**.
+3) Create a new session (Live Recording or Recordings page).
+4) Verify in Postgres:
+   - `workflows` contains your rows
+   - `tenant_workflow_defaults` contains chosen default IDs
+   - `sessions.workflow_overrides` contains the JSON payload when non-default
+5) Verify downstream: webhook-router/workflow-runner should see `sessions.meta.workflows.targets`.
+
+### Refined trigger: rolling tail + dispatch throttling
+
+For workflows triggered by `transcript.refined.segment`, you may want:
+
+- **Send cumulative transcript (rolling tail)**
+  - UI wording: *“Send cumulative transcript (rolling tail)”*
+  - API/sessions.meta field (for compatibility with webhook-router):
+    - `workflows.targets[].incremental.enabled = true`
+
+When this is enabled for any workflow target, the BFF will automatically force:
+
+- `sessions.meta.refined_transcript.consolidation.enabled = true`
+
+so that webhook-router will route **consolidated refined transcript** (rolling tail)
+events downstream.
+
+Optional rate limiting:
+
+- `workflows.targets[].incremental.min_interval_sec` is a **dispatch throttling interval**
+  (debounce) applied by webhook-router per `(session_id, workflow_id)`.
+  It is *not* related to the session refinement window size.
+
 ### Webhook dispatch audit (outcomes)
 
 When using the webhook stack (webhook-router + webhook-dispatcher + samuraipersistor), the samuraipersistor writes a delivery audit log into Postgres table:

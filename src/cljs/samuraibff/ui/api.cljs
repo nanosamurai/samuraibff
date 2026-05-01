@@ -24,6 +24,13 @@
   - GET /api/webhooks/defaults
   - PUT /api/webhooks/defaults
 
+  - GET /api/workflows
+  - POST /api/workflows
+  - PUT /api/workflows/:id
+  - DELETE /api/workflows/:id
+  - GET /api/workflows/defaults
+  - PUT /api/workflows/defaults
+
   - GET /api/sessions/:session_id/webhook-delivery-outcomes
 
   All functions return JS Promises."
@@ -73,7 +80,7 @@
   - Promise resolving to {:session_id <string> :title <string>}"
   ([]
    (create-session! {}))
-  ([{:keys [title webhook_overrides session_settings]}]
+  ([{:keys [title webhook_overrides workflow_overrides session_settings]}]
    (-> (js/fetch "/api/sessions"
                  #js {:method "POST"
                       :headers #js {"content-type" "application/json"}
@@ -81,6 +88,9 @@
                                         (clj->js (cond-> {:title (or title "")}
                                                    (some? webhook_overrides)
                                                    (assoc :webhook_overrides webhook_overrides)
+
+                                                    (some? workflow_overrides)
+                                                    (assoc :workflow_overrides workflow_overrides)
 
                                                    (some? session_settings)
                                                    (assoc :session_settings session_settings))))})
@@ -93,6 +103,119 @@
                     (throw (js/Error. "Missing session_id in response")))
                   {:session_id sid
                    :title t}))))))
+
+;; --- Workflows ---
+
+(defn list-workflows!
+  "List tenant workflows.
+
+  Endpoint:
+  - GET /api/workflows
+
+  Returns:
+  - Promise resolving to {:ok true :tenant_id <uuid> :items [...]}."
+  []
+  (-> (js/fetch "/api/workflows")
+      (.then ensure-ok!)
+      (.then (fn [res] (.json res)))
+      (.then (fn [body]
+               (js->clj body :keywordize-keys true)))))
+
+(defn create-workflow!
+  "Create a workflow.
+
+  Endpoint:
+  - POST /api/workflows
+
+  Inputs:
+  - payload: map (see backend schema CreateWorkflowRequest)
+
+  Returns:
+  - Promise resolving to {:ok true :workflow_id <uuid>}."
+  [payload]
+  (-> (js/fetch "/api/workflows"
+                #js {:method "POST"
+                     :headers #js {"content-type" "application/json"}
+                     :body (.stringify js/JSON (clj->js (or payload {})))})
+      (.then ensure-ok!)
+      (.then (fn [res] (.json res)))
+      (.then (fn [body]
+               (js->clj body :keywordize-keys true)))))
+
+(defn update-workflow!
+  "Update workflow.
+
+  Endpoint:
+  - PUT /api/workflows/:id
+
+  Inputs:
+  - workflow-id string
+  - patch map (see backend schema UpdateWorkflowRequest)
+
+  Returns:
+  - Promise resolving to {:ok true}."
+  [workflow-id patch]
+  (-> (js/fetch (str "/api/workflows/" (js/encodeURIComponent (or workflow-id "")))
+                #js {:method "PUT"
+                     :headers #js {"content-type" "application/json"}
+                     :body (.stringify js/JSON (clj->js (or patch {})))})
+      (.then ensure-ok!)
+      (.then (fn [res] (.json res)))
+      (.then (fn [body]
+               (js->clj body :keywordize-keys true)))))
+
+(defn delete-workflow!
+  "Delete workflow.
+
+  Endpoint:
+  - DELETE /api/workflows/:id
+
+  Returns:
+  - Promise resolving to {:ok true}."
+  [workflow-id]
+  (-> (js/fetch (str "/api/workflows/" (js/encodeURIComponent (or workflow-id "")))
+                #js {:method "DELETE"})
+      (.then ensure-ok!)
+      (.then (fn [res] (.json res)))
+      (.then (fn [body]
+               (js->clj body :keywordize-keys true)))))
+
+(defn get-workflow-defaults!
+  "Get tenant workflow defaults.
+
+  Endpoint:
+  - GET /api/workflows/defaults
+
+  Returns:
+  - Promise resolving to {:ok true :tenant_id <uuid> :workflow_ids [...]}."
+  []
+  (-> (js/fetch "/api/workflows/defaults")
+      (.then ensure-ok!)
+      (.then (fn [res] (.json res)))
+      (.then (fn [body]
+               (js->clj body :keywordize-keys true)))))
+
+(defn set-workflow-defaults!
+  "Set tenant workflow defaults.
+
+  Endpoint:
+  - PUT /api/workflows/defaults
+
+  Inputs:
+  - workflow-ids: vector of uuid strings
+
+  Returns:
+  - Promise resolving to {:ok true}."
+  [workflow-ids]
+  (-> (js/fetch "/api/workflows/defaults"
+                #js {:method "PUT"
+                     :headers #js {"content-type" "application/json"}
+                     :body (.stringify js/JSON
+                                       (clj->js {:workflow_ids (vec (or workflow-ids []))}))})
+      (.then ensure-ok!)
+      (.then (fn [res] (.json res)))
+      (.then (fn [body]
+               (js->clj body :keywordize-keys true)))))
 
 (defn rename-session!
   "Rename a session title.

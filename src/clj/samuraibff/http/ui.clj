@@ -23,7 +23,8 @@
    [samuraibff.schemas :as schemas]
    [samuraibff.sessions.meta :as sessions.meta]
    [samuraibff.util.uuid :as uuid]
-   [samuraibff.webhooks.routing-snapshot :as webhooks.snapshot]
+    [samuraibff.webhooks.routing-snapshot :as webhooks.snapshot]
+    [samuraibff.workflows.snapshot :as workflows.snapshot]
    [samuraibff.ws.registry :as ws.registry])
   (:import
    (java.util UUID)))
@@ -149,9 +150,9 @@
   (fn [req]
     (let [tenant-id (:auth/tenant-id req)]
       (try
-        (let [body (or (:body-params req) (:body req) {})
+         (let [body (or (:body-params req) (:body req) {})
               ;; Request body is optional for backward compatibility.
-              {:keys [title webhook_overrides session_settings]} (try
+               {:keys [title webhook_overrides session_settings workflow_overrides]} (try
                                                                    (schemas/decode-and-validate! schemas/CreateSessionRequest body)
                                                                    (catch Exception _
                                                                      {}))
@@ -181,14 +182,16 @@
                 :title title'
                 :status "created"
                 :webhook-overrides webhook_overrides
-                :session-settings session_settings})))
+                  :session-settings session_settings
+                  :workflow-overrides workflow_overrides})))
 
           ;; Create/bind session in registry immediately so WS endpoints can be
           ;; strict and disallow session creation via WS when auth is required.
           ;;
           ;; IMPORTANT: even when auth is disabled, we bind the in-memory session
           ;; under the same tenant UUID that we persisted into Postgres.
-          (ws.registry/ensure-session! ws-registry (str tenant-id-uuid) session-id {:webhook_overrides webhook_overrides})
+           (ws.registry/ensure-session! ws-registry (str tenant-id-uuid) session-id {:webhook_overrides webhook_overrides
+                                                                                    :workflow_overrides workflow_overrides})
 
           ;; Publish session routing snapshot (compacted topic) best-effort.
           (when (and ds kafka-producer)
@@ -196,17 +199,25 @@
               (log/info "Resolving sessions.meta routing snapshot" {:tenant_id (str tenant-id-uuid)
                                                                     :session_id session-id
                                                                     :webhook_overrides_present? (some? webhook_overrides)})
-              (let [routing (webhooks.snapshot/resolve-routing-snapshot ds tenant-id-uuid session-uuid webhook_overrides)
-                    meta (sessions.meta/build-sessions-meta config tenant-id-uuid session-uuid routing session_settings)
+               (let [routing (webhooks.snapshot/resolve-routing-snapshot ds tenant-id-uuid session-uuid webhook_overrides)
+                     wf-targets (workflows.snapshot/resolve-targets ds tenant-id-uuid session-uuid workflow_overrides)
+                     workflow-needs-consolidation?
+                     (workflows.snapshot/any-target-requires-refined-consolidation? wf-targets)
+                     session-settings'
+                     (cond-> (or session_settings {})
+                       workflow-needs-consolidation?
+                       (assoc-in [:refined_transcript :consolidation :enabled] true))
+                     meta (sessions.meta/build-sessions-meta config tenant-id-uuid session-uuid routing session-settings' wf-targets)
                     targets (or (get-in routing [:targets_by_event_type]) {})
                     targets-count (when (map? targets)
                                     (reduce + 0 (map (comp count val) targets)))]
                 (log/info "Publishing sessions.meta" {:tenant_id (str tenant-id-uuid)
                                                       :session_id session-id
                                                       :schema_version (:schema_version meta)
-                                                      :refined_consolidation_enabled (boolean (get-in meta [:refined_transcript :consolidation :enabled]))
+                                                       :refined_consolidation_enabled (boolean (get-in meta [:refined_transcript :consolidation :enabled]))
                                                       :event_types_count (count (keys (or targets {})))
-                                                      :targets_count (or targets-count 0)})
+                                                      :targets_count (or targets-count 0)
+                                                      :workflow_targets_count (count (or wf-targets []))})
                 (kafka.producer/send-sessions-meta! kafka-producer session-id meta {:tenant-id (str tenant-id-uuid)}))
               (catch Exception e
                 (log/warn e "Failed publishing sessions.meta" {:tenant_id (str tenant-id-uuid)

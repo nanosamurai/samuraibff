@@ -13,6 +13,8 @@
    [samuraibff.ui.components.pages.speakers :as pages.speakers]
     [samuraibff.ui.components.pages.webhook-defaults :as pages.webhook-defaults]
     [samuraibff.ui.components.pages.webhooks :as pages.webhooks]
+    [samuraibff.ui.components.pages.workflow-defaults :as pages.workflow-defaults]
+    [samuraibff.ui.components.pages.workflows :as pages.workflows]
    [samuraibff.ui.hooks :as hooks]
    [samuraibff.ui.router :as router]
    [samuraibff.ui.store :as store]
@@ -70,6 +72,8 @@
                      {:session-id (get-in route [:params :session_id])}]
           :webhooks [pages.webhooks/webhooks-page]
           :webhook-defaults [pages.webhook-defaults/webhook-defaults-page]
+          :workflows [pages.workflows/workflows-page]
+          :workflow-defaults [pages.workflow-defaults/workflow-defaults-page]
          :speakers [pages.speakers/speakers-page]
          :api-credentials [pages.api-credentials/api-credentials-page]
          [pages.recordings/recordings-page])]]]))
