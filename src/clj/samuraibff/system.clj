@@ -152,14 +152,16 @@
            :password (s "SAMURAIBFF_DB_PASSWORD")
            :maximum-pool-size (i "SAMURAIBFF_DB_MAX_POOL_SIZE")}
 
-      :kafka {:bootstrap-servers (s "SAMURAIBFF_KAFKA_BOOTSTRAP_SERVERS")
-              :client-id (s "SAMURAIBFF_KAFKA_CLIENT_ID")
-              :acks (s "SAMURAIBFF_KAFKA_ACKS")
-              :compression-type (s "SAMURAIBFF_KAFKA_COMPRESSION_TYPE")
-              :security-protocol kafka-security-protocol
-              :consumer-group-id (s "SAMURAIBFF_KAFKA_CONSUMER_GROUP_ID")
-              :topics {:audio-raw (s "SAMURAIBFF_KAFKA_TOPIC_AUDIO_RAW")
-                       :refined (s "SAMURAIBFF_KAFKA_TOPIC_REFINED")}}
+       :kafka {:bootstrap-servers (s "SAMURAIBFF_KAFKA_BOOTSTRAP_SERVERS")
+               :client-id (s "SAMURAIBFF_KAFKA_CLIENT_ID")
+               :acks (s "SAMURAIBFF_KAFKA_ACKS")
+               :compression-type (s "SAMURAIBFF_KAFKA_COMPRESSION_TYPE")
+               :security-protocol kafka-security-protocol
+               :consumer-group-id (s "SAMURAIBFF_KAFKA_CONSUMER_GROUP_ID")
+               :consumer-group-id-workflow-results (s "SAMURAIBFF_KAFKA_CONSUMER_GROUP_ID_WORKFLOW_RESULTS")
+               :topics {:audio-raw (s "SAMURAIBFF_KAFKA_TOPIC_AUDIO_RAW")
+                        :refined (s "SAMURAIBFF_KAFKA_TOPIC_REFINED")
+                        :workflow-result (s "SAMURAIBFF_KAFKA_TOPIC_WORKFLOW_RESULT")}}
 
       :grpc {:rtservice-addr (s "SAMURAIBFF_GRPC_RTSERVICE_ADDR")}
 

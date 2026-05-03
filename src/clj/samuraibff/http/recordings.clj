@@ -18,6 +18,7 @@
    [clojure.string :as str]
    [org.corfield.logging4j2 :as log]
    [samuraibff.db.recordings :as db.recordings]
+   [samuraibff.db.workflow-results :as db.workflow-results]
    [samuraibff.db.webhook-delivery-outcomes :as db.wh.outcomes]
    [samuraibff.s3.client :as s3.client]
    [samuraibff.schemas :as schemas])
@@ -581,6 +582,9 @@
    :session {...}
    :transcripts {:refined [...records...] :final [...records...]}}
 
+   Also includes:
+   - :workflow_results_latest [...]
+
   Notes:
   - refined is append-only; we return all refined records ordered by created_at.
   - final may have multiple entries; UI will pick the latest.
@@ -609,6 +613,7 @@
                   refined (db.recordings/list-transcript-records ds tenant-uuid session-uuid {:type "refined" :limit 2000})
                   final (db.recordings/list-transcript-records ds tenant-uuid session-uuid {:type "final" :limit 20})
                   webhook-outcomes (db.wh.outcomes/list-latest-outcomes-for-session ds tenant-uuid session-uuid {:limit 50})
+                  workflow-results (db.workflow-results/list-latest-results-for-session ds tenant-uuid session-uuid {:limit 50})
                   has-recording? (boolean recording)
                   has-final? (boolean (seq final))
                   ;; Normalize keys for UI JSON.
@@ -645,6 +650,24 @@
                      :error_code (:error_code o)
                      :error_detail (:error_detail o)
                      :latency_ms (:latency_ms o)})
+                  normalize-workflow-result
+                  (fn [r]
+                    {:workflow_id (str (:workflow_id r))
+                     :workflow_name (:workflow_name r)
+                     :workflow_run_id (str (:workflow_run_id r))
+                     :created_at (some-> (:created_at r) str)
+                     :status (:status r)
+                     :trigger_type (:trigger_type r)
+                     :provider_type (:provider_type r)
+                     :provider_model_id (:provider_model_id r)
+                     :usage_input_tokens (:usage_input_tokens r)
+                     :usage_output_tokens (:usage_output_tokens r)
+                     :stream_source_uri (:stream_source_uri r)
+                     :stream_source_node_id (:stream_source_node_id r)
+                     :error_code (:error_code r)
+                     :error_detail (:error_detail r)
+                     ;; For UI: show markdown only for now.
+                     :render_markdown (:render_markdown r)})
                   body {:ok true
                         :tenant_id (str tenant-uuid)
                         :session {:id (str (:id session))
@@ -658,6 +681,7 @@
                                   :has_recording has-recording?
                                   :has_final_transcript has-final?}
                         :webhook_delivery_outcomes (mapv normalize-outcome webhook-outcomes)
+                        :workflow_results_latest (mapv normalize-workflow-result workflow-results)
                         :transcripts {:refined (mapv normalize-record refined)
                                       :final (mapv normalize-record final)}}]
               (when (#{:dev :test} (:env config))

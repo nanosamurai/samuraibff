@@ -26,6 +26,7 @@
     [samuraibff.keycloak.admin]
     [samuraibff.kafka.producer]
     [samuraibff.kafka.refined-consumer]
+     [samuraibff.kafka.workflow-results-consumer]
     [samuraibff.secrets.component]
     [samuraibff.ws.auth]
     [samuraibff.ws.audio]

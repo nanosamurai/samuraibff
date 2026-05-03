@@ -606,6 +606,102 @@
   (async/untap (:events-mult session) out-ch)
   nil)
 
+(def ^:private max-workflow-markdown-chars
+  "Maximum number of markdown characters to include in a workflow_result WS event.
+
+  Purpose:
+  - Prevent huge websocket frames from causing memory pressure or UI freezes.
+
+  Notes:
+  - We keep this relatively small; the full result is always persisted and can be
+    fetched from DB in the recordings detail page." 
+  8000)
+
+(defn- truncate-markdown
+  "Truncate markdown string to a safe maximum.
+
+  Inputs:
+  - s: string?
+
+  Returns:
+  - string? (possibly truncated)" 
+  [s]
+  (let [s (when (some? s) (str s))]
+    (when (seq (str s))
+      (if (> (count s) max-workflow-markdown-chars)
+        (str (subs s 0 max-workflow-markdown-chars) "\n\n…")
+        s))))
+
+(defn publish-workflow-result!
+  "Publish a workflow result WS event to the local WS session (if present).
+
+  This is used by:
+  - the internal callback endpoint (`POST /internal/workflow-result`)
+  - the Kafka consumer for workflow.result
+
+  Inputs:
+  - ws-registry: registry component
+  - payload: map with required keys:
+      :tenant_id string/uuid
+      :session_id string/uuid
+      :workflow_id string/uuid
+      :status string
+    optional:
+      :workflow_name, :workflow_run_id, :created_at, :trigger_type,
+      :render_markdown, :error_code, :error_detail
+
+  Behavior:
+  - requires tenant_id to be non-blank
+  - publishes a single `workflow_result` WS event
+
+  Returns: boolean.
+  - true if the session exists locally (even if event is dropped due to backpressure)
+  - false if the session is not present locally or tenant_id is missing." 
+  [{:keys [sessions] :as ws-registry} {:keys [tenant_id tenant-id session_id session-id workflow_id workflow-id] :as payload}]
+  (let [tenant-id (or tenant-id tenant_id)
+        tenant-id (when (and tenant-id (not (str/blank? (str tenant-id)))) (str tenant-id))
+        session-id (str (or session-id session_id ""))
+        workflow-id (str (or workflow-id workflow_id ""))]
+    (cond
+      (str/blank? tenant-id)
+      (do
+        (log/warn "Workflow result missing tenant_id; dropping" {:session-id session-id
+                                                                 :workflow-id workflow-id})
+        false)
+
+      (or (str/blank? session-id) (str/blank? workflow-id))
+      (do
+        (log/warn "Workflow result missing ids; dropping" {:tenant-id tenant-id
+                                                           :session-id session-id
+                                                           :workflow-id workflow-id})
+        false)
+
+      :else
+      (let [session (get-in @sessions [tenant-id session-id])]
+        (when session
+          (let [event {:type "workflow_result"
+                       :session_id session-id
+                       :seq (next-seq! (:seq* session))
+                       :ts_ms (now-ms)
+                       :workflow_id workflow-id
+                       :workflow_name (:workflow_name payload)
+                       :workflow_run_id (:workflow_run_id payload)
+                       :created_at (:created_at payload)
+                       :trigger_type (:trigger_type payload)
+                       :status (str (or (:status payload) ""))
+                       :render_markdown (truncate-markdown (:render_markdown payload))
+                       :error_code (:error_code payload)
+                       :error_detail (:error_detail payload)}
+                event (into {} (remove (fn [[_k v]] (nil? v)) event))]
+            ;; Do NOT log the markdown body.
+            (log/info "Publishing workflow result to WS" {:tenant-id tenant-id
+                                                          :session-id session-id
+                                                          :workflow-id workflow-id
+                                                          :status (:status event)})
+            ;; even when dropped, session exists locally, so we return true
+            (publish! ws-registry session event)
+            true))))))
+
 (defn- maybe-log-drop!
   "Increment the drop counter and log every 100th drop."
   [session]

@@ -14,6 +14,7 @@
    [samuraibff.ui.util :as util]
    [samuraibff.ui.webhook-delivery-outcomes :as ui.wh.outcomes]
    [samuraibff.ui.ws :as ws]
+   [samuraibff.ui.workflow-results :as ui.wf.results]
    ["react" :as react]))
 
 (defn- status-dot-class
@@ -714,7 +715,10 @@
        "Log"]
       [:button {:class (str "tab " (when (= active :webhooks) "active"))
                 :on-click (fn [_] (set-active! :webhooks))}
-       "Webhooks"]]
+       "Webhooks"]
+      [:button {:class (str "tab " (when (= active :workflows) "active"))
+                :on-click (fn [_] (set-active! :workflows))}
+       "Workflows"]]
      [:div {:class "right-panel-body"}
       [ws-indicator]
       [:label {:class "muted"
@@ -730,6 +734,12 @@
 
       (case active
         :webhooks [webhooks-view]
+        :workflows
+        [ui.wf.results/workflow-results-card
+         {:items (hooks/use-atom store/workflow-results*)
+          :title "Workflow results (live)"
+          :fill? true
+          :empty-hint "No workflow results streamed yet."}]
         [log-view])]]))
 
 (defn- live-transcript

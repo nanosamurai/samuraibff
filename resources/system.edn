@@ -55,6 +55,7 @@
           :consumer-group-id "samuraibff-refined"
           :topics {:audio-raw "audio.raw"
                    :refined "transcripts.refined"
+                    :workflow-result "workflow.result"
                    ;; Compacted session routing snapshot (webhook egress RFC).
                    :sessions-meta "sessions.meta"}}
 
@@ -66,7 +67,11 @@
   ;; Keycloak compares redirect_uri *exactly* against the client's "Valid redirect URIs".
   ;; If your Keycloak client allows only http://localhost:8000/* then keep localhost here.
   :bff {:origin-uri "http://localhost:8000"
-        :callback-path "/internal/refined"}
+         ;; Refined transcript forwarding between BFF instances.
+         :callback-path "/internal/refined"
+         ;; Workflow result forwarding between BFF instances.
+         ;; (If not set, consumer falls back to /internal/workflow-result)
+         :callback-path-workflow-result "/internal/workflow-result"}
 
   ;; --- gRPC ---
   :grpc {:rtservice-addr "localhost:50052"}
@@ -145,6 +150,10 @@
  :samuraibff/refined-consumer
  {:config #ig/ref :samuraibff/config
   :ws-registry #ig/ref :samuraibff/ws-registry}
+
+  :samuraibff/workflow-results-consumer
+  {:config #ig/ref :samuraibff/config
+   :ws-registry #ig/ref :samuraibff/ws-registry}
 
  :samuraibff/router
  {:config      #ig/ref :samuraibff/config

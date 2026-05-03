@@ -14,6 +14,7 @@
    [samuraibff.ui.transcript :as transcript]
    [samuraibff.ui.util :as util]
    [samuraibff.ui.webhook-delivery-outcomes :as ui.wh.outcomes]
+    [samuraibff.ui.workflow-results :as ui.wf.results]
    ["react" :as react]))
 
 (defn- enroll-speaker-modal
@@ -504,15 +505,21 @@
                :empty-title "Real-time transcript"
                :empty-hint "No realtime transcript available"}])]
 
-          [:div {:style {:display "flex"
-                         :flexDirection "column"
-                         :gap "12px"
-                         :height "100%"
-                         :minHeight 0}}
-           [ui.wh.outcomes/webhook-dispatches-card
-            {:items (vec (or (:webhook_delivery_outcomes detail) []))
-             :title "Webhooks / workflows"
-             :fill? true}]]]
+           [:div {:style {:display "flex"
+                          :flexDirection "column"
+                          :gap "12px"
+                          :height "100%"
+                          :minHeight 0}}
+            [ui.wh.outcomes/webhook-dispatches-card
+             {:items (vec (or (:webhook_delivery_outcomes detail) []))
+              :title "Webhook dispatches"
+              :fill? false}]
+
+            [ui.wf.results/workflow-results-card
+             {:items (vec (or (:workflow_results_latest detail) []))
+              :title "Workflow results"
+              :fill? true
+              :empty-hint "No workflow results recorded for this recording."}]]]
 
          [:div {:class "card"}
           [:div {:class "card-title"}

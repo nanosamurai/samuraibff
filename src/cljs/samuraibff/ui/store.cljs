@@ -257,6 +257,9 @@
 (defonce refined-segments*
   (atom []))
 
+(defonce workflow-results*
+  (atom []))
+
 (defonce segments-by-session*
   (atom {}))
 
@@ -265,6 +268,9 @@
   (atom {}))
 
 (defonce refined-by-session*
+  (atom {}))
+
+(defonce workflow-results-by-session*
   (atom {}))
 
 (defonce transcript-zero-s*
@@ -380,6 +386,17 @@
   [session-id]
   (vec (get @refined-by-session* (or session-id "") [])))
 
+(defn cached-workflow-results
+  "Get cached workflow result items for a session.
+
+  Inputs:
+  - session-id string
+
+  Returns:
+  - vector of workflow result maps." 
+  [session-id]
+  (vec (get @workflow-results-by-session* (or session-id "") [])))
+
 (defn cached-log
   "Get cached log lines for a session.
 
@@ -493,6 +510,7 @@
       ;; split caches
       (swap! asr-by-session* assoc old-id (vec @asr-segments*))
       (swap! refined-by-session* assoc old-id (vec @refined-segments*))
+      (swap! workflow-results-by-session* assoc old-id (vec @workflow-results*))
       (swap! log-by-session* assoc old-id (vec @log*)))
 
     (swap! session* assoc :id new-id)
@@ -500,6 +518,7 @@
     (reset! segments* [])
     (reset! asr-segments* [])
     (reset! refined-segments* [])
+    (reset! workflow-results* [])
     (reset! transcript-zero-s* nil)
     (reset! log* [])
     nil))
@@ -611,13 +630,48 @@
   (reset! segments* [])
   (reset! asr-segments* [])
   (reset! refined-segments* [])
+  (reset! workflow-results* [])
   (reset! transcript-zero-s* nil)
   (let [sid (or (get @session* :id) "")]
     (when (seq sid)
       (swap! segments-by-session* assoc sid [])
       (swap! asr-by-session* assoc sid [])
-      (swap! refined-by-session* assoc sid [])))
+      (swap! refined-by-session* assoc sid [])
+      (swap! workflow-results-by-session* assoc sid [])))
   nil)
+
+(defn upsert-workflow-result!
+  "Insert or update latest workflow result for a workflow id.
+
+  Input:
+  - ev: map decoded from ws event, expects:
+      :session_id :workflow_id :status and optionally
+      :workflow_name :created_at :trigger_type :render_markdown
+
+  Returns: nil." 
+  [ev]
+  (let [sid (or (:session_id ev) (get @session* :id) "")
+        wf-id (str (or (:workflow_id ev) ""))
+        item (select-keys ev
+                          [:session_id :workflow_id :workflow_name :workflow_run_id
+                           :created_at :trigger_type :status :render_markdown
+                           :error_code :error_detail])]
+    (when (and (seq sid) (seq wf-id))
+      (swap! workflow-results*
+             (fn [xs]
+               (let [xs (vec (or xs []))
+                     xs' (->> (conj xs item)
+                              (reduce (fn [acc x]
+                                        (let [k (str (:workflow_id x))]
+                                          ;; latest wins (we overwrite)
+                                          (assoc acc k x)))
+                                      {})
+                              vals
+                              (sort-by (fn [x] (or (:created_at x) "")) >)
+                              vec)]
+                 xs')))
+      (swap! workflow-results-by-session* assoc sid (vec @workflow-results*)))
+    nil))
 
 (defn set-auth-status!
   "Set authentication status.

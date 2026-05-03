@@ -48,7 +48,7 @@
 
 (def EventType
   "WS event type."
-  [:enum "asr" "refined" "status" "error"])
+  [:enum "asr" "refined" "workflow_result" "status" "error"])
 
 (def BaseWsEvent
   "Fields present on every WS event."
@@ -130,11 +130,42 @@
     [:code {:optional true} :int]
     [:detail {:optional true} :any]]))
 
+(def WorkflowResultEvent
+  "Workflow result event from BFF to UI.
+
+  This is a lightweight view intended for live streaming.
+
+  Inputs:
+  - event map emitted by BFF from Kafka consumer / internal callback
+
+  Payload:
+  - workflow_id + optional workflow_name
+  - trigger_type, status
+  - render_markdown (optional, may be truncated)
+  - created_at (string, runner timestamp)
+
+  Security:
+  - Must not include secrets."
+  (mu/merge
+   BaseWsEvent
+   [:map
+    [:type [:= "workflow_result"]]
+    [:workflow_id Uuid]
+    [:workflow_name {:optional true} [:maybe :string]]
+    [:workflow_run_id {:optional true} [:maybe Uuid]]
+    [:created_at {:optional true} [:maybe :string]]
+    [:trigger_type {:optional true} [:maybe :string]]
+    [:status :string]
+    [:render_markdown {:optional true} [:maybe :string]]
+    [:error_code {:optional true} [:maybe :string]]
+    [:error_detail {:optional true} [:maybe :string]]]))
+
 (def WsEvent
   "Union of all possible WS events."
   [:multi {:dispatch :type}
    ["asr" AsrEvent]
    ["refined" RefinedEvent]
+   ["workflow_result" WorkflowResultEvent]
    ["status" StatusEvent]
    ["error" ErrorEvent]])
 
@@ -668,6 +699,24 @@
    [:tenant_id Uuid]
    [:session RecordingDetailSession]
    [:webhook_delivery_outcomes {:optional true} [:sequential WebhookDeliveryOutcomeItem]]
+   [:workflow_results_latest {:optional true}
+    [:sequential
+     [:map
+      [:workflow_id Uuid]
+      [:workflow_name {:optional true} [:maybe :string]]
+      [:workflow_run_id Uuid]
+      [:created_at :string]
+      [:status :string]
+      [:trigger_type {:optional true} [:maybe :string]]
+      [:provider_type {:optional true} [:maybe :string]]
+      [:provider_model_id {:optional true} [:maybe :string]]
+      [:usage_input_tokens {:optional true} [:maybe :int]]
+      [:usage_output_tokens {:optional true} [:maybe :int]]
+      [:stream_source_uri {:optional true} [:maybe :string]]
+      [:stream_source_node_id {:optional true} [:maybe :string]]
+      [:error_code {:optional true} [:maybe :string]]
+      [:error_detail {:optional true} [:maybe :string]]
+      [:render_markdown {:optional true} [:maybe :string]]]]]
    [:transcripts
     [:map
      [:refined [:sequential TranscriptRecord]]

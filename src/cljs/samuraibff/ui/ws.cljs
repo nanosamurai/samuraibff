@@ -44,6 +44,13 @@
                        (when-let [xs (:supersedes_seq ev)] (str " supersedes=" (pr-str xs)))))
 
                 (store/append-refined! ev))
+    "workflow_result" (do
+                         ;; Do not log markdown body.
+                         (store/append-log!
+                          (str "[events] workflow_result wf=" (pr-str (:workflow_id ev))
+                               " status=" (pr-str (:status ev))
+                               (when-let [t (:trigger_type ev)] (str " trigger=" (pr-str t)))))
+                         (store/upsert-workflow-result! ev))
     (store/append-log! (str "[events] unknown event: " (pr-str ev)))))
 
 (defn connect-events!

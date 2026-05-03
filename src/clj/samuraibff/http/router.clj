@@ -635,7 +635,9 @@
                               :description "Prometheus scrape endpoint (in-cluster only)."
                               :handler metrics/metrics-handler}}]
            ["/refined" {:post {:summary "BFF-to-BFF refined callback (protobuf)"
-                               :handler (http.internal/refined-callback-handler deps)}}]]
+                               :handler (http.internal/refined-callback-handler deps)}}]
+           ["/workflow-result" {:post {:summary "BFF-to-BFF workflow result callback (json)"
+                                        :handler (http.internal/workflow-result-callback-handler deps)}}]]
 
            ;; WebSockets
           ["/ws" {:tags ["ws"]

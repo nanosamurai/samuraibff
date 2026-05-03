@@ -45,6 +45,31 @@ from `start_s`) to avoid leaving “dangling partial bubbles”.
   - `POST /internal/refined` with `application/x-protobuf`
 - push refined transcript segments to the UI over `/ws/events` as `{"type":"refined", ...}` events
 
+### 2b) Workflow results path (Kafka + cross-instance routing)
+
+Workflows are executed by **workflow-runner**. The produced result is stored by **samuraipersistor** into Postgres
+read model table:
+
+- `workflow_results_latest`
+
+The BFF also streams workflow results to the UI in (near) real-time, but only for workflows triggered by
+`transcript.refined.*` events (streaming final-trigger results is not useful).
+
+Data flow:
+
+- workflow-runner produces workflow results to Kafka topic **`workflow.result`** (JSON)
+- every BFF instance consumes from `workflow.result`
+- because the consumer group can deliver the message to any BFF instance, non-origin instances forward the JSON
+  payload to the origin instance via:
+  - `POST /internal/workflow-result` with `application/json`
+- the origin instance publishes a `/ws/events` JSON event:
+  - `{"type":"workflow_result", "session_id": ..., "workflow_id": ..., ...}`
+
+UI:
+
+- Live Recording: right-side panel → **Workflows** tab shows streamed workflow results
+- Recording Detail: right-side panel shows workflow results loaded from DB (`workflow_results_latest`)
+
 RefinedEvent semantics (important):
 - A single `RefinedEvent` protobuf represents one refinement window slice (e.g. 60s).
 - The worker can emit **multiple speaker turns** as `RefinedEvent.segments`.
@@ -199,6 +224,23 @@ Implementation notes:
 - Recording detail embeds the same data inside `GET /api/recordings/:session_id` response under `:webhook_delivery_outcomes`.
 
 The UI displays the configured **webhook name** (from `webhooks.name`) when available.
+
+### Workflow results read model (DB)
+
+Workflow results are stored as a read model in Postgres (maintained by samuraipersistor):
+
+- `workflow_results_latest` keyed by `(tenant_id, session_id, workflow_id)`
+
+The Recording Detail endpoint (`GET /api/recordings/:session_id`) embeds latest workflow results under:
+
+- `:workflow_results_latest`
+
+Each item contains (best effort):
+
+- `workflow_id`, `workflow_name`, `workflow_run_id`
+- `created_at`, `trigger_type`, `status`
+- `render_markdown`
+- `error_code`, `error_detail`
 
 ---
 
