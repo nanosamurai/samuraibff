@@ -5,7 +5,13 @@
 
   In the UI we use two sources:
   - recording detail: DB-backed `workflow_results_latest` returned by GET /api/recordings/:id
-  - live page: streamed WS events of type `workflow_result` (best-effort)"
+  - live page: streamed WS events of type `workflow_result` (best-effort)
+
+  Security notes:
+  - markdown is rendered as a safe subset (no raw HTML)
+  - we avoid `dangerouslySetInnerHTML`
+  - we deliberately emit only a small set of host tags (div/span) to avoid HSX
+    edge cases that could produce invalid DOM element names."
   (:require
    [clojure.string :as str]))
 
@@ -16,16 +22,12 @@
 (defn- strip-reasoning-blocks
   "Remove `<reasoning>...</reasoning>` blocks if present.
 
-  Some LLM providers may include internal reasoning in the output; we never want
-  to display it.
-
   Inputs:
   - s: string?
 
   Returns: string."
   [s]
   (let [s (str (or s ""))]
-    ;; non-greedy, dot matches newlines
     (str/replace s #"(?s)<reasoning>.*?</reasoning>" "")))
 
 (defn- bound-markdown
@@ -60,10 +62,7 @@
       nil)))
 
 (defn- extract-markdown
-  "Extract displayable markdown from a workflow result.
-
-  `:render_markdown` is intended to already be markdown, but in practice some
-  persisted payloads contain a full provider JSON response (OpenAI-style).
+  "Extract displayable markdown from workflow result `:render_markdown`.
 
   Extraction rules:
   1) If the string parses as JSON and contains `choices[0].message.content`, use that.
@@ -85,98 +84,110 @@
           bound-markdown))))
 
 (defn- parse-inline
-  "Parse a small safe subset of inline markdown and return a sequence of hiccup/text.
+  "Parse a small safe subset of inline markdown.
 
   Supported:
   - `code`
   - **bold**
 
   Inputs:
-  - s: string
+  - s: string?
 
-  Returns: vector of strings and hiccup nodes."
+  Returns:
+  - vector of strings and hiccup nodes (span only)."
   [s]
   (let [s (str (or s ""))
-        ;; split, keeping delimiters:
-        parts (str/split s #"(`[^`]*`|\*\*[^*]+\*\*)")
-        matches (re-seq #"(`[^`]*`|\*\*[^*]+\*\*)" s)]
+        n (count s)
+        code-style {:padding "0 4px"
+                    :borderRadius "6px"
+                    :background "rgba(0,0,0,.25)"}]
     (loop [acc []
-           parts parts
-           matches matches]
-      (let [acc (cond-> acc
-                  (seq (first parts)) (conj (first parts)))]
-        (if (empty? matches)
-          (vec acc)
-          (let [m (first matches)
-                node (cond
-                       (and (string? m) (str/starts-with? m "`") (str/ends-with? m "`"))
-                       [:code {:class "mono"} (subs m 1 (dec (count m)))]
+           i 0]
+      (if (>= i n)
+        (vec acc)
+        (let [next-bold (str/index-of s "**" i)
+              next-code (str/index-of s "`" i)
+              next-mark (->> [next-bold next-code]
+                             (remove nil?)
+                             (reduce min n))]
+          (cond
+            (< i next-mark)
+            (recur (conj acc (subs s i next-mark)) next-mark)
 
-                       (and (string? m) (str/starts-with? m "**") (str/ends-with? m "**"))
-                       [:strong (subs m 2 (- (count m) 2))]
+            (and (some? next-bold) (= next-bold i))
+            (if-let [j (str/index-of s "**" (+ i 2))]
+              (recur (conj acc [:span {:style {:fontWeight 700}}
+                               (subs s (+ i 2) j)])
+                     (+ j 2))
+              (recur (conj acc (subs s i)) n))
 
-                       :else m)]
-            (recur (conj acc node) (rest parts) (rest matches))))))))
+            (and (some? next-code) (= next-code i))
+            (if-let [j (str/index-of s "`" (inc i))]
+              (recur (conj acc [:span {:class "mono" :style code-style}
+                               (subs s (inc i) j)])
+                     (inc j))
+              (recur (conj acc (subs s i)) n))
+
+            :else
+            (recur (conj acc (subs s i (inc i))) (inc i))))))))
 
 (defn- markdown->hiccup
-  "Render a small safe subset of markdown as hiccup.
+  "Render a small safe subset of markdown as hiccup nodes.
 
-  This intentionally does NOT support raw HTML.
+  Emits only div/span host tags.
 
   Supported blocks:
-  - headings: # / ## / ### (rendered as styled divs; avoid h1/h2/h3 host tags)
-  - bullet lists: - / * (rendered as simple rows; avoid ul/li host tags)
+  - headings: # / ## / ###
+  - bullet lists: - / *
   - paragraphs
   - fenced code blocks: ```
 
   Inputs:
   - md: string?
 
-  Returns: hiccup."
+  Returns:
+  - vector of hiccup nodes."
   [md]
   (let [lines (-> (str (or md ""))
                   (str/split #"\r?\n"))]
     (loop [out []
-            xs lines
+           xs lines
            in-code? false
            code-lines []
            list-items []]
       (let [flush-list (fn [out]
                          (if (seq list-items)
-                            (conj out
-                                  [:div {:style {:display "flex"
-                                                 :flexDirection "column"
-                                                 :gap "4px"
-                                                 :margin "6px 0"}}
-                                   (for [[idx s] (map-indexed vector list-items)]
-                                     ^{:key (str "md-li-" idx)}
-                                     [:div {:style {:display "flex" :gap "8px"}}
-                                      [:span {:class "muted"} "•"]
-                                      (into [:span] (parse-inline s))])])
+                           (conj out
+                                 [:div {:style {:display "flex"
+                                                :flexDirection "column"
+                                                :gap "4px"
+                                                :margin "6px 0"}}
+                                  (for [[idx s] (map-indexed vector list-items)]
+                                    ^{:key (str "md-li-" idx)}
+                                    [:div {:style {:display "flex" :gap "8px"}}
+                                     [:span {:class "muted"} "•"]
+                                     (into [:span] (parse-inline s))])])
                            out))
             flush-code (fn [out]
                          (if (seq code-lines)
-                           (conj out [:pre {:class "mono"
-                                            :style {:margin 0
-                                                    :padding "10px"
-                                                    :borderRadius "10px"
-                                                    :background "rgba(0,0,0,.25)"
-                                                    :whiteSpace "pre"
-                                                    :overflow "auto"}}
-                                      (str/join "\n" code-lines)])
+                           (conj out
+                                 [:div {:class "mono"
+                                        :style {:margin 0
+                                                :padding "10px"
+                                                :borderRadius "10px"
+                                                :background "rgba(0,0,0,.25)"
+                                                :whiteSpace "pre"
+                                                :overflow "auto"}}
+                                  (str/join "\n" code-lines)])
                            out))]
         (if (empty? xs)
           (-> out flush-list flush-code)
           (let [line (first xs)
-                line-trim (str/trim line)
-                fence? (= line-trim "```")
-                heading3? (str/starts-with? line-trim "### ")
-                heading2? (str/starts-with? line-trim "## ")
-                heading1? (str/starts-with? line-trim "# ")
-                bullet? (or (str/starts-with? line-trim "- ")
-                            (str/starts-with? line-trim "* "))]
+                t (str/trim line)
+                fence? (= t "```")
+                bullet? (or (str/starts-with? t "- ")
+                            (str/starts-with? t "* "))]
             (cond
-              ;; fenced code blocks
               fence?
               (if in-code?
                 (recur (flush-code (flush-list out)) (rest xs) false [] [])
@@ -185,46 +196,43 @@
               in-code?
               (recur out (rest xs) true (conj code-lines line) list-items)
 
-              ;; blank line flushes list, otherwise ignored
-              (str/blank? line-trim)
+              (str/blank? t)
               (recur (flush-list out) (rest xs) false code-lines [])
 
-              ;; headings (render as <div> to avoid any host tag quirks)
-              heading3?
+              (str/starts-with? t "### ")
               (recur (conj (flush-list out)
                            [:div {:style {:fontWeight 700 :fontSize "15px" :margin "6px 0"}}
-                            (subs line-trim 4)])
+                            (subs t 4)])
                      (rest xs)
                      false
                      code-lines
                      [])
 
-              heading2?
+              (str/starts-with? t "## ")
               (recur (conj (flush-list out)
                            [:div {:style {:fontWeight 750 :fontSize "16px" :margin "7px 0"}}
-                            (subs line-trim 3)])
+                            (subs t 3)])
                      (rest xs)
                      false
                      code-lines
                      [])
 
-              heading1?
+              (str/starts-with? t "# ")
               (recur (conj (flush-list out)
                            [:div {:style {:fontWeight 800 :fontSize "17px" :margin "8px 0"}}
-                            (subs line-trim 2)])
+                            (subs t 2)])
                      (rest xs)
                      false
                      code-lines
                      [])
 
-              ;; bullet lists
               bullet?
-              (recur out (rest xs) false code-lines (conj (vec list-items) (subs line-trim 2)))
+              (recur out (rest xs) false code-lines (conj (vec list-items) (subs t 2)))
 
-              ;; paragraph
               :else
-              (recur (conj (flush-list out) [:p {:style {:margin "6px 0"}}
-                                             (into [:span] (parse-inline line-trim))])
+              (recur (conj (flush-list out)
+                           [:div {:style {:margin "6px 0"}}
+                            (into [:span] (parse-inline t))])
                      (rest xs)
                      false
                      code-lines
@@ -292,8 +300,7 @@
 
      (cond
        (seq md')
-       [:div {:style {:maxHeight "360px"
-                      :overflow "auto"}}
+       [:div {:style {:maxHeight "360px" :overflow "auto"}}
         (into [:div] (markdown->hiccup md'))]
 
        :else
