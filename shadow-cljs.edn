@@ -3,7 +3,9 @@
   "src/shared"]
 
  :dependencies
- [[io.factorhouse/hsx "0.1.24"]]
+ [[io.factorhouse/hsx "0.1.24"]
+  ;; Markdown -> hiccup (used for rendering workflow results)
+  [io.github.nextjournal/markdown "0.7.225"]]
 
  :builds
  {:app
