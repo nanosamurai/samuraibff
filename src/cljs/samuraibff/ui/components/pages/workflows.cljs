@@ -365,7 +365,7 @@
               [:td (or name "")]
                [:td
                 [checkbox {:checked? (contains? defaults-ids (str id))
-                           :disabled? (boolean defaults-loading?)
+                           :disabled? defaults-loading?
                            :on-change (fn [checked?]
                                         (toggle-default! id checked?))}]]
               [:td (if enabled "Yes" "No")]
