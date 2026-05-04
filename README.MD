@@ -172,12 +172,12 @@ Notes:
 ### Where in UI
 
 - Settings → **Workflows** (CRUD)
-- Settings → **Workflow Defaults**
+- Settings → **Workflows** → use the **Default** checkbox
 
 ### Manual verification
 
 1) Create 1-2 workflows under **Settings → Workflows**.
-2) Set at least one default under **Settings → Workflow Defaults**.
+2) Set at least one default using the **Default** checkbox on the Workflows page.
 3) Create a new session (Live Recording or Recordings page).
 4) Verify in Postgres:
    - `workflows` contains your rows
@@ -298,7 +298,7 @@ Important:
 ### Manual verification
 
 1) Create 1-2 webhooks under **Settings → Webhooks** and subscribe them to at least one event type.
-2) Set at least one default under **Settings → Webhook Defaults**.
+2) Set at least one default using the **Default** checkbox on the Webhooks page.
 3) Go to **Live Recording → Webhook routing**:
    - toggle **Use tenant default webhooks**
    - select an additional webhook
