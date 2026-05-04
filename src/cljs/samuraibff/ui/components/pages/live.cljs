@@ -707,7 +707,8 @@
   (let [active* (react/useState :log)
         active (aget active* 0)
         set-active! (aget active* 1)
-        debug-asr? (hooks/use-atom store/debug-asr-log?*)]
+        debug-asr? (hooks/use-atom store/debug-asr-log?*)
+        workflow-results (hooks/use-atom store/workflow-results*)]
     [:div {:class "right-panel"}
      [:div {:class "tabs"}
       [:button {:class (str "tab " (when (= active :log) "active"))
@@ -736,7 +737,7 @@
         :webhooks [webhooks-view]
         :workflows
         [ui.wf.results/workflow-results-card
-         {:items (hooks/use-atom store/workflow-results*)
+          {:items workflow-results
           :title "Workflow results (live)"
           :fill? true
           :empty-hint "No workflow results streamed yet."}]
