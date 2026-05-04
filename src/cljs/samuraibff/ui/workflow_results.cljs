@@ -165,7 +165,7 @@
 
      (cond
        (seq md')
-       [:div {:style {:maxHeight "360px" :overflow "auto"}}
+       [:div {:style {:maxHeight "100%" :overflow "auto"}}
         (render-markdown md')]
 
        :else
