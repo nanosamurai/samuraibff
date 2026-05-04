@@ -124,8 +124,8 @@
   This intentionally does NOT support raw HTML.
 
   Supported blocks:
-  - headings: # / ## / ###
-  - bullet lists: - / *
+  - headings: # / ## / ### (rendered as styled divs; avoid h1/h2/h3 host tags)
+  - bullet lists: - / * (rendered as simple rows; avoid ul/li host tags)
   - paragraphs
   - fenced code blocks: ```
 
@@ -137,15 +137,22 @@
   (let [lines (-> (str (or md ""))
                   (str/split #"\r?\n"))]
     (loop [out []
-           xs lines
+            xs lines
            in-code? false
            code-lines []
            list-items []]
       (let [flush-list (fn [out]
                          (if (seq list-items)
-                           (conj out (into [:ul] (map (fn [s]
-                                                        [:li (into [:span] (parse-inline s))])
-                                                      list-items)))
+                            (conj out
+                                  [:div {:style {:display "flex"
+                                                 :flexDirection "column"
+                                                 :gap "4px"
+                                                 :margin "6px 0"}}
+                                   (for [[idx s] (map-indexed vector list-items)]
+                                     ^{:key (str "md-li-" idx)}
+                                     [:div {:style {:display "flex" :gap "8px"}}
+                                      [:span {:class "muted"} "•"]
+                                      (into [:span] (parse-inline s))])])
                            out))
             flush-code (fn [out]
                          (if (seq code-lines)
@@ -182,15 +189,33 @@
               (str/blank? line-trim)
               (recur (flush-list out) (rest xs) false code-lines [])
 
-              ;; headings
+              ;; headings (render as <div> to avoid any host tag quirks)
               heading3?
-              (recur (conj (flush-list out) [:h3 (subs line-trim 4)]) (rest xs) false code-lines [])
+              (recur (conj (flush-list out)
+                           [:div {:style {:fontWeight 700 :fontSize "15px" :margin "6px 0"}}
+                            (subs line-trim 4)])
+                     (rest xs)
+                     false
+                     code-lines
+                     [])
 
               heading2?
-              (recur (conj (flush-list out) [:h2 (subs line-trim 3)]) (rest xs) false code-lines [])
+              (recur (conj (flush-list out)
+                           [:div {:style {:fontWeight 750 :fontSize "16px" :margin "7px 0"}}
+                            (subs line-trim 3)])
+                     (rest xs)
+                     false
+                     code-lines
+                     [])
 
               heading1?
-              (recur (conj (flush-list out) [:h1 (subs line-trim 2)]) (rest xs) false code-lines [])
+              (recur (conj (flush-list out)
+                           [:div {:style {:fontWeight 800 :fontSize "17px" :margin "8px 0"}}
+                            (subs line-trim 2)])
+                     (rest xs)
+                     false
+                     code-lines
+                     [])
 
               ;; bullet lists
               bullet?
