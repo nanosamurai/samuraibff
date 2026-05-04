@@ -288,6 +288,11 @@
   (let [tab* (react/useState :realtime)
         tab (aget tab* 0)
         set-tab! (aget tab* 1)
+
+        right-tab* (react/useState :webhooks)
+        right-tab (aget right-tab* 0)
+        set-right-tab! (aget right-tab* 1)
+
         audio-ref (react/useRef nil)
         current-time* (react/useState 0.0)
         current-time-s (aget current-time* 0)
@@ -510,16 +515,29 @@
                           :gap "12px"
                           :height "100%"
                           :minHeight 0}}
-            [ui.wh.outcomes/webhook-dispatches-card
-             {:items (vec (or (:webhook_delivery_outcomes detail) []))
-              :title "Webhook dispatches"
-              :fill? false}]
+             [:div {:class "tabs" :style {:marginBottom "0"}}
+              [:button {:class (str "tab " (when (= right-tab :webhooks) "active"))
+                        :type "button"
+                        :on-click (fn [_] (set-right-tab! :webhooks))}
+               "Webhooks"]
+              [:button {:class (str "tab " (when (= right-tab :workflows) "active"))
+                        :type "button"
+                        :on-click (fn [_] (set-right-tab! :workflows))}
+               "Workflows"]
+              [:div {:class "spacer"}]]
 
-            [ui.wf.results/workflow-results-card
-             {:items (vec (or (:workflow_results_latest detail) []))
-              :title "Workflow results"
-              :fill? true
-              :empty-hint "No workflow results recorded for this recording."}]]]
+             (case right-tab
+               :workflows
+               [ui.wf.results/workflow-results-card
+                {:items (vec (or (:workflow_results_latest detail) []))
+                 :title "Workflow results"
+                 :fill? true
+                 :empty-hint "No workflow results recorded for this recording."}]
+
+               [ui.wh.outcomes/webhook-dispatches-card
+                {:items (vec (or (:webhook_delivery_outcomes detail) []))
+                 :title "Webhook dispatches"
+                 :fill? true}])]]]
 
          [:div {:class "card"}
           [:div {:class "card-title"}
