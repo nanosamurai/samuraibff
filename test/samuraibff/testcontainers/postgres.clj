@@ -63,18 +63,24 @@
 
   Side effects:
   - executes the SQL from `test-resources/migrations/0001_create_core_schema.up.sql`
+  - plus any additional migrations needed by the BFF read model used in tests
 
   Returns: nil" 
   [^DataSource ds]
-  (let [sql (some-> (io/resource "migrations/0001_create_core_schema.up.sql") slurp)]
-    (when-not (seq sql)
-      (throw (ex-info "Missing test migration resource" {})))
-    (log/info "Applying test DB schema" {})
-    ;; naive split: our migration file contains only DDL and no semicolons inside strings
-    (doseq [stmt (->> (str/split sql #";\s*\n")
-                      (map str/trim)
-                      (remove str/blank?))]
-      (jdbc/execute! ds [stmt]))
+  (let [paths ["migrations/0001_create_core_schema.up.sql"
+               ;; NOTE: 0001 already contains workflows/workflow_defaults.
+               "migrations/0009_sessions_workflow_overrides.up.sql"
+               "migrations/0010_workflow_results_latest.up.sql"]]
+    (doseq [path paths]
+      (let [sql (some-> (io/resource path) slurp)]
+        (when-not (seq sql)
+          (throw (ex-info "Missing test migration resource" {:path path})))
+        (log/info "Applying test DB schema migration" {:path path})
+        ;; naive split: our migration files contain only DDL and no semicolons inside strings
+        (doseq [stmt (->> (str/split sql #";\s*\n")
+                          (map str/trim)
+                          (remove str/blank?))]
+          (jdbc/execute! ds [stmt]))))
     nil))
 
 (defmacro with-postgres

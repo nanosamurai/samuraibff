@@ -14,6 +14,7 @@
    [samuraibff.ui.transcript :as transcript]
    [samuraibff.ui.util :as util]
    [samuraibff.ui.webhook-delivery-outcomes :as ui.wh.outcomes]
+   [samuraibff.ui.workflow-results :as ui.wf.results]
    ["react" :as react]))
 
 (defn- enroll-speaker-modal
@@ -287,6 +288,11 @@
   (let [tab* (react/useState :realtime)
         tab (aget tab* 0)
         set-tab! (aget tab* 1)
+
+        right-tab* (react/useState :webhooks)
+        right-tab (aget right-tab* 0)
+        set-right-tab! (aget right-tab* 1)
+
         audio-ref (react/useRef nil)
         current-time* (react/useState 0.0)
         current-time-s (aget current-time* 0)
@@ -486,33 +492,50 @@
                                 "Show workflows panel")})]]
 
        (if show-workflows?
-         [:div {:class "grid-2"}
-          [:div {:class "card"}
-           [:div {:class "card-title"}
+         [:div {:class "split"}
+          [:div {:class "split-main"}
+           [:div {:class "card"}
+            [:div {:class "card-title"}
+             (case tab
+               :refined "Refined real-time"
+               :final "Final"
+               "Real-time")]
             (case tab
-              :refined "Refined real-time"
-              :final "Final"
-              "Real-time")]
-           (case tab
-             :final final-body
-             :refined [components.transcript/transcript-view
-                       {:messages refined-msgs
-                        :empty-title "Refined real-time"
-                        :empty-hint "No refined transcript available"}]
-             [components.transcript/transcript-view
-              {:messages realtime-msgs
-               :empty-title "Real-time transcript"
-               :empty-hint "No realtime transcript available"}])]
+              :final final-body
+              :refined [components.transcript/transcript-view
+                        {:messages refined-msgs
+                         :empty-title "Refined real-time"
+                         :empty-hint "No refined transcript available"}]
+              [components.transcript/transcript-view
+               {:messages realtime-msgs
+                :empty-title "Real-time transcript"
+                :empty-hint "No realtime transcript available"}])]]
 
-          [:div {:style {:display "flex"
-                         :flexDirection "column"
-                         :gap "12px"
-                         :height "100%"
-                         :minHeight 0}}
-           [ui.wh.outcomes/webhook-dispatches-card
-            {:items (vec (or (:webhook_delivery_outcomes detail) []))
-             :title "Webhooks / workflows"
-             :fill? true}]]]
+          [:div {:class "split-side"}
+           [:div {:class "right-panel"}
+            [:div {:class "tabs"}
+             [:button {:class (str "tab " (when (= right-tab :webhooks) "active"))
+                       :type "button"
+                       :on-click (fn [_] (set-right-tab! :webhooks))}
+              "Webhooks"]
+             [:button {:class (str "tab " (when (= right-tab :workflows) "active"))
+                       :type "button"
+                       :on-click (fn [_] (set-right-tab! :workflows))}
+              "Workflows"]]
+
+            [:div {:class "right-panel-body"}
+             (case right-tab
+               :workflows
+               [ui.wf.results/workflow-results-card
+                {:items (vec (or (:workflow_results_latest detail) []))
+                 :title "Workflow results"
+                 :fill? true
+                 :empty-hint "No workflow results recorded for this recording."}]
+
+               [ui.wh.outcomes/webhook-dispatches-card
+                {:items (vec (or (:webhook_delivery_outcomes detail) []))
+                 :title "Webhook dispatches"
+                 :fill? true}])]]]]
 
          [:div {:class "card"}
           [:div {:class "card-title"}
