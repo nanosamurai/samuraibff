@@ -29,8 +29,8 @@
 
 (def ^:private known-pages
   #{:recordings :recording :live :speakers :api-credentials
-    :webhooks :webhook-defaults
-    :workflows :workflow-defaults})
+    :webhooks
+    :workflows})
 
 (defn href->route
   "Parse a URL path into a route map.
@@ -68,14 +68,16 @@
       (= ["webhooks"] segs)
       {:page :webhooks :params {}}
 
+      ;; legacy route (page removed): redirect to /webhooks
       (= ["webhooks-defaults"] segs)
-      {:page :webhook-defaults :params {}}
+      {:page :webhooks :params {}}
 
       (= ["workflows"] segs)
       {:page :workflows :params {}}
 
+      ;; legacy route (page removed): redirect to /workflows
       (= ["workflows-defaults"] segs)
-      {:page :workflow-defaults :params {}}
+      {:page :workflows :params {}}
 
       (and (= "recordings" (first segs))
            (= 2 (count segs)))
@@ -99,9 +101,7 @@
     :speakers "/speakers"
     :api-credentials "/api-credentials"
     :webhooks "/webhooks"
-    :webhook-defaults "/webhooks-defaults"
     :workflows "/workflows"
-    :workflow-defaults "/workflows-defaults"
     "/recordings"))
 
 (defn- current-path
