@@ -18,9 +18,10 @@
   "transcript.refined.segment")
 
 (defn- checkbox
-  [{:keys [checked? on-change]}]
+  [{:keys [checked? disabled? on-change]}]
   [:input {:type "checkbox"
            :checked (boolean checked?)
+           :disabled (boolean disabled?)
            :on-change (fn [e]
                         (when (fn? on-change)
                           (on-change (true? (.. e -target -checked)))))}])
@@ -41,10 +42,18 @@
   - mode: :create | :edit
   - initial: workflow map or nil
   - on-close: fn
-  - on-saved: fn"
-  [{:keys [open? mode initial on-close on-saved]}]
+  - on-saved: fn
+
+  Default behavior:
+  - default?: boolean (whether current workflow is in tenant defaults)
+  - default-disabled?: boolean (disable default checkbox, e.g. while saving)
+  - on-toggle-default: (fn [workflow-id checked?])"
+  [{:keys [open? mode initial on-close on-saved
+           default? default-disabled? on-toggle-default]}]
   (when (true? open?)
     (let [initial (or initial {})
+          workflow-id (:id initial)
+          can-toggle-default? (and (= mode :edit) (some? workflow-id))
 
           name* (react/useState (or (:name initial) ""))
           name (aget name* 0)
@@ -171,9 +180,21 @@
              [:div {:class "hint" :style {:marginTop "6px"}}
               "Optional. When set, webhook-router will avoid triggering this workflow more often than the given interval (per session)."]])
 
-         [:label {:class "muted" :style {:display "flex" :gap "8px" :alignItems "center" :marginTop "8px"}}
-          [checkbox {:checked? enabled? :on-change set-enabled!}]
-          "Enabled"]]
+         [:div {:class "row" :style {:gap "16px" :alignItems "center" :marginTop "8px"}}
+          [:label {:class "muted" :style {:display "flex" :gap "8px" :alignItems "center"}}
+           [checkbox {:checked? enabled? :on-change set-enabled!}]
+           "Enabled"]
+
+          [:label {:class "muted"
+                   :title (when-not can-toggle-default?
+                            "Default can be set after the workflow is created")
+                   :style {:display "flex" :gap "8px" :alignItems "center"}}
+           [checkbox {:checked? (true? default?)
+                      :disabled? (or (not can-toggle-default?) (boolean default-disabled?))
+                      :on-change (fn [checked?]
+                                   (when (and can-toggle-default? (fn? on-toggle-default))
+                                     (on-toggle-default workflow-id checked?)))}]
+           "Default"]]]
 
         [:div {:class "card"}
          [:div {:class "card-title"} "Provider (Bedrock)"]
@@ -210,7 +231,13 @@
   "Workflows management page."
   []
   (let [st (hooks/use-atom store/workflows*)
+        defaults-st (hooks/use-atom store/workflow-defaults*)
+
         {:keys [items loading? error]} st
+        defaults-ids (set (map str (or (:workflow_ids defaults-st) [])))
+        defaults-loading? (true? (:loading? defaults-st))
+        defaults-error (:error defaults-st)
+
         open?* (react/useState false)
         open? (aget open?* 0)
         set-open! (aget open?* 1)
@@ -223,16 +250,31 @@
         editing (aget editing* 0)
         set-editing! (aget editing* 1)
 
+        refresh-workflows! (fn []
+                             (store/set-workflows-loading! true)
+                             (store/set-workflows-error! nil)
+                             (-> (api/list-workflows!)
+                                 (.then (fn [resp]
+                                          (store/set-workflows-items! (:items resp))))
+                                 (.catch (fn [e]
+                                           (store/set-workflows-error! (shared/safe-http-error e))))
+                                 (.finally (fn []
+                                             (store/set-workflows-loading! false)))))
+
+        refresh-defaults! (fn []
+                            (store/set-workflow-defaults-loading! true)
+                            (store/set-workflow-defaults-error! nil)
+                            (-> (api/get-workflow-defaults!)
+                                (.then (fn [resp]
+                                         (store/set-workflow-defaults-ids! (:workflow_ids resp))))
+                                (.catch (fn [e]
+                                          (store/set-workflow-defaults-error! (shared/safe-http-error e))))
+                                (.finally (fn []
+                                            (store/set-workflow-defaults-loading! false)))))
+
         refresh! (fn []
-                   (store/set-workflows-loading! true)
-                   (store/set-workflows-error! nil)
-                   (-> (api/list-workflows!)
-                       (.then (fn [resp]
-                                (store/set-workflows-items! (:items resp))))
-                       (.catch (fn [e]
-                                 (store/set-workflows-error! (shared/safe-http-error e))))
-                       (.finally (fn []
-                                   (store/set-workflows-loading! false)))))
+                   (refresh-workflows!)
+                   (refresh-defaults!))
 
         delete! (fn [workflow-id]
                   (store/set-workflows-loading! true)
@@ -244,6 +286,25 @@
                                 (store/set-workflows-error! (shared/safe-http-error e))))
                       (.finally (fn []
                                   (store/set-workflows-loading! false)))))
+
+        toggle-default! (fn [workflow-id checked?]
+                          (let [id (str (or workflow-id ""))
+                                prev-ids (vec (or (:workflow_ids defaults-st) []))
+                                prev-set (set (map str prev-ids))
+                                next-set (if (true? checked?)
+                                           (conj prev-set id)
+                                           (disj prev-set id))
+                                next-ids (vec (sort next-set))]
+                            (store/set-workflow-defaults-loading! true)
+                            (store/set-workflow-defaults-error! nil)
+                            ;; optimistic UI
+                            (store/set-workflow-defaults-ids! next-ids)
+                            (-> (api/set-workflow-defaults! next-ids)
+                                (.catch (fn [e]
+                                          (store/set-workflow-defaults-ids! prev-ids)
+                                          (store/set-workflow-defaults-error! (shared/safe-http-error e))))
+                                (.finally (fn []
+                                            (store/set-workflow-defaults-loading! false))))))
 
         open-create! (fn []
                        (set-mode! :create)
@@ -264,6 +325,9 @@
      [workflow-form-modal {:open? open?
                            :mode mode
                            :initial editing
+                            :default? (contains? defaults-ids (str (:id editing)))
+                            :default-disabled? defaults-loading?
+                            :on-toggle-default toggle-default!
                            :on-close (fn [] (set-open! false))
                            :on-saved refresh!}]
      [:div {:class "page-header"}
@@ -271,13 +335,13 @@
        [:div {:class "page-title"} "Workflows"]
        [:div {:class "muted"}
         "Define LLM workflows (prompts + model) that can be triggered from session events."]
-       (when (seq error)
-         [:div {:class "badge bad" :style {:marginTop "10px"}} error])]
+        (when (seq (or error defaults-error))
+          [:div {:class "badge bad" :style {:marginTop "10px"}} (or error defaults-error)])]
       [:div {:class "row"}
        [:button {:class "btn"
-                 :disabled (true? loading?)
+                  :disabled (boolean (or loading? defaults-loading?))
                  :on-click (fn [_] (refresh!))}
-        (if (true? loading?) "Refreshing…" "Refresh")]
+         (if (or loading? defaults-loading?) "Refreshing…" "Refresh")]
        [:button {:class "btn primary"
                  :on-click (fn [_] (open-create!))}
         "New workflow"]]]
@@ -288,6 +352,7 @@
         [:thead
          [:tr
           [:th "Name"]
+           [:th "Default"]
           [:th "Enabled"]
           [:th "Trigger"]
           [:th "Model"]
@@ -298,6 +363,11 @@
              ^{:key (str "wf-" id)}
              [:tr
               [:td (or name "")]
+               [:td
+                [checkbox {:checked? (contains? defaults-ids (str id))
+                           :disabled? (boolean defaults-loading?)
+                           :on-change (fn [checked?]
+                                        (toggle-default! id checked?))}]]
               [:td (if enabled "Yes" "No")]
               [:td [:span {:class "mono"} (or (get trigger :type) "")]]
               [:td [:span {:class "mono"} (or (get provider :model_id) "")]]
