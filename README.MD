@@ -68,7 +68,7 @@ Data flow:
 UI:
 
 - Live Recording: right-side panel → **Workflows** tab shows streamed workflow results
-- Recording Detail: right-side panel shows workflow results loaded from DB (`workflow_results_latest`)
+- Recording Detail: right-side panel → **Workflows** tab shows workflow results loaded from DB (`workflow_results_latest`)
 
 RefinedEvent semantics (important):
 - A single `RefinedEvent` protobuf represents one refinement window slice (e.g. 60s).
@@ -216,7 +216,7 @@ When using the webhook stack (webhook-router + webhook-dispatcher + samuraipersi
 The BFF exposes these outcomes tenant-scoped (by `tenant_id` + `session_id`) and the UI can display them:
 
 - Live Recording: **Webhooks** tab in the Session settings panel (right-side)
-- Recording Detail: right-side panel shows **Webhooks / workflows** (collapsible)
+- Recording Detail: right-side panel shows a tabbed **Webhooks / Workflows** view (collapsible)
 
 Implementation notes:
 
