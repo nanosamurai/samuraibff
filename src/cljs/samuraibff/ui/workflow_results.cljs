@@ -5,7 +5,7 @@
 
   In the UI we use two sources:
   - recording detail: DB-backed `workflow_results_latest` returned by GET /api/recordings/:id
-  - live page: streamed WS events of type `workflow_result` (best-effort)" 
+  - live page: streamed WS events of type `workflow_result` (best-effort)"
   (:require
    [clojure.string :as str]))
 
@@ -22,7 +22,7 @@
   Inputs:
   - s: string?
 
-  Returns: string." 
+  Returns: string."
   [s]
   (let [s (str (or s ""))]
     ;; non-greedy, dot matches newlines
@@ -34,7 +34,7 @@
   Inputs:
   - s: string?
 
-  Returns: string?" 
+  Returns: string?"
   [s]
   (let [s (some-> s str)]
     (when (seq (str s))
@@ -50,7 +50,7 @@
   - s: string
 
   Returns:
-  - string? markdown content, or nil if not found / not parseable." 
+  - string? markdown content, or nil if not found / not parseable."
   [s]
   (try
     (let [js-obj (.parse js/JSON s)
@@ -75,7 +75,7 @@
   - render-markdown: string?
 
   Returns:
-  - string? (nil when empty)." 
+  - string? (nil when empty)."
   [render-markdown]
   (let [s (some-> render-markdown str str/trim)]
     (when (seq (str s))
@@ -94,7 +94,7 @@
   Inputs:
   - s: string
 
-  Returns: vector of strings and hiccup nodes." 
+  Returns: vector of strings and hiccup nodes."
   [s]
   (let [s (str (or s ""))
         ;; split, keeping delimiters:
@@ -116,7 +116,7 @@
                        [:strong (subs m 2 (- (count m) 2))]
 
                        :else m)]
-            (recur (conj acc node) (rest parts) (rest matches)))))))
+            (recur (conj acc node) (rest parts) (rest matches))))))))
 
 (defn- markdown->hiccup
   "Render a small safe subset of markdown as hiccup.
@@ -132,7 +132,7 @@
   Inputs:
   - md: string?
 
-  Returns: hiccup." 
+  Returns: hiccup."
   [md]
   (let [lines (-> (str (or md ""))
                   (str/split #"\r?\n"))]
@@ -211,7 +211,7 @@
   Inputs:
   - status: string?
 
-  Returns: string." 
+  Returns: string."
   [status]
   (let [s (some-> status str str/lower-case)]
     (cond
@@ -227,7 +227,7 @@
       :workflow_id :workflow_name :created_at :status :trigger_type
       :render_markdown :error_code :error_detail
 
-  Returns: hiccup." 
+  Returns: hiccup."
   [r]
   (let [{:keys [workflow_id workflow_name created_at status trigger_type render_markdown error_code error_detail]} r
         title (or (some-> workflow_name str str/trim not-empty)
@@ -267,9 +267,9 @@
 
      (cond
        (seq md')
-        [:div {:style {:maxHeight "360px"
-                       :overflow "auto"}}
-         (into [:div] (markdown->hiccup md'))]
+       [:div {:style {:maxHeight "360px"
+                      :overflow "auto"}}
+        (into [:div] (markdown->hiccup md'))]
 
        :else
        [:div {:class "muted" :style {:fontSize "12px"}}
@@ -282,7 +282,7 @@
   - {:keys [items loading? error title fill? empty-hint]}
     - items: vector of workflow result maps
 
-  Returns: hiccup." 
+  Returns: hiccup."
   [{:keys [items loading? error title fill? empty-hint]}]
   (let [items (vec (or items []))
         title (or title "Workflow results")
