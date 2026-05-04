@@ -20,15 +20,10 @@
   6000)
 
 (defn- strip-reasoning-blocks
-  "Remove `<reasoning>...</reasoning>` blocks if present.
-
-  Inputs:
-  - s: string?
-
-  Returns: string."
-  [s]
-  (let [s (str (or s ""))]
-    (str/replace s #"(?s)<reasoning>.*?</reasoning>" "")))
+       [s]
+       (str/replace (str (or s ""))
+                    #"<reasoning>[\s\S]*?</reasoning>"
+                    ""))
 
 (defn- bound-markdown
   "Bound markdown length to `max-markdown-chars`.
