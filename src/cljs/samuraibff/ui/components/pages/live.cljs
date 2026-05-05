@@ -704,7 +704,7 @@
 
   Contains tabs (for now: Log only)."
   []
-  (let [active* (react/useState :log)
+  (let [active* (react/useState :workflows)
         active (aget active* 0)
         set-active! (aget active* 1)
         debug-asr? (hooks/use-atom store/debug-asr-log?*)
