@@ -24,9 +24,10 @@
    {:value "api_key" :label "API key"}])
 
 (defn- checkbox
-  [{:keys [checked? on-change]}]
+  [{:keys [checked? disabled? on-change]}]
   [:input {:type "checkbox"
            :checked (boolean checked?)
+            :disabled (boolean disabled?)
            :on-change (fn [e]
                         (when (fn? on-change)
                           (on-change (true? (.. e -target -checked)))))}])
@@ -52,10 +53,18 @@
   - mode: :create or :edit
   - initial: webhook map or nil
   - on-close: (fn [])
-  - on-saved: (fn [])"
-  [{:keys [open? mode initial on-close on-saved]}]
+  - on-saved: (fn [])
+
+  Default behavior:
+  - default?: boolean (whether current webhook is in tenant defaults)
+  - default-disabled?: boolean (disable default checkbox, e.g. while saving)
+  - on-toggle-default: (fn [webhook-id checked?])"
+  [{:keys [open? mode initial on-close on-saved
+           default? default-disabled? on-toggle-default]}]
   (when (true? open?)
     (let [initial (or initial {})
+          webhook-id (:id initial)
+          can-toggle-default? (and (= mode :edit) (some? webhook-id))
 
           name* (react/useState (or (:name initial) ""))
           name (aget name* 0)
@@ -198,9 +207,21 @@
           [:input {:placeholder "https://…"
                    :value url
                    :on-change (fn [e] (set-url! (.. e -target -value)))}]]
-         [:label {:class "muted" :style {:display "flex" :gap "8px" :alignItems "center" :marginTop "8px"}}
-          [checkbox {:checked? enabled? :on-change set-enabled!}]
-          "Enabled"]]
+          [:div {:class "row" :style {:gap "16px" :alignItems "center" :marginTop "8px"}}
+           [:label {:class "muted" :style {:display "flex" :gap "8px" :alignItems "center"}}
+            [checkbox {:checked? enabled? :on-change set-enabled!}]
+            "Enabled"]
+
+           [:label {:class "muted"
+                    :title (when-not can-toggle-default?
+                             "Default can be set after the webhook is created")
+                    :style {:display "flex" :gap "8px" :alignItems "center"}}
+            [checkbox {:checked? (true? default?)
+                       :disabled? (or (not can-toggle-default?) (boolean default-disabled?))
+                       :on-change (fn [checked?]
+                                    (when (and can-toggle-default? (fn? on-toggle-default))
+                                      (on-toggle-default webhook-id checked?)))}]
+            "Default"]]]
 
         [:div {:class "card"}
          [:div {:class "card-title"} "Auth"]
@@ -282,9 +303,16 @@
           (if saving? "Saving…" "Save")]]]])))
 
 (defn- webhook-row
-  [{:keys [id name url enabled auth_type created_at subscriptions]} {:keys [on-edit on-delete]}]
+  [{:keys [id name url enabled auth_type created_at subscriptions default? defaults-disabled?]}
+   {:keys [on-edit on-delete on-toggle-default]}]
   [:tr
    [:td name]
+    [:td
+     [checkbox {:checked? (true? default?)
+                :disabled? (boolean defaults-disabled?)
+                :on-change (fn [checked?]
+                             (when (fn? on-toggle-default)
+                               (on-toggle-default id checked?)))}]]
    [:td {:class "mono" :style {:maxWidth "380px" :wordBreak "break-all"}} url]
    [:td
     (if enabled
@@ -311,8 +339,14 @@
   "Webhooks management page."
   []
   (let [st (hooks/use-atom store/webhooks*)
+        defaults-st (hooks/use-atom store/webhook-defaults*)
+
         {:keys [items loading? error]} st
         items (vec (or items []))
+
+        defaults-ids (set (map str (or (:webhook_ids defaults-st) [])))
+        defaults-loading? (true? (:loading? defaults-st))
+        defaults-error (:error defaults-st)
 
         modal-open?* (react/useState false)
         modal-open? (aget modal-open?* 0)
@@ -340,16 +374,31 @@
                        (set-modal-open! false)
                        (set-editing-id! nil))
 
+        refresh-webhooks! (fn []
+                            (store/set-webhooks-loading! true)
+                            (store/set-webhooks-error! nil)
+                            (-> (api/list-webhooks!)
+                                (.then (fn [resp]
+                                         (store/set-webhooks-items! (:items resp))))
+                                (.catch (fn [e]
+                                          (store/set-webhooks-error! (shared/safe-http-error e))))
+                                (.finally (fn []
+                                            (store/set-webhooks-loading! false)))))
+
+        refresh-defaults! (fn []
+                            (store/set-webhook-defaults-loading! true)
+                            (store/set-webhook-defaults-error! nil)
+                            (-> (api/get-webhook-defaults!)
+                                (.then (fn [resp]
+                                         (store/set-webhook-defaults-ids! (:webhook_ids resp))))
+                                (.catch (fn [e]
+                                          (store/set-webhook-defaults-error! (shared/safe-http-error e))))
+                                (.finally (fn []
+                                            (store/set-webhook-defaults-loading! false)))))
+
         refresh! (fn []
-                   (store/set-webhooks-loading! true)
-                   (store/set-webhooks-error! nil)
-                   (-> (api/list-webhooks!)
-                       (.then (fn [resp]
-                                (store/set-webhooks-items! (:items resp))))
-                       (.catch (fn [e]
-                                 (store/set-webhooks-error! (shared/safe-http-error e))))
-                       (.finally (fn []
-                                   (store/set-webhooks-loading! false)))))
+                   (refresh-webhooks!)
+                   (refresh-defaults!))
 
         delete! (fn [webhook-id]
                   (store/set-webhooks-loading! true)
@@ -361,6 +410,25 @@
                                 (store/set-webhooks-error! (shared/safe-http-error e))))
                       (.finally (fn []
                                   (store/set-webhooks-loading! false)))))
+
+        toggle-default! (fn [webhook-id checked?]
+                          (let [id (str (or webhook-id ""))
+                                prev-ids (vec (or (:webhook_ids defaults-st) []))
+                                prev-set (set (map str prev-ids))
+                                next-set (if (true? checked?)
+                                           (conj prev-set id)
+                                           (disj prev-set id))
+                                next-ids (vec (sort next-set))]
+                            (store/set-webhook-defaults-loading! true)
+                            (store/set-webhook-defaults-error! nil)
+                            ;; optimistic UI
+                            (store/set-webhook-defaults-ids! next-ids)
+                            (-> (api/set-webhook-defaults! next-ids)
+                                (.catch (fn [e]
+                                          (store/set-webhook-defaults-ids! prev-ids)
+                                          (store/set-webhook-defaults-error! (shared/safe-http-error e))))
+                                (.finally (fn []
+                                            (store/set-webhook-defaults-loading! false))))))
 
         initial (when (and (= modal-mode :edit) (seq (str editing-id)))
                   (first (filter #(= (str (:id %)) (str editing-id)) items)))]
@@ -375,6 +443,9 @@
      [webhook-form-modal {:open? modal-open?
                           :mode modal-mode
                           :initial initial
+                          :default? (contains? defaults-ids (str (:id initial)))
+                          :default-disabled? defaults-loading?
+                          :on-toggle-default toggle-default!
                           :on-close close-modal!
                           :on-saved refresh!}]
 
@@ -383,13 +454,13 @@
        [:div {:class "page-title"} "Webhooks"]
        [:div {:class "muted"}
         "Manage your webhooks here - don't call us, we'll call you!"]
-       (when (seq error)
-         [:div {:class "badge bad" :style {:marginTop "10px"}} error])]
+       (when (seq (or error defaults-error))
+         [:div {:class "badge bad" :style {:marginTop "10px"}} (or error defaults-error)])]
       [:div {:class "row"}
        [:button {:class "btn"
-                 :disabled loading?
+                 :disabled (or loading? defaults-loading?)
                  :on-click (fn [_] (refresh!))}
-        (if loading? "Refreshing…" "Refresh")]
+         (if (or loading? defaults-loading?) "Refreshing…" "Refresh")]
        [:button {:class "btn primary"
                  :disabled loading?
                  :on-click (fn [_] (open-create!))}
@@ -403,6 +474,7 @@
          [:thead
           [:tr
            [:th "Name"]
+            [:th "Default"]
            [:th "URL"]
            [:th "Enabled"]
            [:th "Auth"]
@@ -412,4 +484,9 @@
          [:tbody
           (for [item items]
             ^{:key (str "wh-" (:id item))}
-            [webhook-row item {:on-edit open-edit! :on-delete delete!}])]])]]))
+             [webhook-row (assoc item
+                                 :default? (contains? defaults-ids (str (:id item)))
+                                 :defaults-disabled? defaults-loading?)
+              {:on-edit open-edit!
+               :on-delete delete!
+               :on-toggle-default toggle-default!}])]])]]))
