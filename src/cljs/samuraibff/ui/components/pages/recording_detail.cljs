@@ -289,7 +289,7 @@
         tab (aget tab* 0)
         set-tab! (aget tab* 1)
 
-        right-tab* (react/useState :webhooks)
+        right-tab* (react/useState :workflows)
         right-tab (aget right-tab* 0)
         set-right-tab! (aget right-tab* 1)
 
@@ -514,14 +514,14 @@
           [:div {:class "split-side"}
            [:div {:class "right-panel"}
             [:div {:class "tabs"}
-             [:button {:class (str "tab " (when (= right-tab :webhooks) "active"))
-                       :type "button"
-                       :on-click (fn [_] (set-right-tab! :webhooks))}
-              "Webhooks"]
              [:button {:class (str "tab " (when (= right-tab :workflows) "active"))
                        :type "button"
                        :on-click (fn [_] (set-right-tab! :workflows))}
-              "Workflows"]]
+              "Workflows"]
+             [:button {:class (str "tab " (when (= right-tab :webhooks) "active"))
+                       :type "button"
+                       :on-click (fn [_] (set-right-tab! :webhooks))}
+              "Webhooks"]]
 
             [:div {:class "right-panel-body"}
              (case right-tab
