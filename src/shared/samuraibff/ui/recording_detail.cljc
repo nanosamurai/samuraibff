@@ -13,6 +13,59 @@
   (:require
    [samuraibff.ui.transcript :as transcript]))
 
+(def ^:private transcript-tab-display-order
+  "The fixed transcript tab display order used by Recording detail UI.
+
+  NOTE:
+  - This is intentionally *not* the same as the default-selection preference.
+  - Default selection prefers :final first (most detail).")
+  [:realtime :refined :final])
+
+(def ^:private transcript-tab-default-order
+  "Transcript tab default-selection preference.
+
+  Preference:
+  - :final (most detail)
+  - :refined
+  - :realtime")
+  [:final :refined :realtime])
+
+(defn available-transcript-tabs
+  "Return a vector of transcript tab ids that should be visible.
+
+  This is used by Recording detail page to hide transcript tabs/panels that
+  contain no transcript messages (e.g. realtime transcripts are currently not
+  stored in DB, so on a later visit they are typically empty).
+
+  Inputs:
+  - {:keys [realtime-msgs refined-msgs final-msgs]}
+    - each is expected to be a vector/seq of transcript message maps
+
+  Returns:
+  - vector of keywords from #{:realtime :refined :final} in UI display order.")
+  [{:keys [realtime-msgs refined-msgs final-msgs]}]
+  (let [present? {:realtime (boolean (seq (or realtime-msgs [])))
+                  :refined (boolean (seq (or refined-msgs [])))
+                  :final (boolean (seq (or final-msgs [])))}]
+    (->> transcript-tab-display-order
+         (filterv (fn [tab-id] (true? (get present? tab-id)))))))
+
+(defn default-transcript-tab
+  "Return the default transcript tab id to use given currently available tabs.
+
+  Preference: :final → :refined → :realtime.
+
+  Inputs:
+  - available-tabs: vector of tab ids (typically from `available-transcript-tabs`)
+
+  Returns:
+  - keyword tab id or nil when no tabs are available." 
+  [available-tabs]
+  (let [available? (set (or available-tabs []))]
+    (some (fn [tab-id]
+            (when (contains? available? tab-id) tab-id))
+          transcript-tab-default-order)))
+
 (defn db-refined-records->events
   "Convert DB refined transcript records into refined events.
 
