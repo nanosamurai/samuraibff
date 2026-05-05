@@ -18,7 +18,7 @@
 
   NOTE:
   - This is intentionally *not* the same as the default-selection preference.
-  - Default selection prefers :final first (most detail).")
+  - Default selection prefers :final first (most detail)."
   [:realtime :refined :final])
 
 (def ^:private transcript-tab-default-order
@@ -27,7 +27,7 @@
   Preference:
   - :final (most detail)
   - :refined
-  - :realtime")
+  - :realtime"
   [:final :refined :realtime])
 
 (defn available-transcript-tabs
@@ -42,7 +42,7 @@
     - each is expected to be a vector/seq of transcript message maps
 
   Returns:
-  - vector of keywords from #{:realtime :refined :final} in UI display order.")
+  - vector of keywords from #{:realtime :refined :final} in UI display order."
   [{:keys [realtime-msgs refined-msgs final-msgs]}]
   (let [present? {:realtime (boolean (seq (or realtime-msgs [])))
                   :refined (boolean (seq (or refined-msgs [])))
@@ -59,7 +59,7 @@
   - available-tabs: vector of tab ids (typically from `available-transcript-tabs`)
 
   Returns:
-  - keyword tab id or nil when no tabs are available." 
+  - keyword tab id or nil when no tabs are available."
   [available-tabs]
   (let [available? (set (or available-tabs []))]
     (some (fn [tab-id]
@@ -117,7 +117,7 @@
   Inputs:
   - events: vector of refined event maps
 
-  Returns: vector of transcript messages." 
+  Returns: vector of transcript messages."
   [events]
   (->> (or events [])
        (mapv transcript/normalize-refined)

@@ -285,7 +285,7 @@
 
   Returns: hiccup."
   [{:keys [session-id]}]
-  (let [tab* (react/useState :realtime)
+  (let [tab* (react/useState nil)
         tab (aget tab* 0)
         set-tab! (aget tab* 1)
 
@@ -374,6 +374,14 @@
           final-record (last (vec (or db-final [])))
           final-msgs (final-segments->messages (vec (or (:segments final-record) [])))
 
+           available-tabs
+           (recording-detail/available-transcript-tabs
+            {:realtime-msgs realtime-msgs
+             :refined-msgs refined-msgs
+             :final-msgs final-msgs})
+
+           default-tab (recording-detail/default-transcript-tab available-tabs)
+
           ;; Playback is only shown when we have both:
           ;; - a recording stored
           ;; - a final transcript stored
@@ -435,6 +443,24 @@
                  :empty-hint (if final-record "(no segments)" "No final transcript stored")
                  :message-actions enroll-action}]))]]
 
+      (react/useEffect
+       (fn []
+         ;; Ensure selected tab always points to a visible tab.
+         ;;
+         ;; This handles two cases:
+         ;; 1) page default (tab starts as nil) => select preferred available tab
+         ;; 2) user-selected tab becomes unavailable after refresh => fallback
+         (let [tab-id tab
+               allowed? (contains? (set (or available-tabs [])) tab-id)
+               next-tab (cond
+                          allowed? tab-id
+                          (some? default-tab) default-tab
+                          :else nil)]
+           (when (not= tab-id next-tab)
+             (set-tab! next-tab)))
+         js/undefined)
+       #js [tab (count available-tabs) default-tab])
+
       [:div {:class "page"}
        [enroll-speaker-modal {:open? enroll-open?
                               :session-id session-id
@@ -466,15 +492,17 @@
           "Refresh"]]]
 
        [:div {:class "tabs"}
-        [:button {:class (str "tab " (when (= tab :realtime) "active"))
-                  :on-click (fn [_] (set-tab! :realtime))}
-         "Real-time transcript"]
-        [:button {:class (str "tab " (when (= tab :refined) "active"))
-                  :on-click (fn [_] (set-tab! :refined))}
-         "Refined real-time"]
-        [:button {:class (str "tab " (when (= tab :final) "active"))
-                  :on-click (fn [_] (set-tab! :final))}
-         "Final transcript"]
+        (when (seq available-tabs)
+          (for [tab-id available-tabs]
+            ^{:key (str "tab-" (name tab-id))}
+            [:button {:class (str "tab " (when (= tab tab-id) "active"))
+                      :type "button"
+                      :on-click (fn [_] (set-tab! tab-id))}
+             (case tab-id
+               :realtime "Real-time transcript"
+               :refined "Refined real-time"
+               :final "Final transcript"
+               (name tab-id))]))
         [:div {:class "spacer"}]
         [:button {:class "btn ghost icon"
                   :type "button"
@@ -495,21 +523,25 @@
          [:div {:class "split"}
           [:div {:class "split-main"}
            [:div {:class "card"}
-            [:div {:class "card-title"}
-             (case tab
-               :refined "Refined real-time"
-               :final "Final"
-               "Real-time")]
-            (case tab
-              :final final-body
-              :refined [components.transcript/transcript-view
-                        {:messages refined-msgs
-                         :empty-title "Refined real-time"
-                         :empty-hint "No refined transcript available"}]
-              [components.transcript/transcript-view
-               {:messages realtime-msgs
-                :empty-title "Real-time transcript"
-                :empty-hint "No realtime transcript available"}])]]
+             (if (empty? available-tabs)
+               [:div {:class "muted"}
+                "No transcripts available for this recording."]
+               [:div
+                [:div {:class "card-title"}
+                 (case tab
+                   :refined "Refined real-time"
+                   :final "Final"
+                   "Real-time")]
+                (case tab
+                  :final final-body
+                  :refined [components.transcript/transcript-view
+                            {:messages refined-msgs
+                             :empty-title "Refined real-time"
+                             :empty-hint "No refined transcript available"}]
+                  [components.transcript/transcript-view
+                   {:messages realtime-msgs
+                    :empty-title "Real-time transcript"
+                    :empty-hint "No realtime transcript available"}])])]]
 
           [:div {:class "split-side"}
            [:div {:class "right-panel"}
@@ -538,18 +570,22 @@
                  :fill? true}])]]]]
 
          [:div {:class "card"}
-          [:div {:class "card-title"}
-           (case tab
-             :refined "Refined real-time"
-             :final "Final"
-             "Real-time")]
-          (case tab
-            :final final-body
-            :refined [components.transcript/transcript-view
-                      {:messages refined-msgs
-                       :empty-title "Refined real-time"
-                       :empty-hint "No refined transcript available"}]
-            [components.transcript/transcript-view
-             {:messages realtime-msgs
-              :empty-title "Real-time transcript"
-              :empty-hint "No realtime transcript available"}])])])))
+          (if (empty? available-tabs)
+            [:div {:class "muted"}
+             "No transcripts available for this recording."]
+            [:div
+             [:div {:class "card-title"}
+              (case tab
+                :refined "Refined real-time"
+                :final "Final"
+                "Real-time")]
+             (case tab
+               :final final-body
+               :refined [components.transcript/transcript-view
+                         {:messages refined-msgs
+                          :empty-title "Refined real-time"
+                          :empty-hint "No refined transcript available"}]
+               [components.transcript/transcript-view
+                {:messages realtime-msgs
+                 :empty-title "Real-time transcript"
+                 :empty-hint "No realtime transcript available"}])])])])))
