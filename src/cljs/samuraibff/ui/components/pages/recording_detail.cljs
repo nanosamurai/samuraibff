@@ -382,6 +382,12 @@
 
            default-tab (recording-detail/default-transcript-tab available-tabs)
 
+           selected-tab (let [allowed? (contains? (set (or available-tabs [])) tab)]
+                          (cond
+                            allowed? tab
+                            (some? default-tab) default-tab
+                            :else nil))
+
           ;; Playback is only shown when we have both:
           ;; - a recording stored
           ;; - a final transcript stored
@@ -451,15 +457,11 @@
          ;; 1) page default (tab starts as nil) => select preferred available tab
          ;; 2) user-selected tab becomes unavailable after refresh => fallback
          (let [tab-id tab
-               allowed? (contains? (set (or available-tabs [])) tab-id)
-               next-tab (cond
-                          allowed? tab-id
-                          (some? default-tab) default-tab
-                          :else nil)]
+               next-tab selected-tab]
            (when (not= tab-id next-tab)
              (set-tab! next-tab)))
          js/undefined)
-       #js [tab (count available-tabs) default-tab])
+       #js [tab selected-tab])
 
       [:div {:class "page"}
        [enroll-speaker-modal {:open? enroll-open?
@@ -528,11 +530,11 @@
                 "No transcripts available for this recording."]
                [:div
                 [:div {:class "card-title"}
-                 (case tab
+                 (case selected-tab
                    :refined "Refined real-time"
                    :final "Final"
                    "Real-time")]
-                (case tab
+                (case selected-tab
                   :final final-body
                   :refined [components.transcript/transcript-view
                             {:messages refined-msgs
@@ -575,11 +577,11 @@
              "No transcripts available for this recording."]
             [:div
              [:div {:class "card-title"}
-              (case tab
+             (case selected-tab
                 :refined "Refined real-time"
                 :final "Final"
                 "Real-time")]
-             (case tab
+             (case selected-tab
                :final final-body
                :refined [components.transcript/transcript-view
                          {:messages refined-msgs
