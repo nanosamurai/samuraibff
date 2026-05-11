@@ -14,6 +14,7 @@ Nanosamurai solution currently consists of
 - **nanosamurai-sdk** - A python sdk client for nanosamur.ai (uses client credentials for m2m access) (https://github.com/mikub/nanosamurai-sdk ; locally usually at `%USERPROFILE%\PycharmProjects\nanosamurai-sdk`)
 - **webhook-router** - java service for filtering kafka message which should trigger webhooks configured by a user (see `%USERPROFILE%\IdeaProjects\webhook-router`)
 - **webhook-dispatcher** - java service for dispatching webhooks (see `%USERPROFILE%\IdeaProjects\webhook-dispatcher`)
+- **workflow-runner** - java service for executing post-processing workflows https://github.com/mikub/workflow-runner (locally usually at `%USERPROFILE%\IdeaProjects\workflow-runner`)
 
 ---
 
