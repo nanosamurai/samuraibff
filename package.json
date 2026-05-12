@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "main": "electron/main.cjs",
   "devDependencies": {
     "shadow-cljs": "3.3.4",
     "concurrently": "9.2.1",
