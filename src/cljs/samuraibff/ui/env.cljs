@@ -31,7 +31,7 @@
   - Electron build: return value from localStorage (if set), otherwise
     default to http://127.0.0.1:8000.
 
-  Returns: string ("" or e.g. "http://127.0.0.1:8000")."
+  Returns: string (empty for same-origin, or e.g. http://127.0.0.1:8000)."
   []
   (if-not (electron?)
     ""
