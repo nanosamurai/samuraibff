@@ -184,6 +184,29 @@ to avoid slowing PR checks.
 
 ## 7) Phased delivery plan (implementation steps)
 
+## Status matrix (what is done vs planned)
+
+This table is the current source-of-truth for this document.
+
+Legend: ✅ done, 🟡 partial, ⏳ planned, ❌ not planned.
+
+| Area | Item | Status | Notes / links |
+|------|------|--------|---------------|
+| Electron scaffold | Main process (`electron/main.cjs`) | ✅ | Creates BrowserWindow, loads UI |
+| Electron scaffold | Preload bridge (`electron/preload.cjs`) | ✅ | Exposes `window.samuraibffElectron.listDesktopSources()` |
+| Electron scaffold | Security posture (contextIsolation, nodeIntegration) | ✅ | Kept safe defaults |
+| UI networking | Configurable backend base URL (`samuraibff.ui.env/backend-base-url`) | ✅ | Needed for `file://` builds |
+| UI networking | All UI fetch/WS calls use backend base URL | ✅ | `ui.api`, `ui.auth`, `ui.ws`, `ui.audio` |
+| UI capture | Mic capture mode | ✅ | Default mode |
+| UI capture | System capture mode (Electron desktop) | ✅ | Best-effort; may have no audio track |
+| UI capture | Mix mode (mic + system summed to mono) | ✅ | Gain controls included |
+| UI capture | Desktop source picker UX | 🟡 | Implemented as “Pick/Change system source” auto-select; no full dropdown yet |
+| Packaging | electron-builder config (`electron-builder.yml`) | ✅ | Builds NSIS + portable |
+| Packaging | Local packaging works (`npm run electron:dist`) | ✅ | Signing/edit disabled for local builds |
+| CI | Windows artifact workflow (`.github/workflows/electron-windows.yml`) | ✅ | Manual `workflow_dispatch` |
+| Docs | Known limitations (no audio track, best-effort) | ✅ | See Risks section |
+| Browser-only alt | Pure web “tab audio” capture (Chrome/Firefox) | ⏳ | Separate path; not implemented in Electron W1 |
+
 ### Phase A — Electron shell + dev loop
 1. Add Electron main+preload scaffold.
 2. Add npm deps + scripts.
