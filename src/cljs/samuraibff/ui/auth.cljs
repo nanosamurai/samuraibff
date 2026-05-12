@@ -12,6 +12,7 @@
   - login!
   - logout!"
   (:require
+    [samuraibff.ui.env :as env]
     [samuraibff.ui.store :as store]))
 
 (defn fetch-me!
@@ -20,7 +21,7 @@
   Returns: Promise" 
   []
   (store/set-auth-status! :loading nil)
-  (-> (js/fetch "/api/me" #js {:method "GET"})
+  (-> (js/fetch (str (env/backend-base-url) "/api/me") #js {:method "GET"})
       (.then (fn [res]
                (if (.-ok res)
                  (.json res)
@@ -52,7 +53,7 @@
   - next-path: string (e.g. \"/live\")" 
   [next-path]
   (let [next-path (or next-path "/recordings")
-        url (str "/auth/login?next=" (js/encodeURIComponent next-path))]
+        url (str (env/backend-base-url) "/auth/login?next=" (js/encodeURIComponent next-path))]
     (set! (.-location js/window) url)))
 
 (defn logout!
@@ -60,7 +61,7 @@
 
   Returns: Promise" 
   []
-  (-> (js/fetch "/auth/logout" #js {:method "POST"})
+  (-> (js/fetch (str (env/backend-base-url) "/auth/logout") #js {:method "POST"})
       (.then (fn [_]
                (store/set-auth-status! :anonymous nil)
                (store/append-log! "[auth] logged out")
