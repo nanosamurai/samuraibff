@@ -42,7 +42,7 @@
   "Build absolute API URL.
 
   Inputs:
-  - path: string starting with "/api" (or full path starting with "/")
+  - path: string starting with /api (or full path starting with /)
 
   Returns: string."
   [path]
