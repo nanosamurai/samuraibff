@@ -153,6 +153,12 @@ Per request, we will build both:
 
 via electron-builder targets.
 
+Notes:
+
+* On some Windows machines, extracting electron-builder helper binaries may fail
+  due to missing symlink privileges. We disable Windows signing/editing for local
+  builds (`win.signAndEditExecutable: false`) to avoid this.
+
 ---
 
 ## 6) CI/CD impact
