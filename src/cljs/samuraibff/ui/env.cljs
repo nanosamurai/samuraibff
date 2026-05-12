@@ -29,7 +29,7 @@
   Behavior:
   - Browser build (served by backend): return empty string => same-origin.
   - Electron build: return value from localStorage (if set), otherwise
-    default to http://127.0.0.1:8000.
+    default to "http://127.0.0.1:8000".
 
   Returns: string ("" or e.g. "http://127.0.0.1:8000")."
   []
