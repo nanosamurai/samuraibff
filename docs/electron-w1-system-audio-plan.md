@@ -228,7 +228,7 @@ Legend: ✅ done, 🟡 partial, ⏳ planned, ❌ not planned.
 
 ---
 
-## 9) How to build & run (what is implemented)
+## 8) How to build & run (what is implemented)
 
 This repo now contains a working Electron (Windows-first) app.
 
@@ -237,12 +237,12 @@ Important:
 * Electron connects to an **already-running** SamuraiBFF backend.
 * We do **not** bundle or launch the backend from Electron.
 
-### 9.1 Prerequisites
+### 8.1 Prerequisites
 
 * Node.js (recommended: 20.x)
 * npm
 
-### 9.2 Run locally (dev loop)
+### 8.2 Run locally (dev loop)
 
 1) Start the backend (terminal 1):
 
@@ -268,7 +268,7 @@ What this does:
 * waits for the UI dev server (`http://localhost:8020`)
 * launches Electron and loads the UI from the dev server
 
-### 9.3 Build Windows artifacts (NSIS + portable)
+### 8.3 Build Windows artifacts (NSIS + portable)
 
 ```bash
 npm run electron:dist
@@ -278,7 +278,7 @@ Outputs:
 
 * `dist/electron/`
 
-### 9.4 CI artifacts
+### 8.4 CI artifacts
 
 Windows packaging is also available as a manual GitHub Actions workflow:
 
@@ -288,7 +288,7 @@ It runs `npm run electron:dist` and uploads `dist/electron/**`.
 
 ---
 
-## 8) Risks / fallback plan
+## 9) Risks / fallback plan
 
 If W1 cannot reliably capture output audio for Teams/Zoom on target Windows
 machines, the next step is **W2** (WASAPI loopback helper), while keeping the
