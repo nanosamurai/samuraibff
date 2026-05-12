@@ -11,6 +11,10 @@ directories:
 asar: true
 
 win:
+  # Local developer machines may not have symlink privileges (Developer mode).
+  # Disabling sign+edit avoids downloading/extracting winCodeSign binaries.
+  # (Signing is not part of our first milestone.)
+  signAndEditExecutable: false
   target:
     - target: nsis
       arch:
