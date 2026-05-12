@@ -57,6 +57,20 @@
                     :final true
                     :store_recording true
                     :rt_partial_enable true
+
+                     ;; Audio capture source selection (frontend-only).
+                     ;; :audio_source is one of:
+                     ;; - :mic    (default; getUserMedia)
+                     ;; - :system (Electron desktop capture)
+                     ;; - :mix    (mic + system mixed to mono)
+                     :audio_source :mic
+                     ;; Desktop capture source id (Electron).
+                     ;; Example: "screen:0:0" / "window:123:0"
+                     :system_source_id nil
+                     :system_source_name nil
+                     ;; Input gain knobs (frontend-only)
+                     :mic_gain 1.0
+                     :system_gain 1.0
                     ;; Optional knobs (nil => omit from query params)
                     :rt_window_sec nil
                     :rt_overlap_sec nil
