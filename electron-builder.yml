@@ -1,0 +1,25 @@
+appId: ai.nanosamurai.samuraibff
+productName: samuraibff
+
+files:
+  - "electron/**/*"
+  - "resources/public/**/*"
+
+directories:
+  output: "dist/electron"
+
+asar: true
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
