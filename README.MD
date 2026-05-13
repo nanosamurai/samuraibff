@@ -14,32 +14,32 @@ This repo contains:
 ```mermaid
 flowchart LR
   subgraph Client
-    Browser[Browser UI\n(ClojureScript)]
-    Electron[Electron app\n(Windows-first)]
+    Browser["Browser UI\n(ClojureScript)"]
+    Electron["Electron app\n(Windows-first)"]
   end
 
-  subgraph SamuraiBFF[SamuraiBFF (this repo)]
+  subgraph SamuraiBFF["SamuraiBFF (this repo)"]
     HTTP[HTTP /api + /auth]
-    WSAudio[WebSocket /ws/audio\nPCM16LE mono 16kHz]
-    WSEvents[WebSocket /ws/events\nJSON events]
+    WSAudio[ws/audio]
+    WSEvents[ws/events]
   end
 
-  Browser -->|HTTP| HTTP
-  Browser -->|WS audio| WSAudio
-  Browser -->|WS events| WSEvents
+  Browser -->|HTTP /api + /auth| HTTP
+  Browser -->|"WS audio\n(WebSocket /ws/audio\nPCM16LE mono 16kHz)"| WSAudio
+  Browser ---|"WS events\n(WebSocket /ws/events\nJSON events)"| WSEvents
+  
+  Electron -->|HTTP /api + /auth| HTTP
+  Electron -->|"WS audio\n(WebSocket /ws/audio\nPCM16LE mono 16kHz)"| WSAudio
+  Electron ---|"WS events\n(WebSocket /ws/events\nJSON events)"| WSEvents
 
-  Electron -->|HTTP| HTTP
-  Electron -->|WS audio| WSAudio
-  Electron -->|WS events| WSEvents
-
-  SamuraiBFF -->|gRPC bidirectional stream| RTService[rtservice\n(realtime ASR)]
+  SamuraiBFF -->|gRPC bidirectional stream| RTService["rtservice\n(realtime ASR)"]
 
   SamuraiBFF -->|produce protobuf AudioChunk| Kafka[(Kafka)]
   Kafka -->|consume protobuf RefinedEvent| SamuraiBFF
   Kafka -->|consume JSON workflow.result| SamuraiBFF
 
-  Kafka -->|consume + persist| Persistor[samuraipersistor\n(Postgres writer)]
-  Persistor -->|read models| Postgres[(Postgres)]
+  Kafka --> Persistor["samuraipersistor\n(Postgres writer)"]
+  Persistor --> |consume + persist| Postgres[(Postgres)]
   SamuraiBFF -->|query| Postgres
 
   Kafka --> WebhookRouter[webhook-router]
