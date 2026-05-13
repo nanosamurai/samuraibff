@@ -61,7 +61,7 @@ flowchart LR
   KafkaBroker --- TopicSessionsMeta
   KafkaBroker --- TopicWorkflowResult
 
-  SamuraiBFF -->|produce protobuf AudioChunk| TopicAudioRaw
+  RTService -->|produce protobuf AudioChunk| TopicAudioRaw
   SamuraiBFF -->|produce compacted JSON| TopicSessionsMeta
 
   TopicTranscriptsRefined -->|consume protobuf RefinedEvent| SamuraiBFF
