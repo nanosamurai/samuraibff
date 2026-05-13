@@ -44,7 +44,7 @@ flowchart LR
 
   Kafka --> WebhookRouter[webhook-router]
   WebhookRouter --> WebhookDispatcher[webhook-dispatcher]
-  Kafka --> WorkflowRunner[workflow-runner]
+  WebhookRouter --> WorkflowRunner[workflow-runner]
 ```
 
 Read more:
