@@ -13,77 +13,62 @@ This repo contains:
 
 ```mermaid
 flowchart LR
-  subgraph Client
-    Browser["Browser UI\n(ClojureScript)"]
-    Electron["Electron app\n(Windows-first)"]
-  end
-
-  subgraph SamuraiBFF["SamuraiBFF (this repo)"]
-    HTTP[HTTP /api + /auth]
-    WSAudio[ws/audio]
-    WSEvents[ws/events]
-  end
-
-  subgraph Xamurai["xamurai (Python services)"]
-    RTService["rtservice\n(realtime ASR)"]
-    WhisperXWorker["whisperx_worker\n(slice refinement)"]
-    RecorderWorker["recorder_worker\n(session WAV)"]
-    FinalizerWorker["finalizer_worker\n(final transcript)"]
-  end
-
-  Browser -->|HTTP /api + /auth| HTTP
-  Browser -->|"WS audio\n(WebSocket /ws/audio\nPCM16LE mono 16kHz)"| WSAudio
-  Browser ---|"WS events\n(WebSocket /ws/events\nJSON events)"| WSEvents
-  
-  Electron -->|HTTP /api + /auth| HTTP
-  Electron -->|"WS audio\n(WebSocket /ws/audio\nPCM16LE mono 16kHz)"| WSAudio
-  Electron ---|"WS events\n(WebSocket /ws/events\nJSON events)"| WSEvents
-
-  SamuraiBFF -->|gRPC bidirectional stream| RTService
-
-  subgraph Kafka["Kafka"]
-    KafkaBroker[(Kafka)]
-
-    subgraph KafkaTopics["topics"]
-      TopicAudioRaw["topic: audio.raw"]
-      TopicTranscriptsRefined["topic: transcripts.refined"]
-      TopicRecordingsFinished["topic: recordings.finished"]
-      TopicTranscriptsFinal["topic: transcripts.final"]
-      TopicSessionsMeta["topic: sessions.meta"]
-      TopicWorkflowResult["topic: workflow.result"]
+    subgraph Client
+        Browser["Browser UI\n(ClojureScript)"]
+        Electron["Electron app\n(Windows-first)"]
     end
-  end
 
-  KafkaBroker --- TopicAudioRaw
-  KafkaBroker --- TopicTranscriptsRefined
-  KafkaBroker --- TopicRecordingsFinished
-  KafkaBroker --- TopicTranscriptsFinal
-  KafkaBroker --- TopicSessionsMeta
-  KafkaBroker --- TopicWorkflowResult
+    subgraph SamuraiBFF["SamuraiBFF (this repo)"]
+        HTTP[HTTP /api + /auth]
+        WSAudio[ws/audio]
+        WSEvents[ws/events]
+    end
 
-  RTService -->|produce protobuf AudioChunk| TopicAudioRaw
-  SamuraiBFF -->|produce compacted JSON| TopicSessionsMeta
+    subgraph Xamurai["xamurai (Python services)"]
+        RTService["rtservice\n(realtime ASR)"]
+        WhisperXWorker["whisperx_worker\n(slice refinement)"]
+        RecorderWorker["recorder_worker\n(session WAV)"]
+        FinalizerWorker["finalizer_worker\n(final transcript)"]
+    end
 
-  TopicTranscriptsRefined -->|consume protobuf RefinedEvent| SamuraiBFF
-  TopicWorkflowResult -->|consume JSON workflow.result| SamuraiBFF
+    Browser -->|HTTP /api + /auth| HTTP
+    Browser -->|"WS audio\nWebSocket /ws/audio\nPCM16LE mono 16kHz"| WSAudio
+    Browser ---|"WS events\nWebSocket /ws/events\nJSON events"| WSEvents
 
-  TopicAudioRaw -->|consume| WhisperXWorker
-  WhisperXWorker -->|produce protobuf RefinedEvent| TopicTranscriptsRefined
+    Electron -->|HTTP /api + /auth| HTTP
+    Electron -->|"WS audio\nWebSocket /ws/audio\nPCM16LE mono 16kHz"| WSAudio
+    Electron ---|"WS events\nWebSocket /ws/events\nJSON events"| WSEvents
 
-  TopicAudioRaw -->|consume| RecorderWorker
-  RecorderWorker -->|produce protobuf RecordingFinished| TopicRecordingsFinished
+    SamuraiBFF -->|gRPC bidirectional stream| RTService
 
-  TopicRecordingsFinished -->|consume| FinalizerWorker
-  FinalizerWorker -->|produce protobuf SessionTranscript| TopicTranscriptsFinal
+    subgraph Kafka["Kafka"]
+        KafkaBroker[(Kafka broker)]
+    end
 
-  TopicTranscriptsRefined -->|consume + persist| Persistor["samuraipersistor\n(Postgres writer)"]
-  TopicTranscriptsFinal -->|consume + persist| Persistor
-  Persistor -->|persist| Postgres[(Postgres)]
-  SamuraiBFF -->|query| Postgres
+    RTService -->|"produce protobuf AudioChunk\ntopic: audio.raw"| KafkaBroker
+    SamuraiBFF -->|"produce compacted JSON\ntopic: sessions.meta"| KafkaBroker
 
-  KafkaBroker --> WebhookRouter[webhook-router]
-  WebhookRouter --> WebhookDispatcher[webhook-dispatcher]
-  WebhookRouter --> WorkflowRunner[workflow-runner]
+    KafkaBroker -->|"consume protobuf RefinedEvent\ntopic: transcripts.refined"| SamuraiBFF
+    KafkaBroker -->|"consume JSON workflow.result\ntopic: workflow.result"| SamuraiBFF
+
+    KafkaBroker -->|"consume\ntopic: audio.raw"| WhisperXWorker
+    WhisperXWorker -->|"produce protobuf RefinedEvent\ntopic: transcripts.refined"| KafkaBroker
+
+    KafkaBroker -->|"consume\ntopic: audio.raw"| RecorderWorker
+    RecorderWorker -->|"produce protobuf RecordingFinished\ntopic: recordings.finished"| KafkaBroker
+
+    KafkaBroker -->|"consume\ntopic: recordings.finished"| FinalizerWorker
+    FinalizerWorker -->|"produce protobuf SessionTranscript\ntopic: transcripts.final"| KafkaBroker
+
+    KafkaBroker -->|"consume + persist\ntopic: transcripts.refined"| Persistor["samuraipersistor\n(Postgres writer)"]
+    KafkaBroker -->|"consume + persist\ntopic: transcripts.final"| Persistor
+
+    Persistor -->|persist| Postgres[(Postgres)]
+    SamuraiBFF -->|query| Postgres
+
+    KafkaBroker --> WebhookRouter[webhook-router]
+    WebhookRouter --> WebhookDispatcher[webhook-dispatcher]
+    WebhookRouter --> WorkflowRunner[workflow-runner]
 ```
 
 Read more:
