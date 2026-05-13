@@ -45,7 +45,7 @@ flowchart LR
         KafkaBroker[(Kafka broker)]
     end
 
-    RTService -->|"produce protobuf AudioChunk\ntopic: audio.raw"| KafkaBroker
+    SamuraiBFF -->|"produce protobuf AudioChunk\ntopic: audio.raw"| KafkaBroker
     SamuraiBFF -->|"produce compacted JSON\ntopic: sessions.meta"| KafkaBroker
 
     KafkaBroker -->|"consume protobuf RefinedEvent\ntopic: transcripts.refined"| SamuraiBFF
@@ -62,13 +62,23 @@ flowchart LR
 
     KafkaBroker -->|"consume + persist\ntopic: transcripts.refined"| Persistor["samuraipersistor\n(Postgres writer)"]
     KafkaBroker -->|"consume + persist\ntopic: transcripts.final"| Persistor
+    KafkaBroker -->|"consume + persist\ntopic: workflow.result"| Persistor
+    KafkaBroker -->|"consume + persist\ntopic: webhook.delivery_outcome"| Persistor
 
     Persistor -->|persist| Postgres[(Postgres)]
     SamuraiBFF -->|query| Postgres
 
-    KafkaBroker --> WebhookRouter[webhook-router]
-    WebhookRouter --> WebhookDispatcher[webhook-dispatcher]
-    WebhookRouter --> WorkflowRunner[workflow-runner]
+    KafkaBroker -->|"consume\ntopic: sessions.meta"| WebhookRouter[webhook-router]
+    KafkaBroker -->|"consume\ntopics: transcripts.refined, transcripts.final, recordings.finished"| WebhookRouter
+
+    WebhookRouter -->|"produce\ntopic: webhook.dispatch"| KafkaBroker
+    WebhookRouter -->|"produce\ntopic: workflow.dispatch"| KafkaBroker
+
+    KafkaBroker -->|"consume\ntopic: webhook.dispatch"| WebhookDispatcher[webhook-dispatcher]
+    WebhookDispatcher -->|"produce\ntopic: webhook.delivery_outcome"| KafkaBroker
+
+    KafkaBroker -->|"consume\ntopic: workflow.dispatch"| WorkflowRunner[workflow-runner]
+    WorkflowRunner -->|"produce\ntopic: workflow.result"| KafkaBroker
 ```
 
 Read more:
