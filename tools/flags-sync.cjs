@@ -2,16 +2,16 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 /**
- * Sync a minimal subset of `flag-icons` SVGs into resources/public so they can be
- * served by the backend and also packaged with Electron.
+ * Sync `flag-icons` SVGs into resources/public so they can be served by the
+ * backend and also packaged with Electron.
  *
- * We intentionally do NOT copy the whole library (it's large). Instead we copy
- * only flags for regions we currently derive from Intl.Locale(...).maximize().region.
+ * Why copy at all?
+ * - Electron production loads renderer via file:// and needs assets to be
+ *   present in our packaged resources.
  *
- * Currently included:
- * - CZ, US, GB, DE, FR, ES, IT, NL, PL, UA, RU, SK
- *
- * If a needed flag is missing at runtime, UI falls back to the globe emoji.
+ * Implementation:
+ * - We currently sync ALL 4x3 SVGs to avoid missing icons for less-common
+ *   Whisper languages.
  */
 
 const REPO_ROOT = path.join(__dirname, '..');
@@ -26,20 +26,7 @@ const SRC_DIR = path.join(
 
 const DEST_DIR = path.join(REPO_ROOT, 'resources', 'public', 'img', 'flags', '4x3');
 
-const REGIONS = [
-  'cz',
-  'us',
-  'gb',
-  'de',
-  'fr',
-  'es',
-  'it',
-  'nl',
-  'pl',
-  'ua',
-  'ru',
-  'sk',
-];
+// We used to sync only a small subset; keep no allowlist for now.
 
 function ensureDir(p) {
   fs.mkdirSync(p, { recursive: true });
@@ -64,20 +51,14 @@ function main() {
 
   ensureDir(DEST_DIR);
 
-  for (const region of REGIONS) {
-    const filename = `${region}.svg`;
+  const files = fs.readdirSync(SRC_DIR).filter((f) => f.endsWith('.svg'));
+  for (const filename of files) {
     const src = path.join(SRC_DIR, filename);
     const dest = path.join(DEST_DIR, filename);
-
-    if (!fs.existsSync(src)) {
-      console.warn(`[flags:sync] Missing flag-icons SVG for region: ${region} (${src})`);
-      continue;
-    }
-
     copyIfNeeded(src, dest);
   }
 
-  console.log(`[flags:sync] Synced ${REGIONS.length} flags to ${DEST_DIR}`);
+  console.log(`[flags:sync] Synced ${files.length} flags to ${DEST_DIR}`);
 }
 
 main();

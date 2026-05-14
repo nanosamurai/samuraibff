@@ -24,7 +24,7 @@
 (defonce session*
   (atom {:id ""
          :title ""
-         :lang "cs"
+         :lang ""
          ;; Session-scoped webhook routing overrides.
          ;;
          ;; Shape matches schemas/CreateSessionRequest:
