@@ -6,7 +6,7 @@
 
   The key requirement for Electron is that the UI may be loaded from `file://`,
   so relative URLs like `/api/...` are not usable. We therefore compute a
-  backend base (default http://127.0.0.1:8000) and use it in all HTTP/WS
+  backend base (default http://localhost:8000) and use it in all HTTP/WS
   clients.")
 
 (def ^:private electron-backend-ls-key
@@ -29,9 +29,9 @@
   Behavior:
   - Browser build (served by backend): return empty string => same-origin.
   - Electron build: return value from localStorage (if set), otherwise
-    default to http://127.0.0.1:8000.
+    default to http://localhost:8000.
 
-  Returns: string (empty for same-origin, or e.g. http://127.0.0.1:8000)."
+  Returns: string (empty for same-origin, or e.g. http://localhost:8000)."
   []
   (if-not (electron?)
     ""
@@ -39,7 +39,7 @@
           v (when (string? v) (.trim v))]
       (if (seq v)
         v
-        "http://127.0.0.1:8000"))))
+        "http://localhost:8000"))))
 
 (defn set-electron-backend-base-url!
   "Persist backend base URL for Electron.
