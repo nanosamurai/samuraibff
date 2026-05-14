@@ -264,9 +264,9 @@ npm run electron:dev
 
 What this does:
 
-* starts `shadow-cljs watch` (UI dev server)
-* waits for the UI dev server (`http://localhost:8020`)
-* launches Electron and loads the UI from the dev server
+* starts `shadow-cljs watch` (continuous UI recompilation to `resources/public/js/main.js`)
+* waits for the backend (`http://127.0.0.1:8000`)
+* launches Electron and loads the UI from the backend
 
 ### 8.3 Build Windows artifacts (NSIS + portable)
 
