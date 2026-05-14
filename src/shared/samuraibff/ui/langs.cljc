@@ -138,6 +138,33 @@
                   (js/String.fromCodePoint (+ base b))))
            "🏳")))
 
+      (defn region->flag-icons-src
+        "Return a relative URL to a `flag-icons` SVG for a region.
+
+        We vendor a subset of `flag-icons` into:
+        - resources/public/img/flags/4x3/<region>.svg
+
+        Inputs:
+        - region: string ISO-3166-1 alpha-2, e.g. \"CZ\"
+
+        Returns:
+        - string URL, e.g. \"/img/flags/4x3/cz.svg\"
+        - nil when the input is invalid.
+
+        Notes:
+        - Existence of the file is not checked here (no IO in CLJS); the UI
+          handles errors/fallback." 
+        [region]
+        (let [region (some-> region str str/trim str/lower-case)
+              prefix (if (= "file:"
+                            (some-> js/window .-location .-protocol))
+                       "img/flags/4x3/"
+                       "/img/flags/4x3/")]
+          (when (and (string? region)
+                     (= 2 (count region))
+                     (re-matches #"[a-z]{2}" region))
+            (str prefix region ".svg"))))
+
      (defn lang->flag
        "Best-effort flag emoji for ISO-639-1 language code.
 
@@ -169,6 +196,46 @@
            :else
            "🏳")))
 
+      (defn lang->flag-icon
+        "Return a best-effort flag icon descriptor for a language code.
+
+        This is intended for Electron, where Unicode flag ligatures may not
+        render correctly.
+
+        Inputs:
+        - code: string ISO-639-1 language code (e.g. \"cs\") or blank
+
+        Returns:
+        - {:type :emoji :value <string>} for Auto / fallback
+        - {:type :svg :src <string> :alt <string>} when a region can be derived
+
+        Notes:
+        - Region is derived via Intl.Locale(...).maximize().region (best-effort).
+        - SVG assets are provided by vendored `flag-icons` under /img/flags/4x3/." 
+        [code]
+        (let [code (str (or code ""))]
+          (cond
+            (str/blank? code)
+            {:type :emoji :value "🌐"}
+
+            (and (exists? js/Intl)
+                 (exists? (.-Locale js/Intl)))
+            (try
+              (let [loc (js/Intl.Locale. code)
+                    max-loc (.maximize loc)
+                    region (.-region max-loc)
+                    src (region->flag-icons-src region)]
+                (if (seq src)
+                  {:type :svg
+                   :src src
+                   :alt (.toUpperCase (str (or region "")))}
+                  {:type :emoji :value "🌐"}))
+              (catch :default _
+                {:type :emoji :value "🌐"}))
+
+            :else
+            {:type :emoji :value "🌐"})))
+
      (defn language-options
        "Return all language dropdown options for the Live Recording page.
 
@@ -184,7 +251,8 @@
            :label "Auto"
            :flag "🌐"}]
          (map (fn [code]
-                {:value code
-                 :label (lang->display-name code)
-                 :flag (lang->flag code)}))
+                 {:value code
+                  :label (lang->display-name code)
+                  :flag (lang->flag code)
+                  :flagIcon (lang->flag-icon code)}))
          iso-639-1-codes))))
