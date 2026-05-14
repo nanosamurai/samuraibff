@@ -5,6 +5,7 @@
 .target/
 .cljs_node_modules/
 .shadow-cljs/
+dist/
 out/
 target/
 resources/public/js/
