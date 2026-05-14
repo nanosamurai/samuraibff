@@ -26,9 +26,10 @@
   },
   "scripts": {
     "ui:watch": "shadow-cljs watch app",
+    "ui:watch:or-attach": "node tools/ui-watch-or-attach.cjs",
     "ui:release": "shadow-cljs release app",
 
-    "electron:dev": "concurrently -k -n ui,electron -c cyan,magenta \"npm run ui:watch\" \"wait-on http://127.0.0.1:8000 && electron electron/main.cjs\"",
+    "electron:dev": "concurrently -k -n ui,electron -c cyan,magenta \"npm run ui:watch:or-attach\" \"wait-on http://127.0.0.1:8000 && electron electron/main.cjs\"",
     "electron:dist": "npm run ui:release && electron-builder -c electron-builder.yml"
   }
 }

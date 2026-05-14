@@ -30,6 +30,11 @@ npm install
 npm run electron:dev
 ```
 
+Notes:
+
+* In dev, Electron loads the UI from the running backend (default `http://127.0.0.1:8000`).
+* `shadow-cljs watch` runs in parallel and continuously recompiles the UI bundle into `resources/public/js/main.js`.
+
 ## Build Windows artifacts
 
 ```bash
