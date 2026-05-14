@@ -12,7 +12,7 @@ Scope decisions (explicit):
   `getUserMedia` with desktop source constraints.
 * **Audio output:** single track = **mix(mic + system)** → **16kHz PCM16LE mono**.
 * **Backend:** Electron connects to an **already-running** SamuraiBFF instance
-  (default `http://127.0.0.1:8000`). We do **not** bundle/launch the backend.
+  (default `http://localhost:8000`). We do **not** bundle/launch the backend.
 * macOS/Linux: not in first milestone; may require virtual audio devices.
 
 ---
@@ -31,13 +31,13 @@ Scope decisions (explicit):
                 │ contextIsolation (preload bridge)
 ┌───────────────▼──────────────────────────────────────────────┐
 │ Electron renderer (existing CLJS UI)                          │
-│  - selects backend base URL (default 127.0.0.1:8000)          │
+│  - selects backend base URL (default localhost:8000)          │
 │  - selects desktop capture source (screen/window)             │
 │  - getUserMedia(mic) + getUserMedia(desktop source)           │
 │  - WebAudio mixes sources → downsample → PCM16LE              │
 │  - streams binary frames to /ws/audio (same as today)         │
 └───────────────┬──────────────────────────────────────────────┘
-                │ ws://127.0.0.1:8000/ws/audio  (PCM16LE mono)
+                │ ws://localhost:8000/ws/audio  (PCM16LE mono)
 ┌───────────────▼──────────────────────────────────────────────┐
 │ samuraibff backend (unchanged contract)                       │
 │  - /ws/audio ingests PCM16LE mono                              │
@@ -99,7 +99,7 @@ relative `/api/...` and `/ws/...` calls are not valid.
 We will add an app-level configuration function that returns a backend base URL:
 
 * Browser (served by BFF): empty base (same-origin).
-* Electron: default `http://127.0.0.1:8000`, configurable (stored in
+* Electron: default `http://localhost:8000`, configurable (stored in
   localStorage).
 
 All `fetch` and `ws-url` helpers will use this base.
@@ -265,7 +265,7 @@ npm run electron:dev
 What this does:
 
 * starts `shadow-cljs watch` (continuous UI recompilation to `resources/public/js/main.js`)
-* waits for the backend (`http://127.0.0.1:8000`)
+* waits for the backend (`http://localhost:8000`)
 * launches Electron and loads the UI from the backend
 
 ### 8.3 Build Windows artifacts (NSIS + portable)

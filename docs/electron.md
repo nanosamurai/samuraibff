@@ -13,7 +13,7 @@ For the detailed design/implementation notes, see:
 ## Prerequisites
 
 * Node.js (recommended: 20.x) + npm
-* A running SamuraiBFF backend (default `http://127.0.0.1:8000`)
+* A running SamuraiBFF backend (default `http://localhost:8000`)
 
 ## Dev run
 
@@ -32,7 +32,7 @@ npm run electron:dev
 
 Notes:
 
-* In dev, Electron loads the UI from the running backend (default `http://127.0.0.1:8000`).
+* In dev, Electron loads the UI from the running backend (default `http://localhost:8000`).
 * `shadow-cljs watch` runs in parallel and continuously recompiles the UI bundle into `resources/public/js/main.js`.
 
 ## Build Windows artifacts

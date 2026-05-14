@@ -18,7 +18,7 @@ const isDev = !app.isPackaged;
 // In dev we point Electron at the running backend, which serves the UI from
 // resources/public/ (shadow-cljs watch keeps resources/public/js/main.js fresh).
 // In prod we load the packaged index.html.
-const devUrl = process.env.SAMURAIBFF_ELECTRON_DEV_URL || 'http://127.0.0.1:8000';
+const devUrl = process.env.SAMURAIBFF_ELECTRON_DEV_URL || 'http://localhost:8000';
 
 function createWindow() {
   const win = new BrowserWindow({
