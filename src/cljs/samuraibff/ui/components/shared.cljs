@@ -17,7 +17,7 @@
   Inputs:
   - s: string (ISO timestamp)
 
-  Returns: string?" 
+  Returns: string?"
   [s]
   (when (seq (str s))
     (try
@@ -34,7 +34,7 @@
   - s: string
   - opts: optional map {:title string}
 
-  Returns: hiccup." 
+  Returns: hiccup."
   ([s] (icon s nil))
   ([s {:keys [title]}]
    [:span {:class "icon" :title title} (or s "")]))
@@ -51,7 +51,7 @@
   Inputs:
   - e: JS error
 
-  Returns: string." 
+  Returns: string."
   [e]
   (let [msg (some-> e .-message str)]
     (if (seq msg) msg "Request failed")))
@@ -63,7 +63,7 @@
   - s: string
 
   Returns:
-  - Promise resolving to true/false." 
+  - Promise resolving to true/false."
   [s]
   (let [s (str (or s ""))]
     (cond
@@ -85,7 +85,7 @@
   Inputs:
   - opt: {:value string :label string :flag string}
 
-  Returns: string." 
+  Returns: string."
   [{:keys [value label]}]
   (-> (str (or value "") " " (or label ""))
       str/lower-case))
@@ -101,7 +101,7 @@
   - placeholder: string shown when no matching option is found
   - on-change: (fn [new-value] ...)
 
-  Returns: hiccup." 
+  Returns: hiccup."
   [{:keys [value options placeholder on-change]}]
   (let [open?* (react/useState false)
         open? (aget open?* 0)
@@ -140,7 +140,7 @@
                                target (.-target e)]
                            (when (and root (not (.contains root target)))
                              (set-open! false)
-                             (set-query! ""))))) ]
+                             (set-query! "")))))]
          (.addEventListener js/document "mousedown" handler)
          (fn []
            (.removeEventListener js/document "mousedown" handler))))
@@ -156,12 +156,24 @@
        js/undefined)
      #js [open?])
 
-    (let [trigger
+    (let [render-flag
+          (fn [{:keys [flag flagIcon]}]
+            (cond
+              (= :svg (:type flagIcon))
+              [:img {:class "flag-icon"
+                     :src (:src flagIcon)
+                     :alt (or (:alt flagIcon) "")
+                     :loading "lazy"}]
+
+              :else
+              (or flag "")))
+
+          trigger
           [:button {:type "button"
                     :class "dropdown-trigger"
                     :on-click (fn [_]
                                 (set-open! (not open?)))}
-           [:span {:class "dropdown-flag"} (or (:flag selected) "")]
+           [:span {:class "dropdown-flag"} (render-flag selected)]
            [:span {:class "dropdown-label"} (or (:label selected) placeholder)]
            [:span {:class "dropdown-caret"} "v"]]
 
@@ -181,7 +193,7 @@
              [:div {:class "dropdown-items"}
               (if (empty? visible-opts)
                 [:div {:class "dropdown-empty muted"} "No matches"]
-                (for [{:keys [value label flag]} visible-opts]
+                (for [{:keys [value label flag flagIcon]} visible-opts]
                   [:button {:type "button"
                             :key (str "opt-" value)
                             :class (str "dropdown-item"
@@ -191,7 +203,10 @@
                                           (on-change (str value)))
                                         (set-open! false)
                                         (set-query! ""))}
-                   [:span {:class "dropdown-flag"} (or flag "")]
+                   [:span {:class "dropdown-flag"} (render-flag {:value value
+                                                                 :label label
+                                                                 :flag flag
+                                                                 :flagIcon flagIcon})]
                    [:span {:class "dropdown-item-label"} (or label (str value))]
                    [:span {:class "dropdown-item-code muted"} (or value "")]]))]])]
 
@@ -206,7 +221,7 @@
   Inputs:
   - lang: string (ISO-639-1 code or blank)
 
-  Returns: hiccup." 
+  Returns: hiccup."
   [lang]
   (let [code (str (or lang ""))
         flag (langs/lang->flag code)

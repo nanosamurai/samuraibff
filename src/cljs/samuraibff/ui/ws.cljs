@@ -11,6 +11,7 @@
   - connect-events!
   - close-events!"
   (:require
+    [samuraibff.ui.env :as env]
     [samuraibff.ui.store :as store]
     [samuraibff.ui.util :as util]))
 
@@ -64,7 +65,8 @@
   (close-events!)
   (if (empty? (str session-id))
     (store/append-log! "[events] cannot connect: empty session id")
-    (let [url (util/ws-url "/ws/events" {:session_id session-id})
+    (let [url (util/ws-url "/ws/events" {:session_id session-id}
+                           {:backend-base-url (env/backend-base-url)})
           ws (js/WebSocket. url)]
       (reset! events-ws* ws)
       (store/set-ws-status! :events :connecting url)

@@ -1,1128 +1,169 @@
 # samuraibff
 
-Clojure BFF for the nanosamur.ai solution. 
+Clojure BFF (backend-for-frontend) for the **nanosamur.ai** solution.
 
-# About Nanosamur.ai
-Nanosamurai solution currently consists of 
-- **SamuraiBFF** (this repo), 
-- **xamurai** (https://github.com/mikub/xamurai ; locally usually at `%USERPROFILE%\PycharmProjects\xamurai`) services connected via Kafka/gRPC
-  - xamurai is a monorepo that contains multiple Speach-to-text and speaker diarization services for Nanosamur.ai solution - they provide both real-time transcription as well as near-real-time refinement. 
-- **samuraipersistor** (https://github.com/mikub/samuraipersistor ; locally usually at `%USERPROFILE%\IdeaProjects\samuraipersistor` ) for persistence.
-  - Database persistence is handled by a separate service, the samuraipersistor; consumes from all relevant Kafka topics and stores the data in Postgres 
-- **nanodeploy** - Helm charts for local k8s  and aws EKS deployments and also local docker compose setup (https://github.com/mikub/nanodeploy ; locally usually at `%USERPROFILE%\PycharmProjects\nanodeploy`)
-- **nanplatform** - Pulumi infra setup in AWS (https://github.com/mikub/nanplatform ; locally usually at `%USERPROFILE%\PycharmProjects\nanplatform`)
-- **nanosamurai-sdk** - A python sdk client for nanosamur.ai (uses client credentials for m2m access) (https://github.com/mikub/nanosamurai-sdk ; locally usually at `%USERPROFILE%\PycharmProjects\nanosamurai-sdk`)
-- **webhook-router** - java service for filtering kafka message which should trigger webhooks configured by a user (see `%USERPROFILE%\IdeaProjects\webhook-router`)
-- **webhook-dispatcher** - java service for dispatching webhooks (see `%USERPROFILE%\IdeaProjects\webhook-dispatcher`)
-- **workflow-runner** - java service for executing post-processing workflows https://github.com/mikub/workflow-runner (locally usually at `%USERPROFILE%\IdeaProjects\workflow-runner`)
+This repo contains:
 
----
+* **Backend** (Clojure): HTTP/WS API + orchestration
+* **UI** (ClojureScript): browser UI
+* **Electron app (Windows-first)**: wraps the UI and can capture mic + (best-effort)
+  system output audio
 
-# The scope of the BFF:
+## Architecture (high level)
 
-### 1) Realtime path
-- accept browser audio via WebSocket (`/ws/audio`) as **binary PCM16LE**
-- forward audio frames to **rtservice** via **gRPC** (bidirectional stream)
-- stream realtime events back to the UI via WebSocket (`/ws/events`) as **JSON**
+```mermaid
+flowchart LR
+    subgraph Client
+        Browser["Browser UI\n(ClojureScript)"]
+        Electron["Electron app\n(Windows-first)"]
+    end
 
-#### Plan C: rtservice PARTIAL + FINAL semantics
+    subgraph SamuraiBFF["SamuraiBFF (this repo)"]
+        HTTP[HTTP /api + /auth]
+        WSAudio[ws/audio]
+        WSEvents[ws/events]
+    end
 
-rtservice may emit both:
-- **PARTIAL** hypotheses for the current window (replaceable)
-- **FINAL** results for a completed window (locking)
+    subgraph Xamurai["xamurai (Python services)"]
+        RTService["rtservice\n(realtime ASR)"]
+        WhisperXWorker["whisperx_worker\n(slice refinement)"]
+        RecorderWorker["recorder_worker\n(session WAV)"]
+        FinalizerWorker["finalizer_worker\n(final transcript)"]
+    end
 
-The UI merges realtime ASR events with this rule:
-- PARTIAL updates replace the current partial line **for the same window**
-- FINAL commits the window (stops changing)
+    Browser -->|HTTP /api + /auth| HTTP
+    Browser -->|"WS audio\nWebSocket /ws/audio\nPCM16LE mono 16kHz"| WSAudio
+    Browser ---|"WS events\nWebSocket /ws/events\nJSON events"| WSEvents
 
-Note: rtservice can emit PARTIALs for the next window while the previous window
-is still being updated. The UI therefore tracks partials per window (derived
-from `start_s`) to avoid leaving “dangling partial bubbles”.
+    Electron -->|HTTP /api + /auth| HTTP
+    Electron -->|"WS audio\nWebSocket /ws/audio\nPCM16LE mono 16kHz"| WSAudio
+    Electron ---|"WS events\nWebSocket /ws/events\nJSON events"| WSEvents
 
-### 2) Near-realtime refinement path (Kafka + cross-instance routing)
-- publish `AudioChunk` protobuf messages to Kafka topic **`audio.raw`**
-- consume `RefinedEvent` protobuf messages from Kafka topic **`transcripts.refined`**
-- forward refined events to the **originating BFF instance** using an internal callback:
-  - `POST /internal/refined` with `application/x-protobuf`
-- push refined transcript segments to the UI over `/ws/events` as `{"type":"refined", ...}` events
+    SamuraiBFF -->|gRPC bidirectional stream| RTService
 
-### 2b) Workflow results path (Kafka + cross-instance routing)
+    subgraph Kafka["Kafka"]
+        KafkaBroker[(Kafka broker)]
+    end
 
-Workflows are executed by **workflow-runner**. The produced result is stored by **samuraipersistor** into Postgres
-read model table:
+    SamuraiBFF -->|"produce protobuf AudioChunk\ntopic: audio.raw"| KafkaBroker
+    SamuraiBFF -->|"produce compacted JSON\ntopic: sessions.meta"| KafkaBroker
 
-- `workflow_results_latest`
+    KafkaBroker -->|"consume protobuf RefinedEvent\ntopic: transcripts.refined"| SamuraiBFF
+    KafkaBroker -->|"consume JSON workflow.result\ntopic: workflow.result"| SamuraiBFF
 
-The BFF also streams workflow results to the UI in (near) real-time, but only for workflows triggered by
-`transcript.refined.*` events (streaming final-trigger results is not useful).
+    KafkaBroker -->|"consume\ntopic: audio.raw"| WhisperXWorker
+    WhisperXWorker -->|"produce protobuf RefinedEvent\ntopic: transcripts.refined"| KafkaBroker
 
-Data flow:
+    KafkaBroker -->|"consume\ntopic: audio.raw"| RecorderWorker
+    RecorderWorker -->|"produce protobuf RecordingFinished\ntopic: recordings.finished"| KafkaBroker
 
-- workflow-runner produces workflow results to Kafka topic **`workflow.result`** (JSON)
-- every BFF instance consumes from `workflow.result`
-- because the consumer group can deliver the message to any BFF instance, non-origin instances forward the JSON
-  payload to the origin instance via:
-  - `POST /internal/workflow-result` with `application/json`
-- the origin instance publishes a `/ws/events` JSON event:
-  - `{"type":"workflow_result", "session_id": ..., "workflow_id": ..., ...}`
+    KafkaBroker -->|"consume\ntopic: recordings.finished"| FinalizerWorker
+    FinalizerWorker -->|"produce protobuf SessionTranscript\ntopic: transcripts.final"| KafkaBroker
 
-UI:
+    KafkaBroker -->|"consume + persist\ntopic: transcripts.refined"| Persistor["samuraipersistor\n(Postgres writer)"]
+    KafkaBroker -->|"consume + persist\ntopic: transcripts.final"| Persistor
+    KafkaBroker -->|"consume + persist\ntopic: workflow.result"| Persistor
+    KafkaBroker -->|"consume + persist\ntopic: webhook.delivery_outcome"| Persistor
 
-- Live Recording: right-side panel → **Workflows** tab shows streamed workflow results
-- Recording Detail: right-side panel → **Workflows** tab shows workflow results loaded from DB (`workflow_results_latest`)
+    Persistor -->|persist| Postgres[(Postgres)]
+    SamuraiBFF -->|query| Postgres
 
-RefinedEvent semantics (important):
-- A single `RefinedEvent` protobuf represents one refinement window slice (e.g. 60s).
-- The worker can emit **multiple speaker turns** as `RefinedEvent.segments`.
-- The BFF fans out one protobuf `RefinedEvent` into **N WS `refined` events** (one per segment) so the UI can keep its existing “one message == one segment” model.
+    KafkaBroker -->|"consume\ntopic: sessions.meta"| WebhookRouter[webhook-router]
+    KafkaBroker -->|"consume\ntopics: transcripts.refined, transcripts.final, recordings.finished"| WebhookRouter
 
-### 3) Refined transcripts handling (UI semantics)
-The UI receives both realtime and refined transcript events over `/ws/events`:
-- realtime ASR: `{"type":"asr", "start_s": <double>, "end_s": <double>, "final": <bool>, ...}`
-- refined (WhisperX): `{"type":"refined", "start_s": <double>, "end_s": <double>, ...}`
+    WebhookRouter -->|"produce\ntopic: webhook.dispatch"| KafkaBroker
+    WebhookRouter -->|"produce\ntopic: workflow.dispatch"| KafkaBroker
 
-The UI renders transcripts as a Slack-like message thread (avatar/name/timestamp + bubble).
+    KafkaBroker -->|"consume\ntopic: webhook.dispatch"| WebhookDispatcher[webhook-dispatcher]
+    WebhookDispatcher -->|"produce\ntopic: webhook.delivery_outcome"| KafkaBroker
 
-#### Transcript modes / tabs
-Since rtservice realtime quality has improved, the UI **does not merge** refined
-segments into realtime ASR any more.
-
-Instead, the UI shows separate views:
-- **Real-time transcript** (ASR)
-- **Refined real-time** (refined)
-- **Final transcript** (DB final)
-
-### 4) Front-end
-And of course, this repos also hosts the UI (Clojurescript) - see `src/cljs` .
-
----
-
-## Webhooks: session overrides (UI)
-
-When webhooks are enabled for your tenant, the UI can provide **session-scoped webhook routing overrides**.
-
-### Where in UI
-
-On **Live Recording**, there is an advanced collapsible panel **Webhook routing** (next to Stream settings).
-
-### What it controls
-
-When you click **New session**, the UI sends an optional `webhook_overrides` object in `POST /api/sessions`.
-
-Supported fields (Phase 1 / RFC-0001):
-
-```json
-{
-  "title": "My session",
-  "webhook_overrides": {
-    "use_defaults": true,
-    "webhook_ids": ["<uuid>"],
-    "disable_event_types": ["transcript.refined.segment"]
-  }
-}
+    KafkaBroker -->|"consume\ntopic: workflow.dispatch"| WorkflowRunner[workflow-runner]
+    WorkflowRunner -->|"produce\ntopic: workflow.result"| KafkaBroker
 ```
 
-- `use_defaults` (boolean; default true) controls whether `tenant_webhook_defaults` are used.
-- `webhook_ids` is a list of additional webhooks to include for this session.
-- `disable_event_types` is a session-scoped **global filter** (events disabled here will not be routed to any webhooks for this session).
+Read more:
 
-The backend persists this payload in `sessions.webhook_overrides` (jsonb) and uses it to resolve the immutable routing snapshot published to Kafka (`sessions.meta`).
+* `docs/architecture.md`
 
----
+## Related repositories / projects (nanosamur.ai)
 
-## Workflows (RFC-0003): tenant configuration + session overrides
+Nanosamurai solution currently consists of:
 
-Workflows are tenant-scoped LLM post-processing definitions (prompt + model + trigger).
+* **SamuraiBFF** (this repo)
+* **xamurai** https://github.com/mikub/xamurai (locally usually at `%USERPROFILE%\PycharmProjects\xamurai`)
+  * xamurai is a monorepo with speech-to-text and speaker diarization services.
+* **samuraipersistor** https://github.com/mikub/samuraipersistor (locally usually at `%USERPROFILE%\IdeaProjects\samuraipersistor`)
+  * persistence service consuming Kafka topics and storing to Postgres.
+* **nanodeploy** https://github.com/mikub/nanodeploy (locally usually at `%USERPROFILE%\PycharmProjects\nanodeploy`)
+  * Helm charts / local k8s / docker compose setups.
+* **nanplatform** https://github.com/mikub/nanplatform (locally usually at `%USERPROFILE%\PycharmProjects\nanplatform`)
+  * Pulumi infra in AWS.
+* **nanosamurai-sdk** https://github.com/mikub/nanosamurai-sdk (locally usually at `%USERPROFILE%\PycharmProjects\nanosamurai-sdk`)
+* **webhook-router** (local: `%USERPROFILE%\IdeaProjects\webhook-router`)
+* **webhook-dispatcher** (local: `%USERPROFILE%\IdeaProjects\webhook-dispatcher`)
+* **workflow-runner** https://github.com/mikub/workflow-runner (local: `%USERPROFILE%\IdeaProjects\workflow-runner`)
 
-At session creation time, the BFF resolves **tenant defaults + per-session overrides**
-into an immutable `sessions.meta.workflows.targets` snapshot.
+## How to run (local dev)
 
-### Endpoints
+This README documents **local developer workflows only**.
+Docker/Kubernetes/CI/CD is owned by **nanodeploy**.
 
-Tenant-scoped CRUD:
-
-- `GET /api/workflows`
-- `POST /api/workflows`
-- `PUT /api/workflows/:id`
-- `DELETE /api/workflows/:id`
-
-Tenant defaults:
-
-- `GET /api/workflows/defaults`
-- `PUT /api/workflows/defaults`
-
-### Request shapes
-
-Create session with workflow overrides:
-
-```json
-{
-  "title": "My session",
-  "workflow_overrides": {
-    "use_defaults": true,
-    "workflow_ids": ["<uuid>"]
-  }
-}
-```
-
-Notes:
-
-- `use_defaults` (boolean; default true) controls whether `tenant_workflow_defaults` are used.
-- `workflow_ids` is a list of additional workflows to include for this session.
-
-### Where in UI
-
-- Settings → **Workflows** (CRUD)
-- Settings → **Workflows** → use the **Default** checkbox
-
-### Manual verification
-
-1) Create 1-2 workflows under **Settings → Workflows**.
-2) Set at least one default using the **Default** checkbox on the Workflows page.
-3) Create a new session (Live Recording or Recordings page).
-4) Verify in Postgres:
-   - `workflows` contains your rows
-   - `tenant_workflow_defaults` contains chosen default IDs
-   - `sessions.workflow_overrides` contains the JSON payload when non-default
-5) Verify downstream: webhook-router/workflow-runner should see `sessions.meta.workflows.targets`.
-
-### Refined trigger: rolling tail + dispatch throttling
-
-For workflows triggered by `transcript.refined.segment`, you may want:
-
-- **Send cumulative transcript (rolling tail)**
-  - UI wording: *“Send cumulative transcript (rolling tail)”*
-  - API/sessions.meta field (for compatibility with webhook-router):
-    - `workflows.targets[].incremental.enabled = true`
-
-When this is enabled for any workflow target, the BFF will automatically force:
-
-- `sessions.meta.refined_transcript.consolidation.enabled = true`
-
-so that webhook-router will route **consolidated refined transcript** (rolling tail)
-events downstream.
-
-Optional rate limiting:
-
-- `workflows.targets[].incremental.min_interval_sec` is a **dispatch throttling interval**
-  (debounce) applied by webhook-router per `(session_id, workflow_id)`.
-  It is *not* related to the session refinement window size.
-
-### Webhook dispatch audit (outcomes)
-
-When using the webhook stack (webhook-router + webhook-dispatcher + samuraipersistor), the samuraipersistor writes a delivery audit log into Postgres table:
-
-- `webhook_delivery_outcomes`
-
-The BFF exposes these outcomes tenant-scoped (by `tenant_id` + `session_id`) and the UI can display them:
-
-- Live Recording: **Webhooks** tab in the Session settings panel (right-side)
-- Recording Detail: right-side panel shows a tabbed **Webhooks / Workflows** view (collapsible)
-
-Implementation notes:
-
-- API endpoint: `GET /api/sessions/:session_id/webhook-delivery-outcomes`
-- Recording detail embeds the same data inside `GET /api/recordings/:session_id` response under `:webhook_delivery_outcomes`.
-
-The UI displays the configured **webhook name** (from `webhooks.name`) when available.
-
-### Workflow results read model (DB)
-
-Workflow results are stored as a read model in Postgres (maintained by samuraipersistor):
-
-- `workflow_results_latest` keyed by `(tenant_id, session_id, workflow_id)`
-
-The Recording Detail endpoint (`GET /api/recordings/:session_id`) embeds latest workflow results under:
-
-- `:workflow_results_latest`
-
-Each item contains (best effort):
-
-- `workflow_id`, `workflow_name`, `workflow_run_id`
-- `created_at`, `trigger_type`, `status`
-- `render_markdown`
-- `error_code`, `error_detail`
-
----
-
-## Refined transcript consolidation (rolling tail)
-
-Some downstream consumers (initially webhook/event-router; later internal workflows / LLM post-processing) need a **cumulative transcript tail** rather than only the latest refined window.
-
-At session creation time, the client can enable consolidated refined transcript production by providing a session-scoped setting in `POST /api/sessions`.
-
-### Request shape
-
-```json
-{
-  "title": "My session",
-  "session_settings": {
-    "refined_transcript": {
-      "consolidation": {
-        "enabled": true
-      }
-    }
-  }
-}
-```
-
-### Persistence
-
-The backend stores this payload snapshot in `sessions.session_settings` (jsonb).
-
-### sessions.meta publishing
-
-When a session is created, the BFF publishes a compacted `sessions.meta` value keyed by `session_id`.
-
-For compatibility, during transition we publish both routing keys:
-- `routing` (legacy)
-- `webhook_routing` (new)
-
-The BFF also publishes `refined_transcript.consolidation` so downstream processors can gate consolidation:
-
-```json
-{
-  "refined_transcript": {
-    "consolidation": {
-      "enabled": true,
-      "max_bytes": 262144,
-      "topic": "transcripts.refined.consolidated",
-      "include_full_text": true
-    }
-  }
-}
-```
-
-Important:
-- The BFF must **never log transcript contents**; logs should only mention booleans/ids.
-
-### Manual verification
-
-1) Create 1-2 webhooks under **Settings → Webhooks** and subscribe them to at least one event type.
-2) Set at least one default using the **Default** checkbox on the Webhooks page.
-3) Go to **Live Recording → Webhook routing**:
-   - toggle **Use tenant default webhooks**
-   - select an additional webhook
-   - optionally disable an event type (e.g. `transcript.refined.segment`)
-4) Click **New session**.
-5) Verify:
-   - DB: `sessions.webhook_overrides` contains the expected JSON.
-   - Server logs show "Resolving sessions.meta routing snapshot" with `webhook_overrides_present? true` and "Publishing sessions.meta" with a non-zero `targets_count`.
-
-#### Legacy refined replacement heuristic (no longer used)
-Historically, the UI merged refined segments into realtime ASR using a replacement
-heuristic based on time window containment.
-
-We keep the pure helper function in `src/shared/samuraibff/ui/transcript.cljc`
-for reference/testing, but the default UI behavior is now to render ASR and
-refined as separate streams.
-
-#### Timebases and debugging
-In practice, ASR and refined timestamps can come from different sources.
-
-- ASR events are **rebased in the UI** to make the timeline start at `00:00.xx` when you hit **Start**.
-- Refined events are currently **NOT rebased** (they are displayed using the raw `start_s/end_s`).
-
-When opening a recent live session under **Recordings**, the UI may show refined
-segments coming from two sources:
-- cached WS refined events from the live session, and
-- refined records fetched from the DB.
-
-To avoid duplicate bubbles, the UI de-duplicates refined segments using a stable
-key based on text + timing at the **centisecond (0.01s) resolution** (matching
-what the UI renders). Missing `speaker/lang` values are normalized so that `nil`
-and blank are treated as equivalent.
-
-The UI shows `start → end` in the message header to make it easier to debug window alignment.
-
-If you see refined segments with `00:00.00 → 00:00.00`, check backend logs: protobuf3 defaults missing doubles to `0.0`, which usually means the worker didn’t populate `start_s/end_s`.
-
-## Auth (OIDC / Keycloak)
-
-OIDC login is implemented similarly to the original Python BFF (drsynth).
-
-### Endpoints
-
-Browser (Authorization Code + PKCE):
-- `GET /auth/login?next=/live` – redirect to Keycloak login; stores PKCE cookies
-- `GET /auth/callback?code=...&state=...` – exchanges `code` for tokens; stores access token in an **HttpOnly cookie**
-- `POST /auth/logout` – clears the access token cookie
-
-API helpers:
-- `GET /api/me` – returns current user info (or unauthenticated)
-
-### Tokens / transport
-
-### Tenant isolation (current model)
-
-At the moment, isolation is enforced **per-tenant** (not per-user):
-
-- `POST /api/sessions` creates a new `session_id` server-side and binds it to the
-  authenticated tenant (`tenant_id` claim).
-- `/ws/events` and `/ws/audio` will only accept a `session_id` if it belongs to
-  the same tenant as the currently authenticated user.
-- When auth is required, **WS endpoints will not create sessions**; unknown
-  session ids are rejected.
-
-This prevents a tenant from subscribing to another tenant’s session, even if a
-`session_id` leaks.
-
-The backend accepts access tokens from:
-1) `Authorization: Bearer <token>` header
-2) `?token=<token>` query param (useful for WS/dev)
-3) HttpOnly cookie (default name: `access_token`)
-
-WebSockets `/ws/events` and `/ws/audio` enforce auth **before upgrade** when `:auth {:required? true}`.
-
-## Machine-to-machine (M2M) credentials (Keycloak service accounts)
-
-The BFF supports generating **user-managed M2M credentials** intended for SDKs and backend services.
-
-### Model
-
-Each credential is backed by a **confidential Keycloak client** with **service account enabled**.
-The BFF uses the **Keycloak Admin API** to create the client and generate/rotate its secret.
-
-Important security properties:
-
-- The client secret is **never stored** in Postgres.
-- The secret is returned to the UI only **once** (on create/rotate).
-- Tokens issued to the service account contain a `tenant_id` claim (via protocol mapper).
-- Tokens issued to the service account are also configured to include the BFF's expected
-  audience (`:auth :audience`) so they pass JWT verification.
-
-Metadata is stored in Postgres table `api_credentials` (tenant-scoped) so the UI can list/revoke credentials.
-
-### Endpoints (human management)
-
-All endpoints require a normal user access token (OIDC cookie/Bearer token) and are tenant-scoped:
-
-- `GET /api/api-credentials` – list credentials
-- `POST /api/api-credentials` – create credential; body: `{ "name": "my-sdk" }` (returns `client_secret`)
-- `POST /api/api-credentials/:id/rotate` – rotate secret (returns new `client_secret`)
-- `DELETE /api/api-credentials/:id` – revoke credential (disables Keycloak client + marks revoked in DB)
-
-### UI page
-
-The UI for managing credentials lives in this repo under `src/cljs/samuraibff/ui/`.
-
-- Route: `GET /api-credentials` (SPA page)
-
-#### Show-once secret behavior (important)
-
-When you **create** or **rotate** a credential, the backend returns `client_secret` exactly once.
-
-Security properties in the UI:
-- the secret is stored **only in memory** while the “Client secret” modal is open
-- closing the modal clears the secret from UI state
-- the UI does **not** persist secrets (no localStorage/sessionStorage)
-- the UI avoids logging response bodies (to reduce risk of accidental secret exposure)
-
-### How an SDK uses it (client_credentials)
-
-1) Create a credential in UI or via `POST /api/api-credentials`.
-2) From the SDK/service, obtain a token from Keycloak:
-
-```bash
-curl -s \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=client_credentials" \
-  -d "client_id=<client_id>" \
-  -d "client_secret=<client_secret>" \
-  "https://auth.nanosamur.ai/realms/<realm>/protocol/openid-connect/token"
-```
-
-3) Call BFF APIs with `Authorization: Bearer <access_token>`.
-
-### Note on tenant-id inheritance
-
-Keycloak does **not** automatically “inherit” a user’s tenant claim into a newly created
-client.
-
-Instead, the BFF sets tenant scoping explicitly when it creates an M2M client via the
-Admin API:
-
-- it adds a protocol mapper that hardcodes `tenant_id=<creator-tenant-id>` into tokens
-  minted for that client’s service account
-- it adds an audience mapper so the resulting tokens include the BFF's expected audience
-  and are accepted by our JWT verifier
-
-This is asserted by the integration test:
-`test/samuraibff/auth/keycloak_auth_integration_test.clj`.
-
-### Configuration
-
-#### Keycloak Admin API credentials (required only for managing M2M credentials)
-
-**Do not** put the Keycloak admin secret into `resources/system.edn` (it is jar-packaged).
-Inject it via env vars / k8s Secrets.
-
-Environment variables:
-
-- `SAMURAIBFF_KEYCLOAK_ADMIN_ISSUER` (e.g. `https://auth.nanosamur.ai/realms/nanosamurai`)
-- `SAMURAIBFF_KEYCLOAK_ADMIN_REALM` (e.g. `nanosamurai`)
-- `SAMURAIBFF_KEYCLOAK_ADMIN_CLIENT_ID` (e.g. `bff-admin`)
-- `SAMURAIBFF_KEYCLOAK_ADMIN_CLIENT_SECRET` (secret)
-
-Keycloak client setup for `bff-admin`:
-- client type: **Confidential**
-- **Service accounts enabled**: ON
-- (no redirect URLs needed)
-
-Important: assign roles under **Client → Service account roles** (not just “Roles”):
-- Realm Management → `manage-clients` (often also `view-clients`)
-
-If the admin config is not present, the server will start, but M2M management endpoints return
-`503 keycloak-admin-unavailable`.
-
-### Configuration
-
-See `resources/system.edn`:
-
-- `:auth`
-  - `:required?` (boolean)
-  - `:issuer` (Keycloak realm issuer URL)
-- `:audience` (JWT audience / usually the Keycloak client id)
-    - Note: Some Keycloak setups emit access tokens with `aud=["account"]` and put the real client id into `azp`.
-      We accept either `aud` containing the expected value OR `azp == expected`.
-  - `:client-id` (OAuth client id for `/auth/login`; defaults to `:audience`)
-  - `:cookie-name` (default: `access_token`)
-- `:bff :origin-uri`
-  - Used to build the OIDC `redirect_uri` (`<origin-uri>/auth/callback`).
-  - Keycloak matches this **exactly** against client "Valid Redirect URIs".
-
-### How to debug the redirect_uri (curl)
-
-You can see the exact Keycloak redirect URL (and therefore the computed `redirect_uri`) without using the browser:
-
-```bash
-curl -s -D - -o NUL --max-redirs 0 "http://localhost:8000/auth/login?next=%2Flive"
-```
-
-Look at the `Location:` header. It should contain:
-
-- `redirect_uri=http%3A%2F%2Flocalhost%3A8000%2Fauth%2Fcallback` (or `127.0.0.1` depending on your config)
-
-If Keycloak shows `Invalid parameter: redirect_uri`, fix either:
-- `resources/system.edn` `:bff :origin-uri`, or
-- Keycloak client settings → **Valid Redirect URIs** (e.g. `http://localhost:8000/*`).
-
-### Note on automated auth testing
-
-We have added heavy integration test that spins up real Keycloak + Postgres via Testcontainers, creates two users in different tenants, creates M2M credentials as Alice, and asserts that:
-
-- the M2M token can access Alice’s tenant data
-- it cannot access Bob’s
-
-Test: `test/samuraibff/auth/keycloak_auth_integration_test.clj` Helper: `test/samuraibff/testcontainers/keycloak.clj`
-
-
-## Enrolled speakers (multi-tenant)
-
-The BFF now supports **enrolled speakers** for diarization, stored per tenant
-in S3 and persisted in Postgres.
-
-### API endpoints
-
-- `GET /api/speakers` – list speakers for the authenticated tenant
-- `POST /api/speakers` – multipart upload with fields:
-  - `label` (string)
-  - `sample` (WAV file)
-- `DELETE /api/speakers/:speaker_id` – delete speaker (DB + best-effort S3 cleanup)
-  - in local dev, LocalStack may be restarted and lose buckets/objects while DB rows remain.
-    In that case the API still returns **200** if the DB record was deleted successfully,
-    and may include `s3_delete_failed=true` for observability.
-
-### Enrollment from recordings (preferred UX)
-
-Since we now have **recordings + playback**, you typically don’t need to manually upload a WAV file.
-
-Instead, the UI lets you enroll a speaker directly from a diarized **final transcript bubble**:
-
-1. Open a recording under `/recordings/:session_id`
-2. Go to **Final transcript** tab
-3. Hover a transcript bubble and click the **＋** action
-4. Enter the speaker name and click **Enroll**
-
-Backend endpoint:
-
-- `POST /api/speaker-enrollment/from-recording`
-  - body: `{ "session_id": "...", "start_s": 12.34, "end_s": 18.90, "label": "Dr Novak" }`
-  - server clamps the clip duration to a safe maximum (currently **10s**)
-
-### S3 layout (enrollments)
-
-```
-s3://<enrollments-bucket>/<enrollment-prefix>/<tenant_id>/speakers/<speaker_id>/
-  speaker.json
-  samples/<sample_id>.wav
-```
-
-The `speaker.json` is a per-speaker manifest containing the label and sample URL.
-
-### Configuration
-
-Add S3 / object-store config in `resources/system.edn` (or env overrides):
-
-```edn
-:s3 {:region ""
-     :endpoint ""          ;; localstack/minio/ceph
-     :access-key ""        ;; optional; when blank, AWS default credentials chain is used (IAM/IRSA)
-     :secret-key ""        ;; optional
-     :force-path-style? true
-     :buckets {:enrollments {:bucket "xamurai-enrollment"
-                             :prefix "enrollment"}
-               :recordings  {:bucket "xamurai-recordings"
-                             :prefix "recordings"}}}
-```
-
-Environment variables:
-
-- `SAMURAIBFF_S3_REGION`
-- `SAMURAIBFF_S3_ENDPOINT`
-- `SAMURAIBFF_S3_ACCESS_KEY`
-- `SAMURAIBFF_S3_SECRET_KEY`
-- `SAMURAIBFF_S3_FORCE_PATH_STYLE`
-
-Buckets:
-
-- `SAMURAIBFF_S3_ENROLLMENTS_BUCKET`
-- `SAMURAIBFF_S3_ENROLLMENTS_PREFIX`
-- `SAMURAIBFF_S3_RECORDINGS_BUCKET`
-- `SAMURAIBFF_S3_RECORDINGS_PREFIX`
-
-### Tests (LocalStack)
-
-Integration tests use LocalStack S3 via Testcontainers:
-
-```
-clojure -X:test :nses '[samuraibff.http.speakers-integration-test]'
-```
-
-## Postgres persistence (sessions)
-
-Not all persistence is handled by **samuraipersistor** service - the BFF still handles some initial session persistence:
-
-- Integrant component: `:samuraibff/db` (HikariCP pool)
-- `POST /api/sessions` generates a **UUIDv7** session id and inserts a row into `sessions`.
-- Keycloak user mapping: `app_users.external_id` should contain Keycloak `sub`.
-
-### Session webhook overrides
-
-When creating a session (`POST /api/sessions`), the client can optionally provide
-`webhook_overrides` which is stored in `sessions.webhook_overrides` (JSONB).
-
-This is used to derive the session's webhook routing snapshot published to Kafka
-(`sessions.meta`).
-
-### Unauthenticated / dev fallback
-
-If `:auth {:required? false}` we still need to satisfy the DB schema constraint `sessions.tenant_id NOT NULL`.
-
-The server will use a fallback tenant id:
-- `00000000-0000-0000-0000-000000000000`
-
-Optionally, if you want `sessions.user_id` to resolve in unauthenticated mode, add a guest user:
-- `app_users.external_id = "guest"` within that tenant.
-
-### Config
-
-See `resources/system.edn`:
-
-```edn
-:db {:jdbc-url "jdbc:postgresql://localhost:5432/nanosamurai"
-     :username "drsynth"
-     :password "drsynth"
-     :maximum-pool-size 10}
-```
-
-### Tests
-
-We have an integration test that boots Postgres via Testcontainers and asserts the row is inserted:
-- `test/samuraibff/http/ui_test.clj` (`create-session-handler-persisted-integration-test`)
-
-> Note: transcripts/recordings persistence is still not implemented.
-
-## Running the server
-
-## API documentation (OpenAPI)
-
-The service publishes a **customer-facing** OpenAPI spec and Swagger UI:
-
-- OpenAPI JSON: `GET /openapi.json`
-- Swagger UI: `GET /docs`
-
-The OpenAPI spec includes only:
-- `/auth/*` (browser login flow)
-- `/api/*` (tenant-scoped REST API)
-
-## Recordings + transcripts REST API (contract)
-
-Two endpoints power the Recordings UI and are also part of the customer-facing API:
-
-- `GET /api/recordings`
-  - returns tenant-scoped session list
-  - **does not expose** internal recording URLs (no `file://` / `s3://`)
-
-- `GET /api/recordings/{session_id}`
-  - returns session metadata and stored transcript records
-  - includes `stream_controls` (when present)
-    - snapshot of `/ws/audio` stream control parameters used when audio started
-  - transcript records contain:
-    - `segments`: **JSON array** of `{start_s,end_s,text,speaker?,lang?,words?}` (not a JSON string)
-      - `words` (optional): array of `{start_s,end_s,text}` for word-level timing (karaoke)
-    - pipeline metadata (`source`, `model`, window fields) needed for debugging and future SDKs
-
-- `GET /api/recordings/{session_id}/audio`
-  - streams the recorded audio for playback (protected by auth + tenant isolation)
-  - supports HTTP Range requests (`Range: bytes=start-end`) so the browser can seek
-  - does **not** expose internal `recording_url` values (`file://`, `s3://`) to the browser
-
-### Karaoke-style word highlighting (UI)
-
-If a final transcript segment includes `words[]` timing data (`{start_s,end_s,text}`), the UI Recording detail page
-renders the final transcript in “karaoke” mode:
-
-- words are rendered as clickable spans
-- the currently spoken word is highlighted based on the playback `<audio>` current time
-- playback time is sampled via `requestAnimationFrame` while audio is playing (to avoid skipping short words)
-- clicking a word seeks the audio to that word (best-effort autoplay)
-- optional “Follow” mode auto-scrolls the active word into view
-
-It intentionally excludes:
-- UI/SPA routes (e.g. `/`, `/recordings`, `/live`)
-- internal callbacks (e.g. `/internal/*`)
-- WebSockets (`/ws/*`) (not modeled by OpenAPI)
-- operational probes (`/health`, `/ready`)
-
-## Docker (Kubernetes-oriented)
-
-This service is intended to run in Kubernetes.
-
-The repo includes a multi-stage `Dockerfile` that produces a **self-contained**
-image:
-- builds the CLJS UI bundle (`shadow-cljs release`) into `resources/public/js`
-- generates protobuf Java stubs (`buf generate`) and compiles them
-- builds an **uberjar** (`target/samuraibff.jar`) and runs it via `java -jar`
-
-### Build the image
-
-```bash
-docker build -t samuraibff:local .
-```
-
-### Run the container (example)
-
-At minimum you must provide configuration for external dependencies, otherwise
-the process will still start but readiness (`/ready`) will be degraded.
-
-```bash
-docker run --rm -p 8000:8000 \
-  -e SAMURAIBFF_HTTP_HOST=0.0.0.0 \
-  -e SAMURAIBFF_HTTP_PORT=8000 \
-  -e SAMURAIBFF_DB_JDBC_URL=jdbc:postgresql://postgres:5432/nanosamurai \
-  -e SAMURAIBFF_DB_USERNAME=drsynth \
-  -e SAMURAIBFF_DB_PASSWORD=drsynth \
-  -e SAMURAIBFF_KAFKA_BOOTSTRAP_SERVERS=kafka:9092 \
-  -e SAMURAIBFF_GRPC_RTSERVICE_ADDR=rtservice:50052 \
-  -e SAMURAIBFF_ORIGIN_URI=https://bff.example.com \
-  samuraibff:local
-```
-
-### Health probes
-
-- `GET /health` – liveness (process is up)
-- `GET /ready` – readiness (DB/Kafka/gRPC reachability)
-
-### Configuration in Kubernetes
-
-You can configure the service either:
-1) via **environment variables** (`SAMURAIBFF_*`), or
-2) by mounting an EDN config file and pointing the process to it:
-
-```bash
-SAMURAIBFF_CONFIG_PATH=/etc/samuraibff/system.edn
-```
-
-`SAMURAIBFF_CONFIG_PATH` is useful when you want to keep the Integrant config as
-a single ConfigMap/Secret. Environment variables are then applied as an overlay
-(only variables that are set override the EDN).
-
-### Environment variables
-
-The container reads configuration from `resources/system.edn` (or
-`SAMURAIBFF_CONFIG_PATH`) and then applies overrides from these env vars:
-
-#### Core
-- `SAMURAIBFF_ENV` = `dev|prod|test` (keyword)
-
-#### HTTP / WS
-- `SAMURAIBFF_HTTP_HOST` (default: from EDN; recommended `0.0.0.0` in k8s)
-- `SAMURAIBFF_HTTP_PORT`
-- `SAMURAIBFF_WS_HOST`
-- `SAMURAIBFF_WS_PORT`
-
-#### Auth / OIDC (defaults to secure)
-- `SAMURAIBFF_AUTH_REQUIRED` (`true|false`) – **defaults to true** via EDN
-- `SAMURAIBFF_AUTH_ISSUER`
-- `SAMURAIBFF_AUTH_AUDIENCE`
-- `SAMURAIBFF_AUTH_CLIENT_ID`
-- `SAMURAIBFF_AUTH_COOKIE_NAME`
-- `SAMURAIBFF_AUTH_TENANT_CLAIM`
-
-#### Auth M2M
-- `SAMURAIBFF_KEYCLOAK_ADMIN_ISSUER` (e.g. `https://auth.nanosamur.ai/realms/nanosamurai`)
-- `SAMURAIBFF_KEYCLOAK_ADMIN_REALM` (e.g. `nanosamurai`)
-- `SAMURAIBFF_KEYCLOAK_ADMIN_CLIENT_ID` (e.g. `bff-admin`)
-- `SAMURAIBFF_KEYCLOAK_ADMIN_CLIENT_SECRET`
-
-#### Database
-- `SAMURAIBFF_DB_JDBC_URL`
-- `SAMURAIBFF_DB_USERNAME`
-- `SAMURAIBFF_DB_PASSWORD`
-- `SAMURAIBFF_DB_MAX_POOL_SIZE`
-
-#### Kafka
-- `SAMURAIBFF_KAFKA_BOOTSTRAP_SERVERS`
-- `SAMURAIBFF_KAFKA_CLIENT_ID`
-- `SAMURAIBFF_KAFKA_ACKS`
-- `SAMURAIBFF_KAFKA_COMPRESSION_TYPE`
-- `SAMURAIBFF_KAFKA_SECURITY_PROTOCOL` (e.g. `SSL` for MSK TLS-only brokers on port 9094)
-- `SAMURAIBFF_KAFKA_CONSUMER_GROUP_ID`
-- `SAMURAIBFF_KAFKA_TOPIC_AUDIO_RAW`
-- `SAMURAIBFF_KAFKA_TOPIC_REFINED`
-
-#### gRPC
-- `SAMURAIBFF_GRPC_RTSERVICE_ADDR`
-
-#### BFF instance identity (important for multi-replica refined routing)
-- `SAMURAIBFF_ORIGIN_URI` – the **instance-routable** base URL of this BFF.
-  In Kubernetes this is often set to a **Pod IP** so other BFF instances can
-  call back directly (avoids bouncing internal callbacks through the public ALB).
-- `SAMURAIBFF_PUBLIC_ORIGIN_URI` – the **browser-facing** public base URL used
-  to compute the OIDC `redirect_uri` (e.g. `https://platform.nanosamur.ai`).
-  If unset, the server tries to derive it from `X-Forwarded-Proto` /
-  `X-Forwarded-Host` headers.
-- `SAMURAIBFF_CALLBACK_PATH` (default `/internal/refined`)
-
-> Kubernetes note: for multiple replicas, `SAMURAIBFF_ORIGIN_URI` must be a
-> routable address other instances can reach (Pod IP is ideal). For OIDC login,
-> ensure Keycloak allows redirects to `SAMURAIBFF_PUBLIC_ORIGIN_URI`.
-
-## Health & readiness (HA behavior)
-
-The app exposes two probe-style endpoints:
-
-- `GET /health` – **liveness**. Returns **200** when the process is up.
-- `GET /ready` – **readiness**. Returns **200** only when critical dependencies are reachable.
-
-Current readiness checks:
-
-- Postgres (simple `select 1`)
-- Kafka (TCP reachability to at least one `:kafka :bootstrap-servers` host:port)
-- rtservice (TCP reachability to `:grpc :rtservice-addr`)
-
-If any dependency is down, `/ready` returns **503** and includes per-dependency flags:
-
-```json
-{
-  "status": "degraded",
-  "db": {"up?": false},
-  "kafka": {"up?": false},
-  "grpc": {"up?": false}
-}
-```
-
-Startup is **graceful** under dependency outages:
-
-- If Postgres is down at boot, the process still starts and serves HTTP/WS.
-- If Kafka is down at boot, the process still starts; the Kafka producer is disabled and
-  the refined consumer retries in the background.
-
-This is intended for Kubernetes / load balancers so that dependency outages affect
-**readiness** (traffic routing) rather than **liveness** (restart loops).
-
-### Start the HTTP server (dev)
-
-The system configuration lives in `resources/system.edn`.
-
-In a terminal:
+### Backend
 
 ```bash
 clojure -M:run
 ```
 
-### UI (ClojureScript) dev workflow
+Default local bind: `127.0.0.1:8000`.
 
-The repo includes a minimal CLJS UI (React + HSX) meant as a **test harness** for the WS pipeline.
+### UI (browser)
 
-Prerequisites:
+Install npm deps once:
 
 ```bash
 npm install
 ```
 
-In terminal 1 (backend):
-
-```bash
-clojure -M:run
-```
-
-In terminal 2 (UI watcher):
+Run UI watcher:
 
 ```bash
 clojure -M:cljs watch app
 ```
 
-If you only run the server (`clojure -M:run`) without a CLJS build, the browser may still load an older
-`resources/public/js/main.js`. For a fresh bundle run:
+Open:
+
+* http://127.0.0.1:8000/recordings
+* http://127.0.0.1:8000/live
+
+### Electron (Windows-first)
+
+Electron connects to an **already-running** backend.
 
 ```bash
-clojure -M:cljs release app
+npm run electron:dev
 ```
 
-### Running with local k8s (rtservice in Kubernetes)
-
-Some integration tests (and the websocket + realtime ASR path) expect rtservice reachable at `localhost:50052`.
-If you run rtservice inside Kubernetes, port-forward it before running the full test suite:
+Build Windows artifacts:
 
 ```bash
-kubectl port-forward svc/nanosamurai-stack-rtservice 50052:50052
+npm run electron:dist
 ```
 
-Alternatively, the gRPC client integration test will be skipped when rtservice is not reachable.
-
-Then open one of:
-- http://127.0.0.1:8000/recordings (default landing page)
-- http://127.0.0.1:8000/live
-
-The UI will:
-- show an **app shell** (top bar + sidebar) branded as **nanosamur.ai**
-- show recordings from Postgres via `GET /api/recordings` (tenant-scoped)
-- create a new session via `POST /api/sessions`
-- open `/ws/events?session_id=<uuid>` and display realtime transcript events
-- capture microphone audio (PCM16LE) and stream it to `/ws/audio?session_id=<uuid>&lang=en&sample_rate=16000`
-
-### Responsive behavior (UI)
-
-The UI is responsive and supports mobile screens.
-
-Under **768px** width:
-- the left sidebar collapses into a **hamburger menu** (off-canvas drawer)
-- table pages (Recordings / Speakers / API Credentials) render as **stacked card lists** instead of wide tables
-
-`lang` semantics:
-- `lang` is an ISO-639-1 language code (e.g. `en`, `cs`, `de`, ...)
-- empty string means **auto-detect** (recommended if you don't know the language)
-
-### `/ws/audio` query parameters (stream controls)
-
-`/ws/audio` accepts additional per-session controls via query params.
-These are used by the UI and are intended for SDKs as well.
-
-Required:
-- `session_id` – session UUID
-
-Optional:
-- `lang` – ISO-639-1 language code; empty means auto
-- `sample_rate` – integer; defaults to `16000`
-
-Output selection (all default to `true` when omitted):
-- `realtime=true|false` – whether to run rtservice realtime ASR (gRPC)
-- `refined=true|false` – whether to publish audio to the refined pipeline (Kafka)
-- `final=true|false` – whether to produce final transcript artifacts (pipeline)
-
-Recording retention:
-- `store_recording=true|false` – whether the recording should be retained for playback.
-  Notes:
-  - This only applies when `final=true`.
-  - When `final=false`, the backend forces retention off.
-
-Refinement tuning:
-- `refinement_window_sec=<double>` – optional refinement window size.
-  The backend clamps it to **[10, 600]** seconds.
-
-Realtime tuning (rtservice overrides):
-- `rt_partial_enable=true|false` – whether rtservice should emit partial hypotheses.
-- `rt_window_sec=<double>` (alias: `window_sec`)
-- `rt_overlap_sec=<double>` (alias: `overlap_sec`)
-- `rt_emit_every_sec=<double>` (alias: `emit_every_sec`) – backend enforces a minimum of **1s**.
-
-Semantics:
-- If `realtime=false`, the BFF does not start the gRPC realtime stream.
-- If `refined=false` and `final=false`, the BFF does not publish audio to Kafka.
-
-Example (tune realtime only):
-
-`/ws/audio?session_id=<uuid>&lang=en&sample_rate=16000&rt_window_sec=5.0&rt_overlap_sec=0.5&rt_emit_every_sec=1.0`
-
-Notes:
-- The compiled JS bundle is large (shadow-cljs dev output). Avoid printing it to the terminal.
-- If you change CLJS code, shadow-cljs will hot-reload via `^:dev/after-load`.
-
-#### UI structure & conventions
-
-The UI lives under `src/cljs/samuraibff/ui/` and is intentionally small, with a few simple rules:
-
-- **Rendering**: React + **HSX** (Hiccup-ish) via `io.factorhouse/hsx`.
-  - Components are plain functions that return hiccup-like vectors.
-  - We do **not** use Reagent.
-- **Entry point**: `samuraibff.ui.core`
-  - owns the React root (`react-dom/client`)
-  - calls `init` and provides the hot-reload hook (`^:dev/after-load`)
-- **Components**: `samuraibff.ui.components`
-  - add new UI pieces here as small, pure render functions
-  - keep side-effects (WS, audio, fetch) out of component render bodies
-- **State**: `samuraibff.ui.store`
-  - use the store atom as the single source of truth for session id, ws status, transcript segments and log
-  - mutate state via explicit functions (`set-…!`, `append-…!`, etc.)
-- **Effects / I/O**:
-  - HTTP calls in `samuraibff.ui.api` (e.g. create session)
-  - events WS client in `samuraibff.ui.ws`
-  - microphone capture + audio WS streaming in `samuraibff.ui.audio`
-
-Adding a new feature typically means:
-1. extend the store data + add a small `…!` mutator in `store.cljs`
-2. add the I/O code in `api.cljs` / `ws.cljs` / `audio.cljs`
-3. add a small rendering function in `components.cljs` and mount it from `components/app`
-
-Defaults:
-- HTTP server: `127.0.0.1:8000` (safe-by-default; override to `0.0.0.0` in k8s)
-- Health endpoint: `GET /health`
-- WebSockets:
-  - `GET /ws/events?session_id=<uuid>`
-  - `GET /ws/audio?session_id=<uuid>&lang=<code>&sample_rate=16000`
-- Internal callback (BFF-to-BFF):
-  - `POST /internal/refined` (`application/x-protobuf` body of `RefinedEvent`)
-- UI (SPA routes served as index.html for deep-link refresh):
-  - `GET /` (SPA index)
-  - `GET /recordings`
-  - `GET /recordings/:session_id`
-  - `GET /live`
-  - `GET /speakers`
-- UI helpers:
-  - `POST /api/sessions`
-- rtservice: `localhost:50052` (see `resources/system.edn`)
-
-Kafka topics (defaults in `resources/system.edn`):
-- `audio.raw`
-- `transcripts.refined`
-
-## nREPL
-
-Start an nREPL server on port **7888**:
-
-```bash
-clojure -M:nrepl
-```
-
-### nREPL MCP Server
-
-To run the clojure repl MCP server:
-
-```bash
-clojure -X:mcp :not-cwd true :port 7888
-```
-
-## gRPC proto generation
-
-To trigger generation and compilation of proto files:
-
-```bash
-clj -T:build proto+compile
-```
-
-## Running tests
-
-Run all unit + integration tests:
-
-```bash
-clojure -X:test
-```
-
-### CI (GitHub Actions)
-
-This repo uses GitHub Actions with a **lightweight PR gate** and a **heavier**
-manual/nightly workflow:
-
-- **PR / master push**: `.github/workflows/ci.yml`
-  - runs `clojure -X:ci` (a Docker-free subset)
-  - builds the UI bundle (`npm run ui:release`)
-  - runs a Dockerfile smoke build on pushes to `master`
-- **Manual / nightly**: `.github/workflows/integration-tests.yml`
-  - runs the full suite (`clojure -X:test`) including **Testcontainers**
-
-To run the same lightweight test plan locally:
-
-```bash
-clojure -X:ci
-```
-
-### WS integration test (requires rtservice)
-
-The test namespace is:
-- `test/samuraibff/ws/ws_integration_test.clj` (`samuraibff.ws.ws-integration-test`)
-
-Prerequisite:
-- **rtservice must be reachable at `localhost:50052`**.
-  - If rtservice is not reachable, the test is **skipped**.
-
-Run it via the normal test runner:
-
-```bash
-clojure -X:test
-```
-
-Notes:
-- The test opens `/ws/events` and `/ws/audio`, sends a few dummy audio frames,
-  and asserts a `{"type":"status" ...}` event arrives.
-- The test uses `com.neovisionaries/nv-websocket-client` (test-only dependency)
-  because the JDK WebSocket client was unreliable against http-kit for us.
-
-
-## Observability
-
-### Logs ↔ traces correlation
-
-SamuraiBFF writes structured logs using log4j2 and includes correlation fields
-in **MDC** (rendered in logs via `%X` in `resources/log4j2.properties`).
-
-Key fields:
-
-- `trace_id` – Tempo trace id (32 hex). For session-scoped flows we use:
-  `trace_id == session_id without dashes`.
-- `span_id` – current span id (best-effort).
-- `session_id` – UUID string when present.
-- `tenant_id` – tenant UUID string when present.
-- `user_id` – Keycloak subject (`sub`) when present.
-- `http_route` – low-cardinality Reitit route template (used for metrics).
-
-This enables Grafana “trace → logs” navigation when Loki derived fields are
-configured to map `trace_id` to Tempo.
-
-### Metrics (Prometheus)
-
-The BFF exposes a Prometheus scrape endpoint:
-
-- `GET /internal/metrics`
-
-Important:
-- This is intended for **in-cluster scraping only**.
-- The public ALB/Ingress must **not** expose `/internal/metrics`.
-
-Currently exported metrics include:
-
-- `samuraibff_http_requests_total{method,route,status}`
-- `samuraibff_http_request_duration_seconds{method,route,status}`
-- `samuraibff_http_exceptions_total{method,route,exception}`
-
-### Tracing (OpenTelemetry)
-
-The BFF supports OTEL integration and tracing. For local k8s / EKS setup see:
-
-- `nanodeploy/docs/local-k8s-observability.md`
-- `nanodeploy/docs/eks-dev-observability.md`
-
-Session tracing model (local dev):
-- a stable trace context is derived from `session_id` and propagated via Kafka
-  header `traceparent`.
+Outputs: `dist/electron/`.
+
+See:
+
+* `docs/electron.md`
+* `docs/electron-w1-system-audio-plan.md`
+
+## Docs index
+
+* Electron: `docs/electron.md`
+* Architecture: `docs/architecture.md`
+* Dev runbook (local): `docs/dev-runbook.md`
+* Transcripts (realtime/refined/final): `docs/features-transcripts.md`
+* Recordings + playback + karaoke: `docs/features-recordings-playback-karaoke.md`
+* Webhooks + workflows: `docs/features-webhooks-workflows.md`
+* Security + auth: `docs/security-auth.md`
+* Ops + observability: `docs/ops-observability.md`
+* Historical long-form README (archive): `docs/readme-archive.md`

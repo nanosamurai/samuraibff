@@ -65,12 +65,30 @@
    "yi" "yo"
    "za" "zh" "zu"])
 
+(def whisper-supported-codes
+  "Language codes supported by Whisper / faster-whisper / WhisperX.
+
+  Notes:
+  - Whisper supports many languages; our UI intentionally constrains the dropdown
+    to those officially supported by the Whisper model family.
+  - This list is kept in-code so the SPA stays dependency-free (no runtime fetch).
+
+  Returns: set of lowercase strings." 
+  #{"af" "am" "ar" "as" "az" "ba" "be" "bg" "bn" "bo" "br" "bs" "ca" "cs" "cy"
+    "da" "de" "el" "en" "es" "et" "eu" "fa" "fi" "fo" "fr" "ga" "gl" "gu" "ha"
+    "haw" "he" "hi" "hr" "ht" "hu" "hy" "id" "is" "it" "ja" "jw" "ka" "kk" "km"
+    "kn" "ko" "la" "lb" "ln" "lo" "lt" "lv" "mg" "mi" "mk" "ml" "mn" "mr" "ms"
+    "mt" "my" "ne" "nl" "nn" "no" "oc" "pa" "pl" "ps" "pt" "ro" "ru" "sa" "sd"
+    "si" "sk" "sl" "sn" "so" "sq" "sr" "su" "sv" "sw" "ta" "te" "tg" "th" "tk"
+    "tl" "tr" "tt" "uk" "ur" "uz" "vi" "yi" "yo" "zh"})
+
 (def iso-639-1-codes
   "Canonical list of ISO-639-1 language codes for the UI.
 
   Returns: vector of lowercase 2-letter strings." 
   (->> raw-iso-639-1-codes
        (remove deprecated-alias-codes)
+       (filter whisper-supported-codes)
        distinct
        sort
        vec))
@@ -138,6 +156,33 @@
                   (js/String.fromCodePoint (+ base b))))
            "🏳")))
 
+      (defn region->flag-icons-src
+        "Return a relative URL to a `flag-icons` SVG for a region.
+
+        We vendor a subset of `flag-icons` into:
+        - resources/public/img/flags/4x3/<region>.svg
+
+        Inputs:
+        - region: string ISO-3166-1 alpha-2, e.g. \"CZ\"
+
+        Returns:
+        - string URL, e.g. \"/img/flags/4x3/cz.svg\"
+        - nil when the input is invalid.
+
+        Notes:
+        - Existence of the file is not checked here (no IO in CLJS); the UI
+          handles errors/fallback." 
+        [region]
+        (let [region (some-> region str str/trim str/lower-case)
+              prefix (if (= "file:"
+                            (some-> js/window .-location .-protocol))
+                       "img/flags/4x3/"
+                       "/img/flags/4x3/")]
+          (when (and (string? region)
+                     (= 2 (count region))
+                     (re-matches #"[a-z]{2}" region))
+            (str prefix region ".svg"))))
+
      (defn lang->flag
        "Best-effort flag emoji for ISO-639-1 language code.
 
@@ -169,6 +214,46 @@
            :else
            "🏳")))
 
+      (defn lang->flag-icon
+        "Return a best-effort flag icon descriptor for a language code.
+
+        This is intended for Electron, where Unicode flag ligatures may not
+        render correctly.
+
+        Inputs:
+        - code: string ISO-639-1 language code (e.g. \"cs\") or blank
+
+        Returns:
+        - {:type :emoji :value <string>} for Auto / fallback
+        - {:type :svg :src <string> :alt <string>} when a region can be derived
+
+        Notes:
+        - Region is derived via Intl.Locale(...).maximize().region (best-effort).
+        - SVG assets are provided by vendored `flag-icons` under /img/flags/4x3/." 
+        [code]
+        (let [code (str (or code ""))]
+          (cond
+            (str/blank? code)
+            {:type :emoji :value "🌐"}
+
+            (and (exists? js/Intl)
+                 (exists? (.-Locale js/Intl)))
+            (try
+              (let [loc (js/Intl.Locale. code)
+                    max-loc (.maximize loc)
+                    region (.-region max-loc)
+                    src (region->flag-icons-src region)]
+                (if (seq src)
+                  {:type :svg
+                   :src src
+                   :alt (.toUpperCase (str (or region "")))}
+                  {:type :emoji :value "🌐"}))
+              (catch :default _
+                {:type :emoji :value "🌐"}))
+
+            :else
+            {:type :emoji :value "🌐"})))
+
      (defn language-options
        "Return all language dropdown options for the Live Recording page.
 
@@ -177,14 +262,19 @@
          {:value <string>, :label <string>, :flag <string>}
        
        Notes:
-       - Includes the special auto option as the first element." 
+       - Includes the special auto option as the first element.
+       - English (\"en\") is placed first among explicit languages." 
        []
-       (into
-         [{:value ""
-           :label "Auto"
-           :flag "🌐"}]
-         (map (fn [code]
-                {:value code
-                 :label (lang->display-name code)
-                 :flag (lang->flag code)}))
-         iso-639-1-codes))))
+       (let [codes (->> iso-639-1-codes
+                        (remove #{"en"})
+                        (cons "en"))]
+         (into
+           [{:value ""
+             :label "Auto"
+             :flag "🌐"}]
+           (map (fn [code]
+                  {:value code
+                   :label (lang->display-name code)
+                   :flag (lang->flag code)
+                   :flagIcon (lang->flag-icon code)}))
+           codes)))))

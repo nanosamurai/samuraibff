@@ -4,6 +4,7 @@
    [clojure.string :as str]
    [samuraibff.ui.api :as api]
    [samuraibff.ui.audio :as audio]
+    [samuraibff.ui.env :as env]
    [samuraibff.ui.components.shared :as shared]
    [samuraibff.ui.components.transcript :as components.transcript]
    [samuraibff.ui.hooks :as hooks]
@@ -507,6 +508,9 @@
         realtime? (true? (:realtime controls))
         refined? (true? (:refined controls))
         final? (true? (:final controls))
+        electron? (env/electron?)
+        audio-source (or (:audio_source controls) :mic)
+        system-name (or (:system_source_name controls) "")
         outputs-summary (->> [(when realtime? "Real-time")
                               (when refined? "Refined")
                               (when final? "Final")]
@@ -546,6 +550,58 @@
        [:div {:class "muted" :style {:fontSize "12px"}}
         (str "Outputs: " (if (seq outputs-summary) outputs-summary "None")
              " • Recording: " retention-summary)]
+
+        [:div {:class "sc-grid"}
+         [:div {:class "sc-cell sc-span-2"}
+          [:div {:class "label"} "Audio input"]
+          [:div {:class "hint" :style {:marginBottom "6px"}}
+           "Mic capture works in all browsers. System/mix requires Electron (Windows-first)."]
+          [:select {:value (name audio-source)
+                    :on-change (fn [e]
+                                 (let [v (keyword (.. e -target -value))]
+                                   (store/set-session-control! :audio_source v)))}
+           [:option {:value "mic"} "Microphone"]
+           [:option {:value "system" :disabled (not electron?)} "System output (Electron)"]
+           [:option {:value "mix" :disabled (not electron?)} "Mix mic + system (Electron)"]]
+
+          (when (and electron? (not= :mic audio-source))
+            [:div {:style {:marginTop "8px" :display "flex" :gap "8px" :alignItems "center" :flexWrap "wrap"}}
+             [:button {:class "btn"
+                       :type "button"
+                       :on-click (fn [_]
+                                   (-> (audio/pick-system-source!)
+                                       (.then (fn [{:keys [name]}]
+                                                (store/append-log! (str "[ui] picked system source: " (or name "")))))
+                                       (.catch (fn [err]
+                                                 (store/append-log! (str "[ui] failed to pick system source: " err))))))}
+              (if (seq system-name) "Change system source" "Pick system source")]
+             (when (seq system-name)
+               [:span {:class "muted"} system-name])])]
+
+         [:div {:class "sc-cell"}
+          [:div {:class "label"} "Mic gain"]
+          [:input {:type "number"
+                   :min 0
+                   :max 3
+                   :step 0.1
+                   :value (or (:mic_gain controls) 1.0)
+                   :on-change (fn [e]
+                                (let [raw (.. e -target -value)
+                                      v (when (seq raw) (js/parseFloat raw))]
+                                  (store/set-session-control! :mic_gain v)))}]]
+
+         [:div {:class "sc-cell"}
+          [:div {:class "label"} "System gain"]
+          [:input {:type "number"
+                   :min 0
+                   :max 3
+                   :step 0.1
+                   :disabled (or (not electron?) (= :mic audio-source))
+                   :value (or (:system_gain controls) 1.0)
+                   :on-change (fn [e]
+                                (let [raw (.. e -target -value)
+                                      v (when (seq raw) (js/parseFloat raw))]
+                                  (store/set-session-control! :system_gain v)))}]]]
 
        [:div {:class "sc-grid"}
         [:div {:class "sc-cell sc-span-2"}

@@ -4,6 +4,20 @@
   This namespace contains helpers that are easier to test or reason about
   when kept pure.")
 
+(defn- trim-trailing-slash
+  "Trim trailing slashes from a URL-like string.
+
+  Inputs:
+  - s: string
+
+  Returns: string."
+  [s]
+  (let [s (str (or s ""))]
+    (loop [x s]
+      (if (and (seq x) (= "/" (subs x (dec (count x)))))
+        (recur (subs x 0 (dec (count x))))
+        x))))
+
 (defn now-ms
   "Return current epoch time in milliseconds." 
   []
@@ -20,12 +34,35 @@
   - If sessionStorage.access_token is present, it is appended as `token=`.
     This supports non-cookie clients / dev usage.
 
-  Returns: string (absolute ws://... URL)." 
-  [path query-params]
-  (let [loc (.-location js/window)
-        proto (if (= "https:" (.-protocol loc)) "wss:" "ws:")
-        host (.-host loc)
-        qs (js/URLSearchParams.)]
+  Returns: string (absolute ws://... URL)."
+  ([path query-params]
+   (ws-url path query-params nil))
+  ([path query-params {:keys [backend-base-url]}]
+   (let [qs (js/URLSearchParams.)
+         backend-base-url (some-> backend-base-url trim-trailing-slash)
+         loc (.-location js/window)
+         ;; When backend-base-url is provided (Electron), derive ws/wss from it.
+         ;; Otherwise fall back to current location.
+         proto (cond
+                 (and (string? backend-base-url)
+                      (not (empty? backend-base-url))
+                      (.startsWith backend-base-url "https://"))
+                 "wss:"
+
+                 (and (string? backend-base-url)
+                      (not (empty? backend-base-url))
+                      (.startsWith backend-base-url "http://"))
+                 "ws:"
+
+                 (= "https:" (.-protocol loc))
+                 "wss:"
+
+                 :else
+                 "ws:")
+         host (if (and (string? backend-base-url)
+                       (not (empty? backend-base-url)))
+                (.-host (js/URL. backend-base-url))
+                (.-host loc))]
     (doseq [[k v] query-params]
       (.set qs (name k) (str v)))
 
@@ -33,7 +70,7 @@
       (when (and (string? t) (not (empty? t)))
         (.set qs "token" t)))
 
-    (str proto "//" host path "?" (.toString qs))))
+     (str proto "//" host path "?" (.toString qs)))))
 
 (defn fmt-sec
   "Format seconds (double) into mm:ss.xx.

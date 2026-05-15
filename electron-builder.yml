@@ -1,0 +1,29 @@
+appId: ai.nanosamurai.samuraibff
+productName: samuraibff
+
+files:
+  - "electron/**/*"
+  - "resources/public/**/*"
+
+directories:
+  output: "dist/electron"
+
+asar: true
+
+win:
+  # Local developer machines may not have symlink privileges (Developer mode).
+  # Disabling sign+edit avoids downloading/extracting winCodeSign binaries.
+  # (Signing is not part of our first milestone.)
+  signAndEditExecutable: false
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true

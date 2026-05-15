@@ -285,7 +285,30 @@
 
     .dropdown-trigger:hover{border-color:rgba(168,139,255,.35)}
 
-    .dropdown-flag{width:20px;display:inline-flex;justify-content:center;flex:0 0 auto}
+    .dropdown-flag{
+      width:20px;
+      display:inline-flex;
+      justify-content:center;
+      flex:0 0 auto;
+      /*
+       * Electron/Chromium on Windows may not combine "regional indicator" codepoints
+       * into a single flag glyph depending on the chosen fallback font.
+       * Prefer an emoji-capable font first.
+       */
+      font-family:"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    }
+
+    .flag-icon{
+      width: 20px;
+      height: auto;
+      display: inline-block;
+      border-radius: 3px;
+      box-shadow: 0 0 0 1px rgba(34,48,70,.55) inset;
+    }
+
+    .lang-flag{
+      font-family:"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    }
     .dropdown-label{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .dropdown-caret{opacity:.75;flex:0 0 auto}
 
@@ -511,7 +534,12 @@
     // (which would make CSS classes not line up with the rendered DOM).
     (function(){
       var s = document.createElement('script');
-      s.src = '/js/main.js?v=' + Date.now();
+      // In Electron production builds we load index.html from file:// and must use
+      // a relative script URL.
+      var base = (window.location && window.location.protocol === 'file:')
+        ? 'js/main.js'
+        : '/js/main.js';
+      s.src = base + '?v=' + Date.now();
       document.body.appendChild(s);
     })();
   </script>
