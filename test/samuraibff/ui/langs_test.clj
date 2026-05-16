@@ -7,9 +7,9 @@
 (deftest iso-639-1-codes-basic-shape
   (testing "Dataset is non-empty and stable-ish"
     (is (pos? (count langs/iso-639-1-codes)))
-    ;; `java.util.Locale/getISOLanguages` is 188 in current JDKs; we filter a few deprecated aliases.
-    (is (<= 150 (count langs/iso-639-1-codes)))
-    (is (>= 200 (count langs/iso-639-1-codes)))))
+    ;; Our UI intentionally filters to Whisper-supported languages.
+    (is (<= 80 (count langs/iso-639-1-codes)))
+    (is (>= 120 (count langs/iso-639-1-codes)))))
 
 (deftest iso-639-1-codes-are-lowercase-two-letter
   (testing "All codes are lowercase and length=2"
