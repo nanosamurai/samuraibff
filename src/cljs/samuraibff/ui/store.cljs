@@ -68,6 +68,7 @@
                      ;; Example: "screen:0:0" / "window:123:0"
                      :system_source_id nil
                      :system_source_name nil
+                     :mic_device_id nil
                      ;; Input gain knobs (frontend-only)
                      :mic_gain 1.0
                      :system_gain 1.0

@@ -140,12 +140,18 @@
 (defn- get-mic-stream!
   "Capture microphone stream.
 
+  Inputs:
+  - device-id: string? (nil/blank => browser default)
+
   Returns: Promise resolving to MediaStream."
-  []
+  [device-id]
   (.getUserMedia (.-mediaDevices js/navigator)
-                #js {:audio #js {:channelCount 1
-                                  :noiseSuppression false
-                                  :echoCancellation false}
+                 #js {:audio (clj->js
+                             (cond-> {:channelCount 1
+                                      :noiseSuppression false
+                                      :echoCancellation false}
+                               (seq (str device-id))
+                               (assoc :deviceId #js {:exact (str device-id)})))
                       :video false}))
 
 (defn- get-system-stream!
@@ -226,6 +232,7 @@
         mode (:audio_source controls)
         mode (or mode :mic)
         system-id (:system_source_id controls)
+        mic-device-id (:mic_device_id controls)
         mic-gain (:mic_gain controls)
         system-gain (:system_gain controls)]
     (-> (case mode
@@ -240,7 +247,7 @@
                                              :system-gain system-gain}))))
 
           :mix
-          (-> (get-mic-stream!)
+           (-> (get-mic-stream! mic-device-id)
               (.then (fn [mic]
                        (-> (get-system-stream! system-id)
                            (.then (fn [sys]
@@ -252,7 +259,7 @@
                                                           :system-gain system-gain})))))))
 
           ;; default mic
-          (-> (get-mic-stream!)
+           (-> (get-mic-stream! mic-device-id)
               (.then (fn [mic]
                        (start-streaming! ws {:mic-stream mic
                                              :system-stream nil
