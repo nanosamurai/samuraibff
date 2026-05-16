@@ -374,19 +374,19 @@
           final-record (last (vec (or db-final [])))
           final-msgs (final-segments->messages (vec (or (:segments final-record) [])))
 
-           available-tabs
-           (recording-detail/available-transcript-tabs
-            {:realtime-msgs realtime-msgs
-             :refined-msgs refined-msgs
-             :final-msgs final-msgs})
+          available-tabs
+          (recording-detail/available-transcript-tabs
+           {:realtime-msgs realtime-msgs
+            :refined-msgs refined-msgs
+            :final-msgs final-msgs})
 
-           default-tab (recording-detail/default-transcript-tab available-tabs)
+          default-tab (recording-detail/default-transcript-tab available-tabs)
 
-           selected-tab (let [allowed? (contains? (set (or available-tabs [])) tab)]
-                          (cond
-                            allowed? tab
-                            (some? default-tab) default-tab
-                            :else nil))
+          selected-tab (let [allowed? (contains? (set (or available-tabs [])) tab)]
+                         (cond
+                           allowed? tab
+                           (some? default-tab) default-tab
+                           :else nil))
 
           ;; Playback is only shown when we have both:
           ;; - a recording stored
@@ -480,10 +480,10 @@
          [router/link {:route {:page :recordings :params {}}
                        :class "btn"}
           "Back to recordings"]
-         [router/link {:route {:page :live :params {}}
-                       :class "btn ghost"
-                       :on-click (fn [_] (store/set-session-id! session-id))}
-          "Open in Live Recording"]
+         [:button {:class "btn"
+                   :title "Record with this session"
+                   :on-click (fn [_] (store/set-session-id! session-id))}
+          "Record with this session"]
 
          [title-editor {:session-id session-id
                         :current-title current-title
@@ -525,25 +525,25 @@
          [:div {:class "split"}
           [:div {:class "split-main"}
            [:div {:class "card"}
-             (if (empty? available-tabs)
-               [:div {:class "muted"}
-                "No transcripts available for this recording."]
-               [:div
-                [:div {:class "card-title"}
-                 (case selected-tab
-                   :refined "Refined real-time"
-                   :final "Final"
-                   "Real-time")]
+            (if (empty? available-tabs)
+              [:div {:class "muted"}
+               "No transcripts available for this recording."]
+              [:div
+               [:div {:class "card-title"}
                 (case selected-tab
-                  :final final-body
-                  :refined [components.transcript/transcript-view
-                            {:messages refined-msgs
-                             :empty-title "Refined real-time"
-                             :empty-hint "No refined transcript available"}]
-                  [components.transcript/transcript-view
-                   {:messages realtime-msgs
-                    :empty-title "Real-time transcript"
-                    :empty-hint "No realtime transcript available"}])])]]
+                  :refined "Refined real-time"
+                  :final "Final"
+                  "Real-time")]
+               (case selected-tab
+                 :final final-body
+                 :refined [components.transcript/transcript-view
+                           {:messages refined-msgs
+                            :empty-title "Refined real-time"
+                            :empty-hint "No refined transcript available"}]
+                 [components.transcript/transcript-view
+                  {:messages realtime-msgs
+                   :empty-title "Real-time transcript"
+                   :empty-hint "No realtime transcript available"}])])]]
 
           [:div {:class "split-side"}
            [:div {:class "right-panel"}
@@ -576,11 +576,11 @@
             [:div {:class "muted"}
              "No transcripts available for this recording."]
             [:div
-             [:div {:class "card-title"}
+             [:div {:class "card-title"}]
              (case selected-tab
-                :refined "Refined real-time"
-                :final "Final"
-                "Real-time")]
+               :refined "Refined real-time"
+               :final "Final"
+               "Real-time")
              (case selected-tab
                :final final-body
                :refined [components.transcript/transcript-view
