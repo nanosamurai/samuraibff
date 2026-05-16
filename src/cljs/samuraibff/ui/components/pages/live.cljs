@@ -64,7 +64,6 @@
         controls (or (:controls session) {})
         electron? (env/electron?)
         audio-source (or (:audio_source controls) :mic)
-        system-name (or (:system_source_name controls) "")
         mic-device-id (str (or (:mic_device_id controls) ""))
 
         running? (hooks/use-atom store/running?*)
@@ -184,18 +183,7 @@
 
          (when (and electron? (not= :mic audio-source))
            [:div {:class "hint" :style {:marginTop "8px"}}
-            [:div {:style {:display "flex" :gap "8px" :alignItems "center" :flexWrap "wrap"}}
-             [:button {:class    "btn"
-                       :type     "button"
-                       :on-click (fn [_]
-                                   (-> (audio/pick-system-source!)
-                                       (.then (fn [{:keys [name]}]
-                                                (store/append-log! (str "[ui] picked system source: " (or name "")))))
-                                       (.catch (fn [err]
-                                                 (store/append-log! (str "[ui] failed to pick system source: " err))))))}
-              (if (seq system-name) "Change system source" "Pick system source")]
-             (when (seq system-name)
-               [:span {:class "muted"} system-name])]])]
+            "System source is auto-selected when you start recording."])]
 
         [:div {:class "field"}
          [:div {:class "label"} "Microphone"]
@@ -238,13 +226,14 @@
                                   (set-settings-open! (not (true? settings-open?)))))}
          "⚙"]]])))
 
-(declare webhook-routing-panel workflow-routing-panel stream-controls-panel)
+(declare webhook-routing-panel workflow-routing-panel stream-controls-panel audio-controls-panel)
 
 (defn- session-settings-panel
   "Single settings panel shown from the gear button.
 
    It contains tabs:
    - Stream settings
+   - Audio settings
    - Webhooks
    - Workflows
 
@@ -279,6 +268,10 @@
                   :type "button"
                   :on-click (fn [_] (set-tab! :stream))}
          "Stream"]
+        [:button {:class (str "tab " (when (= tab :audio) "active"))
+                  :type "button"
+                  :on-click (fn [_] (set-tab! :audio))}
+         "Audio"]
         [:button {:class (str "tab " (when (= tab :webhooks) "active"))
                   :type "button"
                   :on-click (fn [_] (set-tab! :webhooks))}
@@ -290,9 +283,69 @@
         [:div {:class "spacer"}]]
 
        (case tab
+         :audio [audio-controls-panel]
          :webhooks [webhook-routing-panel]
          :workflows [workflow-routing-panel]
          [stream-controls-panel])])))
+
+(defn- audio-controls-panel
+  "Audio capture settings.
+
+  This panel edits `store/session*` fields under `:controls`.
+
+  Returns: hiccup."
+  []
+  (let [controls (get (hooks/use-atom store/session*) :controls {})
+        electron? (env/electron?)
+        audio-source (or (:audio_source controls) :mic)]
+    [:div {:class "stream-controls-body"}
+     [:div {:class "sc-grid"}
+      [:div {:class "sc-cell sc-span-2"}
+       [:div {:class "label"} "Audio input"]
+       [:div {:class "hint" :style {:marginBottom "6px"}}
+        "Microphone works in all browsers. System/mix requires Electron (Windows-first)."]
+       [:select {:value (name audio-source)
+                 :on-change (fn [e]
+                              (let [v (keyword (.. e -target -value))]
+                                (store/set-session-control! :audio_source v)))}
+        [:option {:value "mic"} "Microphone"]
+        [:option {:value "system" :disabled (not electron?)} "System output (Electron)"]
+        [:option {:value "mix" :disabled (not electron?)} "Mix mic + system (Electron)"]]
+       (when (and electron? (not= :mic audio-source))
+         [:div {:class "hint" :style {:marginTop "8px"}}
+          "System source is auto-selected when you start recording (no manual picker yet). "])]
+
+      [:div {:class "sc-cell"}
+       [:div {:class "label"} "Mic gain"]
+       [:input {:type "number"
+                :min 0
+                :max 3
+                :step 0.1
+                :disabled (= :system audio-source)
+                :value (or (:mic_gain controls) 1.0)
+                :on-change (fn [e]
+                             (let [raw (.. e -target -value)
+                                   v (when (seq raw) (js/parseFloat raw))]
+                               (store/set-session-control! :mic_gain v)))}]
+       (when (= :system audio-source)
+         [:div {:class "hint"} "Mic is disabled in System-only mode."])]
+
+      [:div {:class "sc-cell"}
+       [:div {:class "label"} "System gain"]
+       [:input {:type "number"
+                :min 0
+                :max 3
+                :step 0.1
+                :disabled (or (not electron?) (= :mic audio-source))
+                :value (or (:system_gain controls) 1.0)
+                :on-change (fn [e]
+                             (let [raw (.. e -target -value)
+                                   v (when (seq raw) (js/parseFloat raw))]
+                               (store/set-session-control! :system_gain v)))}]
+       (when (and electron? (= :mic audio-source))
+         [:div {:class "hint"} "Select System/Mix to enable."])
+       (when-not electron?
+         [:div {:class "hint"} "System audio capture is only available in Electron."])]]]))
 
 (defn- workflow-routing-panel
   "Advanced panel for per-session workflow routing overrides.
@@ -600,9 +653,6 @@
         realtime? (true? (:realtime controls))
         refined? (true? (:refined controls))
         final? (true? (:final controls))
-        electron? (env/electron?)
-        audio-source (or (:audio_source controls) :mic)
-        system-name (or (:system_source_name controls) "")
         outputs-summary (->> [(when realtime? "Real-time")
                               (when refined? "Refined")
                               (when final? "Final")]
@@ -642,58 +692,6 @@
        [:div {:class "muted" :style {:fontSize "12px"}}
         (str "Outputs: " (if (seq outputs-summary) outputs-summary "None")
              " • Recording: " retention-summary)]
-
-       [:div {:class "sc-grid"}
-        [:div {:class "sc-cell sc-span-2"}
-         [:div {:class "label"} "Audio input"]
-         [:div {:class "hint" :style {:marginBottom "6px"}}
-          "Mic capture works in all browsers. System/mix requires Electron (Windows-first)."]
-         [:select {:value (name audio-source)
-                   :on-change (fn [e]
-                                (let [v (keyword (.. e -target -value))]
-                                  (store/set-session-control! :audio_source v)))}
-          [:option {:value "mic"} "Microphone"]
-          [:option {:value "system" :disabled (not electron?)} "System output (Electron)"]
-          [:option {:value "mix" :disabled (not electron?)} "Mix mic + system (Electron)"]]
-
-         (when (and electron? (not= :mic audio-source))
-           [:div {:style {:marginTop "8px" :display "flex" :gap "8px" :alignItems "center" :flexWrap "wrap"}}
-            [:button {:class "btn"
-                      :type "button"
-                      :on-click (fn [_]
-                                  (-> (audio/pick-system-source!)
-                                      (.then (fn [{:keys [name]}]
-                                               (store/append-log! (str "[ui] picked system source: " (or name "")))))
-                                      (.catch (fn [err]
-                                                (store/append-log! (str "[ui] failed to pick system source: " err))))))}
-             (if (seq system-name) "Change system source" "Pick system source")]
-            (when (seq system-name)
-              [:span {:class "muted"} system-name])])]
-
-        [:div {:class "sc-cell"}
-         [:div {:class "label"} "Mic gain"]
-         [:input {:type "number"
-                  :min 0
-                  :max 3
-                  :step 0.1
-                  :value (or (:mic_gain controls) 1.0)
-                  :on-change (fn [e]
-                               (let [raw (.. e -target -value)
-                                     v (when (seq raw) (js/parseFloat raw))]
-                                 (store/set-session-control! :mic_gain v)))}]]
-
-        [:div {:class "sc-cell"}
-         [:div {:class "label"} "System gain"]
-         [:input {:type "number"
-                  :min 0
-                  :max 3
-                  :step 0.1
-                  :disabled (or (not electron?) (= :mic audio-source))
-                  :value (or (:system_gain controls) 1.0)
-                  :on-change (fn [e]
-                               (let [raw (.. e -target -value)
-                                     v (when (seq raw) (js/parseFloat raw))]
-                                 (store/set-session-control! :system_gain v)))}]]]
 
        [:div {:class "sc-grid"}
         [:div {:class "sc-cell sc-span-2"}

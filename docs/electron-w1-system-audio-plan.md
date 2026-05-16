@@ -109,9 +109,9 @@ All `fetch` and `ws-url` helpers will use this base.
 We will introduce:
 
 * “Audio input mode”: `mic` | `system` | `mix` (default `mic`)
-* “System source” dropdown/picker (screen/window)
+* “System source” selection (initially auto-selected; optional picker later)
 
-Both settings live on the Live Recording page (Stream settings panel).
+Both settings live on the **Record** page (Stream settings panel).
 
 ---
 
@@ -200,7 +200,7 @@ Legend: ✅ done, 🟡 partial, ⏳ planned, ❌ not planned.
 | UI capture | Mic capture mode | ✅ | Default mode |
 | UI capture | System capture mode (Electron desktop) | ✅ | Best-effort; may have no audio track |
 | UI capture | Mix mode (mic + system summed to mono) | ✅ | Gain controls included |
-| UI capture | Desktop source picker UX | 🟡 | Implemented as “Pick/Change system source” auto-select; no full dropdown yet |
+| UI capture | Desktop source picker UX | 🟡 | Auto-selects a desktop source when starting recording; no user-facing picker yet |
 | Packaging | electron-builder config (`electron-builder.yml`) | ✅ | Builds NSIS + portable |
 | Packaging | Local packaging works (`npm run electron:dist`) | ✅ | Signing/edit disabled for local builds |
 | CI | Windows artifact workflow (`.github/workflows/electron-windows.yml`) | ✅ | Manual `workflow_dispatch` |
