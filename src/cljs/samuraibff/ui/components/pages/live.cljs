@@ -1,5 +1,5 @@
 (ns samuraibff.ui.components.pages.live
-  "Live Recording page."
+  "Record page (live recording)."
   (:require
    [clojure.string :as str]
    [samuraibff.ui.api :as api]
@@ -848,7 +848,7 @@
        :title "Webhook dispatches"}]]))
 
 (defn right-panel
-  "Right-side panel for Live Recording.
+  "Right-side panel for Record.
 
   Contains tabs (for now: Log only)."
   []
@@ -908,7 +908,7 @@
     :empty-hint "No refined events yet…"}])
 
 (defn live-recording-page
-  "Live Recording page."
+  "Record page."
   []
   (let [tab* (react/useState :realtime)
         tab (aget tab* 0)

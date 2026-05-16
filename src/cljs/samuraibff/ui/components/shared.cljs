@@ -93,7 +93,7 @@
 (defn searchable-dropdown
   "A lightweight searchable dropdown.
 
-  Used for language selection on Live Recording.
+  Used for language selection on Record.
 
   Inputs:
   - value: currently selected option value (string)
