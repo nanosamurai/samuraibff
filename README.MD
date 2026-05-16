@@ -132,8 +132,8 @@ clojure -M:cljs watch app
 
 Open:
 
-* http://127.0.0.1:8000/recordings
-* http://127.0.0.1:8000/live
+* http://127.0.0.1:8000/recordings (Sessions)
+* http://127.0.0.1:8000/live (Record)
 
 ### Electron (Windows-first)
 
