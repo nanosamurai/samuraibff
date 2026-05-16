@@ -24,10 +24,10 @@
   Returns:
   - vector of item maps {:label string :route route-map :active? boolean}."
   [active-page]
-  [{:label "Recordings"
+  [{:label "Sessions"
     :route {:page :recordings :params {}}
     :active? (= active-page :recordings)}
-   {:label "Live Recording"
+   {:label "Record"
     :route {:page :live :params {}}
     :active? (= active-page :live)}
    {:label "Webhooks"
@@ -114,18 +114,18 @@
   Returns: hiccup." 
   [route]
   (let [{:keys [page params]} route
-         crumbs (case page
-                 :recordings [{:label "Recordings" :route {:page :recordings :params {}}}]
-                 :live [{:label "Recordings" :route {:page :recordings :params {}}}
-                        {:label "Live Recording" :route {:page :live :params {}}}]
-                  :webhooks [{:label "Webhooks" :route {:page :webhooks :params {}}}]
-                  :workflows [{:label "Workflows" :route {:page :workflows :params {}}}]
+        crumbs (case page
+                 :recordings [{:label "Sessions" :route {:page :recordings :params {}}}]
+                 :live [{:label "Sessions" :route {:page :recordings :params {}}}
+                        {:label "Record" :route {:page :live :params {}}}]
+                 :webhooks [{:label "Webhooks" :route {:page :webhooks :params {}}}]
+                 :workflows [{:label "Workflows" :route {:page :workflows :params {}}}]
                  :speakers [{:label "Speakers" :route {:page :speakers :params {}}}]
                  :api-credentials [{:label "API Credentials" :route {:page :api-credentials :params {}}}]
-                 :recording [{:label "Recordings" :route {:page :recordings :params {}}}
+                 :recording [{:label "Sessions" :route {:page :recordings :params {}}}
                              {:label (or (:session_id params) "Recording")
                               :route {:page :recording :params params}}]
-                 [{:label "Recordings" :route {:page :recordings :params {}}}])]
+                 [{:label "Sessions" :route {:page :recordings :params {}}}])]
     [:div {:class "breadcrumbs"}
      (for [[idx c] (map-indexed vector crumbs)]
        [:span {:class "crumb" :key (str "crumb-" idx "-" (:label c))}
