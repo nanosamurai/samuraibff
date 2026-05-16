@@ -1,5 +1,5 @@
 (ns samuraibff.ui.components.pages.recordings
-  "Recordings list page.
+  "Sessions list page.
 
   This page shows all sessions/recordings for the tenant."
   (:require
@@ -103,17 +103,16 @@
                      :title "Open detail"}
         (shared/icon "↗" {:title "Open"})]
 
-       [router/link (cond-> {:route {:page :live :params {}}
-                             :class "btn ghost"
-                             :title (if recordable?
-                                      "Record with this session"
-                                      "Recording is already completed")
-                             :on-click (fn [_]
-                                         (store/set-session-id! session_id))}
-                      (not recordable?)
-                      (assoc :class "btn ghost"
-                             :on-click (fn [_] nil)))
-        (shared/icon "●" {:title (if recordable? "Record" "Not available")})]
+       (if recordable?
+         [router/link {:route {:page :live :params {}}
+                       :class "btn ghost"
+                       :title "Record with this session"
+                       :on-click (fn [_]
+                                   (store/set-session-id! session_id))}
+          (shared/icon "●" {:title "Record"})]
+         [:span {:class "btn ghost disabled"
+                 :title "Recording is already completed"}
+          (shared/icon "●" {:title "Not available"})])
 
        [:button {:class "btn ghost"
                  :title "Delete session"
@@ -167,15 +166,16 @@
                     :title "Open detail"}
        (shared/icon "↗" {:title "Open"})]
 
-      [router/link {:route {:page :live :params {}}
-                    :class "btn ghost icon"
-                    :title (if recordable?
-                             "Record with this session"
-                             "Recording is already completed")
-                    :on-click (fn [_]
-                                (when recordable?
-                                  (store/set-session-id! session_id)))}
-       (shared/icon "●" {:title (if recordable? "Record" "Not available")})]
+      (if recordable?
+        [router/link {:route {:page :live :params {}}
+                      :class "btn ghost icon"
+                      :title "Record with this session"
+                      :on-click (fn [_]
+                                  (store/set-session-id! session_id))}
+         (shared/icon "●" {:title "Record"})]
+        [:span {:class "btn ghost icon disabled"
+                :title "Recording is already completed"}
+         (shared/icon "●" {:title "Not available"})])
 
       [:button {:class "btn ghost icon"
                 :title "Delete session"
