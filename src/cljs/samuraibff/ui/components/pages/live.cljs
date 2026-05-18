@@ -92,9 +92,9 @@
      #js [])
 
     (letfn [(start-streaming! [sid]
-                                     ;; Starting a new capture run; reset transcript time base.
+                                      ;; Starting a new capture run; reset transcript time base.
               (store/clear-segments!)
-               (store/set-session-status! "active")
+              (store/set-session-status! "active")
               (store/set-running! true)
               (store/set-recording-status! sid :recording)
               (store/append-log! (str "[ui] start session=" sid))
@@ -152,7 +152,16 @@
               (store/set-recording-status! id :stopped)
               (store/set-session-status! "finished")
               (audio/stop-audio!)
-              (ws/close-events!))]
+              (ws/close-events!)
+              ;; Persist state machine transition best-effort.
+              ;; This ensures Sessions table reflects Finished after refresh.
+              (when (seq (str id))
+                (-> (api/finish-session! id)
+                    (.then (fn [_]
+                             (store/append-log! (str "[ui] session finished (db) " id))))
+                    (.catch (fn [e]
+                              (store/append-log!
+                               (str "[ui] failed finishing session (db): " (shared/safe-http-error e))))))))]
 
       [:div {:class "controls"}
        [:div {:class "controls-row"}
@@ -211,11 +220,11 @@
                   :disabled (or running? starting?)
                   :on-click (fn [_] (record-now!))
                   :title    "Start recording"}
-          [:span {:class (str "rec-dot" (when running? " blink"))}]
-          (cond
-            running? "Recording now"
-            starting? "Starting…"
-            :else "Record now")]
+         [:span {:class (str "rec-dot" (when running? " blink"))}]
+         (cond
+           running? "Recording now"
+           starting? "Starting…"
+           :else "Record now")]
 
         [:button {:class    "btn"
                   :disabled (not running?)

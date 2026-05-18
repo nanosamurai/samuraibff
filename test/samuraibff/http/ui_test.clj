@@ -194,3 +194,45 @@
         (is (= 404 (:status cross-resp)))
         (is (= false (:ok cross-body)))
         (is (= "not-found" (:message cross-body)))))))
+
+(deftest finish-session-handler-integration-test
+  (testing "POST /api/sessions/:session_id/finish marks session finished (tenant-scoped)"
+    (tc.pg/with-postgres [pg]
+      (let [jdbc-url (tc.pg/jdbc-url pg)
+            ds (tc.pg/datasource jdbc-url "drsynth" "drsynth")
+            _ (tc.pg/apply-schema! ds)
+
+            tenant-a (UUID/randomUUID)
+            tenant-b (UUID/randomUUID)
+            _ (jdbc/execute! ds ["INSERT INTO tenants (id, name) VALUES (?, ?), (?, ?)"
+                                 tenant-a "Tenant A" tenant-b "Tenant B"])
+
+            session-id (UUID/randomUUID)
+            _ (jdbc/execute! ds ["INSERT INTO sessions (id, tenant_id, session_key, title, status) VALUES (?, ?, ?, ?, ?)"
+                                 session-id tenant-a (str session-id) "T" "active"])
+
+            handler (http.ui/finish-session-handler {:config {:auth {:required? true}} :db {:ds ds}})
+
+            ok-resp (handler {:auth/tenant-id (str tenant-a)
+                              :path-params {:session_id (str session-id)}})
+            ok-body (parse-json-body ok-resp)
+
+            cross-resp (handler {:auth/tenant-id (str tenant-b)
+                                 :path-params {:session_id (str session-id)}})
+            cross-body (parse-json-body cross-resp)
+
+            row (jdbc/execute-one!
+                 ds
+                 ["SELECT status, ended_at FROM sessions WHERE id = ?" session-id]
+                 {:builder-fn rs/as-unqualified-lower-maps})]
+        (is (= 200 (:status ok-resp)))
+        (is (= true (:ok ok-body)))
+        (is (= (str session-id) (:session_id ok-body)))
+        (is (= "finished" (:status ok-body)))
+
+        (is (= "finished" (:status row)))
+        (is (some? (:ended_at row)))
+
+        (is (= 404 (:status cross-resp)))
+        (is (= false (:ok cross-body)))
+        (is (= "not-found" (:message cross-body)))))))

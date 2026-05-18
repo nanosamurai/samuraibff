@@ -23,8 +23,8 @@
    [samuraibff.schemas :as schemas]
    [samuraibff.sessions.meta :as sessions.meta]
    [samuraibff.util.uuid :as uuid]
-    [samuraibff.webhooks.routing-snapshot :as webhooks.snapshot]
-    [samuraibff.workflows.snapshot :as workflows.snapshot]
+   [samuraibff.webhooks.routing-snapshot :as webhooks.snapshot]
+   [samuraibff.workflows.snapshot :as workflows.snapshot]
    [samuraibff.ws.registry :as ws.registry])
   (:import
    (java.util UUID)))
@@ -150,12 +150,12 @@
   (fn [req]
     (let [tenant-id (:auth/tenant-id req)]
       (try
-         (let [body (or (:body-params req) (:body req) {})
+        (let [body (or (:body-params req) (:body req) {})
               ;; Request body is optional for backward compatibility.
-               {:keys [title webhook_overrides session_settings workflow_overrides]} (try
-                                                                   (schemas/decode-and-validate! schemas/CreateSessionRequest body)
-                                                                   (catch Exception _
-                                                                     {}))
+              {:keys [title webhook_overrides session_settings workflow_overrides]} (try
+                                                                                      (schemas/decode-and-validate! schemas/CreateSessionRequest body)
+                                                                                      (catch Exception _
+                                                                                        {}))
               title (some-> title str str/trim)
               title (when-not (str/blank? (str title)) title)
               default-title (format "Session %1$tF %1$tR" (java.time.ZonedDateTime/now))
@@ -182,15 +182,15 @@
                 :title title'
                 :status "created"
                 :webhook-overrides webhook_overrides
-                  :session-settings session_settings
-                  :workflow-overrides workflow_overrides})))
+                :session-settings session_settings
+                :workflow-overrides workflow_overrides})))
 
           ;; Create/bind session in registry immediately so WS endpoints can be
           ;; strict and disallow session creation via WS when auth is required.
           ;;
           ;; IMPORTANT: even when auth is disabled, we bind the in-memory session
           ;; under the same tenant UUID that we persisted into Postgres.
-           (ws.registry/ensure-session! ws-registry (str tenant-id-uuid) session-id {:webhook_overrides webhook_overrides
+          (ws.registry/ensure-session! ws-registry (str tenant-id-uuid) session-id {:webhook_overrides webhook_overrides
                                                                                     :workflow_overrides workflow_overrides})
 
           ;; Publish session routing snapshot (compacted topic) best-effort.
@@ -199,22 +199,22 @@
               (log/info "Resolving sessions.meta routing snapshot" {:tenant_id (str tenant-id-uuid)
                                                                     :session_id session-id
                                                                     :webhook_overrides_present? (some? webhook_overrides)})
-               (let [routing (webhooks.snapshot/resolve-routing-snapshot ds tenant-id-uuid session-uuid webhook_overrides)
-                     wf-targets (workflows.snapshot/resolve-targets ds tenant-id-uuid session-uuid workflow_overrides)
-                     workflow-needs-consolidation?
-                     (workflows.snapshot/any-target-requires-refined-consolidation? wf-targets)
-                     session-settings'
-                     (cond-> (or session_settings {})
-                       workflow-needs-consolidation?
-                       (assoc-in [:refined_transcript :consolidation :enabled] true))
-                     meta (sessions.meta/build-sessions-meta config tenant-id-uuid session-uuid routing session-settings' wf-targets)
+              (let [routing (webhooks.snapshot/resolve-routing-snapshot ds tenant-id-uuid session-uuid webhook_overrides)
+                    wf-targets (workflows.snapshot/resolve-targets ds tenant-id-uuid session-uuid workflow_overrides)
+                    workflow-needs-consolidation?
+                    (workflows.snapshot/any-target-requires-refined-consolidation? wf-targets)
+                    session-settings'
+                    (cond-> (or session_settings {})
+                      workflow-needs-consolidation?
+                      (assoc-in [:refined_transcript :consolidation :enabled] true))
+                    meta (sessions.meta/build-sessions-meta config tenant-id-uuid session-uuid routing session-settings' wf-targets)
                     targets (or (get-in routing [:targets_by_event_type]) {})
                     targets-count (when (map? targets)
                                     (reduce + 0 (map (comp count val) targets)))]
                 (log/info "Publishing sessions.meta" {:tenant_id (str tenant-id-uuid)
                                                       :session_id session-id
                                                       :schema_version (:schema_version meta)
-                                                       :refined_consolidation_enabled (boolean (get-in meta [:refined_transcript :consolidation :enabled]))
+                                                      :refined_consolidation_enabled (boolean (get-in meta [:refined_transcript :consolidation :enabled]))
                                                       :event_types_count (count (keys (or targets {})))
                                                       :targets_count (or targets-count 0)
                                                       :workflow_targets_count (count (or wf-targets []))})
@@ -298,4 +298,57 @@
 
         (catch Exception e
           (log/error e "Unexpected error renaming session" {:uri (:uri req)})
+          (json-response 500 {:ok false :message "internal-error"}))))))
+
+(defn finish-session-handler
+  "Finish a tenant-scoped session (state machine transition).
+
+  Endpoint:
+  - POST /api/sessions/:session_id/finish
+
+  Dependencies:
+  - :config full config map
+  - :db {:ds DataSource}
+
+  Returns:
+  - 200 {:ok true :session_id <uuid> :status \"finished\"}
+  - 404 {:ok false :message not-found}
+  - 400 {:ok false :message invalid-session-id}
+  - 403 {:ok false :message missing-tenant-id}
+  - 503 {:ok false :message db-unavailable}"
+  [{:keys [config db]}]
+  (fn [req]
+    (let [tenant-id (:auth/tenant-id req)
+          ds (:ds db)
+          sid-str (or (get-in req [:path-params :session_id])
+                      (get-in req [:path-params "session_id"]))]
+      (try
+        (when-not ds
+          (throw (ex-info "missing-datasource" {:type :samuraibff.http/missing-datasource})))
+        (let [tenant-id-uuid (tenant-uuid config tenant-id)
+              session-uuid (try
+                             (UUID/fromString (str sid-str))
+                             (catch Exception _
+                               (throw (ex-info "invalid-session-id"
+                                               {:type :samuraibff.http/invalid-session-id
+                                                :session-id sid-str}))))
+              {:keys [updated?]} (db.sessions/finish-session! ds tenant-id-uuid session-uuid)]
+          (if updated?
+            (json-response 200 {:ok true
+                                :session_id (str session-uuid)
+                                :status "finished"})
+            (json-response 404 {:ok false :message "not-found"})))
+
+        (catch clojure.lang.ExceptionInfo e
+          (let [{:keys [type]} (ex-data e)]
+            (case type
+              :samuraibff.http/missing-tenant-id (json-response 403 {:ok false :message "missing-tenant-id"})
+              :samuraibff.http/invalid-session-id (json-response 400 {:ok false :message "invalid-session-id"})
+              :samuraibff.http/missing-datasource (json-response 503 {:ok false :message "db-unavailable"})
+              (do
+                (log/error e "Failed to finish session" {:uri (:uri req) :session-id sid-str})
+                (json-response 500 {:ok false :message "internal-error"})))))
+
+        (catch Exception e
+          (log/error e "Unexpected error finishing session" {:uri (:uri req) :session-id sid-str})
           (json-response 500 {:ok false :message "internal-error"}))))))

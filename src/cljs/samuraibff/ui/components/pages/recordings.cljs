@@ -47,6 +47,12 @@
        :icon "●"
        :tooltip "Recording/transcription in progress"}
 
+      (= status "finished")
+      {:label "Finished"
+       :badge-class "muted"
+       :icon "■"
+       :tooltip "Recording stopped; final transcript not available yet"}
+
       (= status "created")
       {:label "Created"
        :badge-class "muted"
@@ -111,19 +117,19 @@
                      :title "Open detail"}
         (shared/icon "↗" {:title "Open"})]
 
-        (if recordable?
-          [router/link {:route {:page :live :params {}}
-                        :class "btn ghost"
-                        :title "Record with this session"
-                        :on-click (fn [_]
-                                    (store/set-session-id! session_id)
-                                    (store/set-session-created-at-ms! created-at-ms)
-                                    (store/set-session-title! (or title ""))
-                                    (store/set-session-status! (:status rec)))}
-           (shared/icon "●" {:title "Record"})]
-          [:span {:class "btn ghost disabled"
-                  :title "Recording is already completed"}
-           (shared/icon "●" {:title "Not available"})])
+       (if recordable?
+         [router/link {:route {:page :live :params {}}
+                       :class "btn ghost"
+                       :title "Record with this session"
+                       :on-click (fn [_]
+                                   (store/set-session-id! session_id)
+                                   (store/set-session-created-at-ms! created-at-ms)
+                                   (store/set-session-title! (or title ""))
+                                   (store/set-session-status! (:status rec)))}
+          (shared/icon "●" {:title "Record"})]
+         [:span {:class "btn ghost disabled"
+                 :title "Recording is already completed"}
+          (shared/icon "●" {:title "Not available"})])
 
        [:button {:class "btn ghost"
                  :title "Delete session"

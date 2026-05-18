@@ -78,8 +78,8 @@
        :items [ ... ]}"
   [session-id]
   (-> (js/fetch (api-url (str "/api/sessions/"
-                             (js/encodeURIComponent (or session-id ""))
-                             "/webhook-delivery-outcomes")))
+                              (js/encodeURIComponent (or session-id ""))
+                              "/webhook-delivery-outcomes")))
       (.then ensure-ok!)
       (.then (fn [res] (.json res)))
       (.then (fn [body]
@@ -101,8 +101,8 @@
                                                    (some? webhook_overrides)
                                                    (assoc :webhook_overrides webhook_overrides)
 
-                                                    (some? workflow_overrides)
-                                                    (assoc :workflow_overrides workflow_overrides)
+                                                   (some? workflow_overrides)
+                                                   (assoc :workflow_overrides workflow_overrides)
 
                                                    (some? session_settings)
                                                    (assoc :session_settings session_settings))))})
@@ -115,6 +115,27 @@
                     (throw (js/Error. "Missing session_id in response")))
                   {:session_id sid
                    :title t}))))))
+
+(defn finish-session!
+  "Finish a session (explicit state machine transition).
+
+  Endpoint:
+  - POST /api/sessions/:session_id/finish
+
+  Inputs:
+  - session-id: string
+
+  Returns:
+  - Promise resolving to {:ok true :session_id <string> :status " finished "}"
+  [session-id]
+  (-> (js/fetch (api-url (str "/api/sessions/"
+                              (js/encodeURIComponent (or session-id ""))
+                              "/finish"))
+                #js {:method "POST"})
+      (.then ensure-ok!)
+      (.then (fn [res] (.json res)))
+      (.then (fn [body]
+               (js->clj body :keywordize-keys true)))))
 
 ;; --- Workflows ---
 
@@ -268,8 +289,8 @@
                                          "="
                                          (js/encodeURIComponent v))))
                    (str/join "&")))
-        url (api-url (str "/api/recordings" (when qs (str "?" qs))))]
-    (-> (js/fetch url)
+         url (api-url (str "/api/recordings" (when qs (str "?" qs))))]
+     (-> (js/fetch url)
          (.then ensure-ok!)
          (.then (fn [res] (.json res)))
          (.then (fn [body]
@@ -347,7 +368,7 @@
     (.append data "label" (or label ""))
     (.append data "sample" file)
     (-> (js/fetch (api-url "/api/speakers") #js {:method "POST"
-                                       :body data})
+                                                 :body data})
         (.then ensure-ok!)
         (.then (fn [res] (.json res))))))
 
