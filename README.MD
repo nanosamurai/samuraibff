@@ -116,6 +116,20 @@ clojure -M:run
 
 Default local bind: `127.0.0.1:8000`.
 
+### Session lifecycle (UI)
+
+The UI uses an explicit session state machine:
+
+* `created`  – draft session (not recording yet)
+* `active`   – recording/transcription in progress
+* `finished` – user stopped recording
+
+When you press **Stop** on the Record page, the UI calls:
+
+* `POST /api/sessions/{session_id}/finish`
+
+to persist the transition to `finished` in Postgres (and set `ended_at`).
+
 ### UI (browser)
 
 Install npm deps once:
