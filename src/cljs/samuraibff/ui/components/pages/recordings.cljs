@@ -124,7 +124,10 @@
                        :on-click (fn [_]
                                    (store/set-session-id! session_id)
                                    (store/set-session-created-at-ms! created-at-ms)
-                                   (store/set-session-title! (or title ""))
+                                   (store/set-session-title!
+                                    (or session-title
+                                        (util/default-session-title created-at-ms)
+                                        ""))
                                    (store/set-session-status! (:status rec)))}
           (shared/icon "●" {:title "Record"})]
          [:span {:class "btn ghost disabled"
@@ -191,9 +194,12 @@
                       :title "Record with this session"
                       :on-click (fn [_]
                                   (store/set-session-id! session_id)
-                                  (store/set-session-title! (or title ""))
-                                  (store/set-session-status! (:status rec))
-                                  (store/set-session-created-at-ms! created-at-ms))}
+                                  (store/set-session-created-at-ms! created-at-ms)
+                                  (store/set-session-title!
+                                   (or session-title
+                                       (util/default-session-title created-at-ms)
+                                       ""))
+                                  (store/set-session-status! (:status rec)))}
          (shared/icon "●" {:title "Record"})]
         [:span {:class "btn ghost icon disabled"
                 :title "Recording is already completed"}

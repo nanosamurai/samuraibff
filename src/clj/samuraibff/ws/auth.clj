@@ -11,10 +11,10 @@
   Public API:
   - `require-auth-or-continue`"
   (:require
-    [clojure.string :as str]
-    [jsonista.core :as json]
-    [org.corfield.logging4j2 :as log]
-    [samuraibff.auth.oidc :as oidc]))
+   [clojure.string :as str]
+   [jsonista.core :as json]
+   [org.corfield.logging4j2 :as log]
+   [samuraibff.auth.oidc :as oidc]))
 
 (def ^:private json-mapper
   (json/object-mapper {:encode-key-fn name}))
@@ -27,11 +27,15 @@
   - when auth is disabled: returns configured [:auth :guest-tenant-id] or nil
 
   This is intentionally opt-in: we do not default to any tenant id unless the
-  operator explicitly configures it." 
+  operator explicitly configures it."
   [config]
   (when-not (oidc/auth-required? config)
     (let [tid (some-> (get-in config [:auth :guest-tenant-id]) str str/trim)]
-      (when-not (str/blank? tid) tid))))
+      ;; Backward compatible default: use all-zero UUID when not configured.
+      ;; This matches the HTTP fallback used in `samuraibff.http.ui`.
+      (if (str/blank? tid)
+        "00000000-0000-0000-0000-000000000000"
+        tid))))
 
 (defn require-auth-or-continue
   "Authenticate a websocket request before upgrade.
@@ -53,7 +57,7 @@
   - {:ok? boolean
      :response (optional Ring response)
      :user (optional user map)
-     :tenant-id (optional string)}" 
+     :tenant-id (optional string)}"
   [config req]
   (let [token (oidc/extract-token config req)
         required? (oidc/auth-required? config)
