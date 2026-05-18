@@ -94,6 +94,7 @@
     (letfn [(start-streaming! [sid]
                                      ;; Starting a new capture run; reset transcript time base.
               (store/clear-segments!)
+               (store/set-session-status! "active")
               (store/set-running! true)
               (store/set-recording-status! sid :recording)
               (store/append-log! (str "[ui] start session=" sid))
@@ -111,6 +112,7 @@
                     (.then (fn [{:keys [session_id title]}]
                              (store/set-session-id! session_id)
                              (store/set-session-title! (or title ""))
+                             (store/set-session-status! "created")
                              (store/add-recording! {:session_id    session_id
                                                     :created_at_ms (util/now-ms)
                                                     :status        :ready})
@@ -147,6 +149,7 @@
               (store/append-log! "[ui] stop")
               (store/set-running! false)
               (store/set-recording-status! id :stopped)
+              (store/set-session-status! "finished")
               (audio/stop-audio!)
               (ws/close-events!))]
 
@@ -207,8 +210,11 @@
                   :disabled (or running? starting?)
                   :on-click (fn [_] (record-now!))
                   :title    "Start recording"}
-         [:span {:style {:color "var(--bad)"}} "●"]
-         (if starting? "Starting…" "Record now")]
+          [:span {:class (str "rec-dot" (when running? " blink"))}]
+          (cond
+            running? "Recording now"
+            starting? "Starting…"
+            :else "Record now")]
 
         [:button {:class    "btn"
                   :disabled (not running?)
@@ -912,13 +918,38 @@
         tab (aget tab* 0)
         set-tab! (aget tab* 1)
 
+        session (hooks/use-atom store/session*)
+        running? (hooks/use-atom store/running?*)
+        session-title (let [t (str/trim (str (or (:title session) "")))]
+                        (when (seq t) t))
+        session-status (str (or (:status session) ""))
+        header-title (or session-title "Record")
+        status-label (cond
+                       (true? running?) "Recording"
+                       (seq session-status) (str/capitalize session-status)
+                       :else "Unknown")
+        status-kind (cond
+                      (true? running?) :warn
+                      (= session-status "active") :warn
+                      (= session-status "failed") :bad
+                      (= session-status "finished") :ok
+                      (= session-status "created") :muted
+                      :else :muted)
+        status-tooltip (str "Session status: " (or (seq session-status) "unknown"))
+
         settings-open?* (react/useState false)
         settings-open? (aget settings-open?* 0)
         set-settings-open! (aget settings-open?* 1)]
     [:div {:class "page"}
      [:div {:class "page-header"}
       [:div
-       [:div {:class "page-title"} "Record"]
+       [:div {:class "page-title"}
+        header-title
+        [:span {:style {:marginLeft "10px"}}
+         [shared/status-pill {:label status-label
+                              :kind status-kind
+                              :blink? (true? running?)
+                              :tooltip status-tooltip}]]]
        [:div {:class "muted"} "Capture audio and view the live transcript."]]
       [:div {:class "row"}
        [router/link {:route {:page :recordings :params {}}

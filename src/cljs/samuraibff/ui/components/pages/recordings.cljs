@@ -35,17 +35,23 @@
         has-recording? (true? has_recording)
         has-final? (true? has_final_transcript)]
     (cond
-      (not has-recording?)
-      {:label "Created"
-       :badge-class "muted"
-       :icon "○"
-       :tooltip "Session created but recording never started"}
-
       (= status "failed")
       {:label "Failed"
        :badge-class "bad"
        :icon "✗"
        :tooltip "Session failed"}
+
+      (= status "active")
+      {:label "Recording"
+       :badge-class "warn"
+       :icon "●"
+       :tooltip "Recording/transcription in progress"}
+
+      (= status "created")
+      {:label "Created"
+       :badge-class "muted"
+       :icon "○"
+       :tooltip "Draft session (recording not started)"}
 
       has-final?
       {:label "Finalized"
@@ -53,17 +59,17 @@
        :icon "✓"
        :tooltip "Final transcript is available"}
 
-      (= status "active")
-      {:label "Recording"
-       :badge-class "warn"
-       :icon "●"
-       :tooltip "Recording in progress"}
-
-      :else
+      has-recording?
       {:label "Processing"
        :badge-class "muted"
        :icon "…"
-       :tooltip "Recording stopped; final transcript not available yet"})))
+       :tooltip "Recording finished; final transcript not available yet"}
+
+      :else
+      {:label "Created"
+       :badge-class "muted"
+       :icon "○"
+       :tooltip "Session created"})))
 
 (defn- recordings-row
   "Render a single recordings table row.
@@ -103,13 +109,15 @@
                      :title "Open detail"}
         (shared/icon "↗" {:title "Open"})]
 
-       (if recordable?
-         [router/link {:route {:page :live :params {}}
-                       :class "btn ghost"
-                       :title "Record with this session"
-                       :on-click (fn [_]
-                                   (store/set-session-id! session_id))}
-          (shared/icon "●" {:title "Record"})]
+        (if recordable?
+          [router/link {:route {:page :live :params {}}
+                        :class "btn ghost"
+                        :title "Record with this session"
+                        :on-click (fn [_]
+                                    (store/set-session-id! session_id)
+                                    (store/set-session-title! (or title ""))
+                                    (store/set-session-status! (:status rec)))}
+           (shared/icon "●" {:title "Record"})]
          [:span {:class "btn ghost disabled"
                  :title "Recording is already completed"}
           (shared/icon "●" {:title "Not available"})])
@@ -171,7 +179,9 @@
                       :class "btn ghost icon"
                       :title "Record with this session"
                       :on-click (fn [_]
-                                  (store/set-session-id! session_id))}
+                                  (store/set-session-id! session_id)
+                                  (store/set-session-title! (or title ""))
+                                  (store/set-session-status! (:status rec)))}
          (shared/icon "●" {:title "Record"})]
         [:span {:class "btn ghost icon disabled"
                 :title "Recording is already completed"}
@@ -262,6 +272,7 @@
                            (.then (fn [{:keys [session_id title]}]
                                     (store/set-session-id! session_id)
                                     (store/set-session-title! (or title ""))
+                                    (store/set-session-status! "created")
                                     (store/add-recording! {:session_id session_id
                                                            :created_at_ms (util/now-ms)
                                                            :status :ready})

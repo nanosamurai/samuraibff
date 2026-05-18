@@ -172,6 +172,7 @@
     .badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid rgba(34,48,70,.8);background:rgba(12,18,27,.7)}
     .badge.ok{border-color:rgba(107,203,255,.45);color:rgba(230,240,255,.95)}
     .badge.bad{border-color:rgba(255,92,122,.55);color:rgba(255,92,122,.95)}
+    .badge.warn{border-color:rgba(255,92,122,.55);color:rgba(230,240,255,.95)}
     .badge.muted{border-color:rgba(34,48,70,.8);color:var(--muted)}
     /* Used for ASR partials: more "draft" look + typing animation. */
     .badge.muted.typing{
@@ -472,6 +473,28 @@
     .dot{width:10px;height:10px;border-radius:99px;background:var(--muted)}
     .dot.ok{background:var(--ok)}
     .dot.bad{background:var(--bad)}
+
+    /* Recording indicator dot (used in buttons and status pills). */
+    .rec-dot{
+      width:10px;
+      height:10px;
+      border-radius:99px;
+      background: var(--bad);
+      display:inline-block;
+      transform: translateY(1px);
+    }
+
+    .rec-dot.muted{background: var(--muted)}
+    .rec-dot.ok{background: var(--ok)}
+    .rec-dot.warn{background: var(--bad)}
+    .rec-dot.bad{background: var(--bad)}
+
+    @keyframes recBlink{
+      0%, 52%, 100% {opacity: .25}
+      26% {opacity: 1}
+    }
+
+    .rec-dot.blink{animation: recBlink 0.9s infinite ease-in-out}
 
     .log{flex:1;min-height:0;overflow:auto;padding:10px;border-radius:12px;border:1px solid rgba(34,48,70,.6);background:rgba(12,18,27,.35);font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;font-size:12px;white-space:pre-wrap}
     .log-line{padding:2px 0}

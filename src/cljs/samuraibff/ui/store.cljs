@@ -24,6 +24,14 @@
 (defonce session*
   (atom {:id ""
          :title ""
+         ;; DB-backed session status string.
+         ;;
+         ;; Expected values (backend): "created" | "active" | "finished" | "failed".
+         ;;
+         ;; Notes:
+         ;; - UI may temporarily override this to "active" while streaming.
+         ;; - Empty string means "unknown / not loaded".
+         :status ""
          :lang ""
          ;; Session-scoped webhook routing overrides.
          ;;
@@ -547,6 +555,19 @@
   Returns: nil."
   [title]
   (swap! session* assoc :title (or title ""))
+  nil)
+
+(defn set-session-status!
+  "Set the current session status.
+
+  This is the DB-backed session state machine status.
+
+  Inputs:
+  - status: string? (e.g. \"created\" | \"active\" | \"finished\" | \"failed\" | nil)
+
+  Returns: nil."
+  [status]
+  (swap! session* assoc :status (str (or status "")))
   nil)
 
 (defn set-lang!

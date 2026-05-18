@@ -334,6 +334,18 @@
         title-display (let [t (str/trim (str (or current-title "")))]
                         (when (seq t) t))
 
+        session-status (str (or (get-in detail [:session :status]) ""))
+        status-label (cond
+                       (= session-status "active") "Recording"
+                       (seq session-status) (str/capitalize session-status)
+                       :else "Unknown")
+        status-kind (cond
+                      (= session-status "active") :warn
+                      (= session-status "failed") :bad
+                      (= session-status "finished") :ok
+                      :else :muted)
+        status-tooltip (str "Session status: " (or (seq session-status) "unknown"))
+
         on-title-saved (fn [new-title]
                          (set-detail! (fn [prev]
                                         (assoc-in (or prev {}) [:session :title] new-title))))]
@@ -471,7 +483,13 @@
                               :on-close close-enroll!}]
        [:div {:class "page-header"}
         [:div
-         [:div {:class "page-title"} (or title-display "Recording")]
+         [:div {:class "page-title"}
+          (or title-display "Recording")
+          [:span {:style {:marginLeft "10px"}}
+           [shared/status-pill {:label status-label
+                                :kind status-kind
+                                :blink? (= session-status "active")
+                                :tooltip status-tooltip}]]]
          [:div {:class "mono muted"} session-id]
          (when loading?
            [:div {:class "muted"} "Loading…"])]
@@ -482,7 +500,11 @@
           "Back to recordings"]
          [:button {:class "btn"
                    :title "Record with this session"
-                   :on-click (fn [_] (store/set-session-id! session-id))}
+                   :on-click (fn [_]
+                               (store/set-session-id! session-id)
+                               (store/set-session-title! (or current-title ""))
+                               (store/set-session-status! session-status)
+                               (router/navigate! {:page :live :params {}}))}
           "Record with this session"]
 
          [title-editor {:session-id session-id

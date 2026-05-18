@@ -39,6 +39,26 @@
   ([s {:keys [title]}]
    [:span {:class "icon" :title title} (or s "")]))
 
+(defn status-pill
+  "Render a compact session status pill.
+
+  Inputs:
+  - {:keys [label kind blink? tooltip]} where:
+      label   => string (required)
+      kind    => keyword? one of :ok :bad :warn :muted (optional; default :muted)
+      blink?  => boolean (optional; when true, the dot blinks)
+      tooltip => string? (optional)
+
+  Returns: hiccup."
+  [{:keys [label kind blink? tooltip]}]
+  (let [kind (or kind :muted)
+        tooltip (when (seq (str tooltip)) (str tooltip))]
+    [:span {:class (str "badge " (name kind))
+            :title tooltip}
+     [:span {:class (str "rec-dot " (name kind) (when blink? " blink"))
+             :title tooltip}]
+     [:span {:style {:marginLeft "8px"}} (str (or label ""))]]))
+
 ;; --- Fetch / clipboard safety helpers ---
 
 (defn safe-http-error
