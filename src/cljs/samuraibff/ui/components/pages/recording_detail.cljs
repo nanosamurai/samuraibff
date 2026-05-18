@@ -504,14 +504,18 @@
          [router/link {:route {:page :recordings :params {}}
                        :class "btn"}
           "Back to recordings"]
-         [:button {:class "btn"
-                   :title "Record with this session"
-                   :on-click (fn [_]
-                               (store/set-session-id! session-id)
-                               (store/set-session-created-at-ms! created-at-ms)
-                               (store/set-session-title! (or current-title ""))
-                               (store/set-session-status! session-status)
-                               (router/navigate! {:page :live :params {}}))}
+
+         [router/link {:route {:page :live :params {}}
+                       :class "btn"
+                       :title "Record with this session"
+                       :on-click (fn [_]
+                                   (store/set-session-id! session-id)
+                                   (store/set-session-created-at-ms! created-at-ms)
+                                   (store/set-session-title!
+                                    (or (some-> current-title str str/trim not-empty)
+                                        (util/default-session-title created-at-ms)
+                                        ""))
+                                   (store/set-session-status! session-status))}
           "Record with this session"]
 
          [title-editor {:session-id session-id
