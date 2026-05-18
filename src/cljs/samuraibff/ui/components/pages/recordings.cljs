@@ -109,7 +109,7 @@
        [router/link {:route {:page :recording :params {:session_id session_id}}
                      :class "btn"
                      :title "Open detail"}
-        (shared/icon "↗" {:title "Open"})
+        (shared/icon "↗" {:title "Open"})]
 
         (if recordable?
           [router/link {:route {:page :live :params {}}
@@ -123,7 +123,7 @@
            (shared/icon "●" {:title "Record"})]
           [:span {:class "btn ghost disabled"
                   :title "Recording is already completed"}
-           (shared/icon "●" {:title "Not available"})])]
+           (shared/icon "●" {:title "Not available"})])
 
        [:button {:class "btn ghost"
                  :title "Delete session"
