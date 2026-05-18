@@ -32,6 +32,11 @@
          ;; - UI may temporarily override this to "active" while streaming.
          ;; - Empty string means "unknown / not loaded".
          :status ""
+         ;; Used only for consistent UI display of untitled sessions.
+         ;; - Set when selecting a session from the Sessions table.
+         ;; - Set when creating a new session.
+         ;; - Nil/0 means "unknown".
+         :created_at_ms nil
          :lang ""
          ;; Session-scoped webhook routing overrides.
          ;;
@@ -555,6 +560,19 @@
   Returns: nil."
   [title]
   (swap! session* assoc :title (or title ""))
+  nil)
+
+(defn set-session-created-at-ms!
+  "Set the current session created_at timestamp in ms.
+
+  This is used for UI-only default title generation when session title is blank.
+
+  Inputs:
+  - created-at-ms: number? or nil
+
+  Returns: nil."
+  [created-at-ms]
+  (swap! session* assoc :created_at_ms created-at-ms)
   nil)
 
 (defn set-session-status!

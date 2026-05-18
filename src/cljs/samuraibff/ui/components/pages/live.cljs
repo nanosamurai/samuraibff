@@ -111,6 +111,7 @@
                 (-> (api/create-session! req)
                     (.then (fn [{:keys [session_id title]}]
                              (store/set-session-id! session_id)
+                             (store/set-session-created-at-ms! (util/now-ms))
                              (store/set-session-title! (or title ""))
                              (store/set-session-status! "created")
                              (store/add-recording! {:session_id    session_id
@@ -920,10 +921,11 @@
 
         session (hooks/use-atom store/session*)
         running? (hooks/use-atom store/running?*)
+        session-created-at-ms (or (:created_at_ms session) (util/now-ms))
         session-title (let [t (str/trim (str (or (:title session) "")))]
                         (when (seq t) t))
         session-status (str (or (:status session) ""))
-        header-title (or session-title "Record")
+        header-title (or session-title (util/default-session-title session-created-at-ms) "Record")
         status-label (cond
                        (true? running?) "Recording"
                        (seq session-status) (str/capitalize session-status)

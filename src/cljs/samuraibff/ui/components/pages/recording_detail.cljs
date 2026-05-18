@@ -334,6 +334,12 @@
         title-display (let [t (str/trim (str (or current-title "")))]
                         (when (seq t) t))
 
+        created-at-ms (or (util/iso->ms (get-in detail [:session :created_at]))
+                          (util/now-ms))
+        title-display* (or title-display
+                           (util/default-session-title created-at-ms)
+                           "Recording")
+
         session-status (str (or (get-in detail [:session :status]) ""))
         status-label (cond
                        (= session-status "active") "Recording"
@@ -484,7 +490,7 @@
        [:div {:class "page-header"}
         [:div
          [:div {:class "page-title"}
-          (or title-display "Recording")
+          title-display*
           [:span {:style {:marginLeft "10px"}}
            [shared/status-pill {:label status-label
                                 :kind status-kind
@@ -502,6 +508,7 @@
                    :title "Record with this session"
                    :on-click (fn [_]
                                (store/set-session-id! session-id)
+                               (store/set-session-created-at-ms! created-at-ms)
                                (store/set-session-title! (or current-title ""))
                                (store/set-session-status! session-status)
                                (router/navigate! {:page :live :params {}}))}

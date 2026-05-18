@@ -82,17 +82,19 @@
   (let [{:keys [label badge-class tooltip]
          icon-glyph :icon} (rec->display-status rec)
         recordable? (false? (:has_recording rec))
+        created-at-ms (or (util/iso->ms created_at) (util/now-ms))
         session-title (let [t (str/trim (str (or title "")))]
                         (when (seq t) t))
+        session-title-display (or session-title (util/default-session-title created-at-ms))
         lang (get-in rec [:recording :lang])]
     [:tr
      [:td
       [:div {:style {:display "flex" :flexDirection "column" :gap "2px"}}
        [:div {:style {:display "flex" :gap "8px" :alignItems "baseline"}}
-        ;; Language flag hint (best-effort). Blank => omit.
+         ;; Language flag hint (best-effort). Blank => omit.
         (when (seq (str lang))
           [shared/lang-flag lang])
-        [:span (or session-title session_id)]]
+        [:span session-title-display]]
        [:div {:class "hint"}
         [:span {:class "mono"} session_id]]]]
      [:td {:class "muted"} (or (shared/iso->local created_at) "")]
@@ -107,7 +109,7 @@
        [router/link {:route {:page :recording :params {:session_id session_id}}
                      :class "btn"
                      :title "Open detail"}
-        (shared/icon "↗" {:title "Open"})]
+        (shared/icon "↗" {:title "Open"})
 
         (if recordable?
           [router/link {:route {:page :live :params {}}
@@ -115,12 +117,13 @@
                         :title "Record with this session"
                         :on-click (fn [_]
                                     (store/set-session-id! session_id)
+                                    (store/set-session-created-at-ms! created-at-ms)
                                     (store/set-session-title! (or title ""))
                                     (store/set-session-status! (:status rec)))}
            (shared/icon "●" {:title "Record"})]
-         [:span {:class "btn ghost disabled"
-                 :title "Recording is already completed"}
-          (shared/icon "●" {:title "Not available"})])
+          [:span {:class "btn ghost disabled"
+                  :title "Recording is already completed"}
+           (shared/icon "●" {:title "Not available"})])]
 
        [:button {:class "btn ghost"
                  :title "Delete session"
@@ -146,8 +149,10 @@
   (let [{:keys [label badge-class tooltip]
          icon-glyph :icon} (rec->display-status rec)
         recordable? (false? (:has_recording rec))
+        created-at-ms (or (util/iso->ms created_at) (util/now-ms))
         session-title (let [t (str/trim (str (or title "")))]
                         (when (seq t) t))
+        session-title-display (or session-title (util/default-session-title created-at-ms))
         lang (get-in rec [:recording :lang])]
     [:div {:class "list-item"}
      [:div {:style {:display "flex" :gap "10px" :alignItems "flex-start"}}
@@ -155,8 +160,8 @@
        [:div {:class "list-item-title"}
         [:div {:style {:display "flex" :gap "8px" :alignItems "baseline" :flexWrap "wrap"}}
          (when (seq (str lang))
-           [shared/lang-flag lang])
-         [:span (or session-title session_id)]]]
+           [shared/lang-flag lang])]
+        [:span session-title-display]]
        [:div {:class "list-item-sub mono"} session_id]
        [:div {:class "list-item-meta"}
         [:span (str "Created: " (or (shared/iso->local created_at) "—"))]
@@ -181,7 +186,8 @@
                       :on-click (fn [_]
                                   (store/set-session-id! session_id)
                                   (store/set-session-title! (or title ""))
-                                  (store/set-session-status! (:status rec)))}
+                                  (store/set-session-status! (:status rec))
+                                  (store/set-session-created-at-ms! created-at-ms))}
          (shared/icon "●" {:title "Record"})]
         [:span {:class "btn ghost icon disabled"
                 :title "Recording is already completed"}
@@ -271,6 +277,7 @@
                        (-> (api/create-session! req)
                            (.then (fn [{:keys [session_id title]}]
                                     (store/set-session-id! session_id)
+                                    (store/set-session-created-at-ms! (util/now-ms))
                                     (store/set-session-title! (or title ""))
                                     (store/set-session-status! "created")
                                     (store/add-recording! {:session_id session_id
