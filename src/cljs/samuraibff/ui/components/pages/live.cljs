@@ -190,7 +190,7 @@
                                    (store/set-session-title! (.. e -target -value)))}]
            (when (seq (str id))
              [:div {:class "hint"}
-              [:span {:class "mono"} id]])]]
+              [:span {:class "mono"} id]])]
 
          [:div {:class "field"}
           [:div {:class "label"} "Language"]
@@ -231,7 +231,7 @@
           (when (seq (str mic-error))
             [:div {:class "hint"} mic-error])]
 
-         [:div {:class "spacer"}
+         [:div {:class "spacer"}]
 
           (cond
             terminal?
@@ -255,7 +255,7 @@
                       :on-click (fn [_] (record-now!))
                       :title    "Start recording"}
              [:span {:class (str "rec-dot" (when running? " blink"))}]
-             (if starting? "Starting…" "Record now")])]
+             (if starting? "Starting…" "Record now")])
          [:button {:class      "btn icon"
                    :type       "button"
                    :aria-label "Session settings"
@@ -263,7 +263,7 @@
                    :on-click   (fn [_]
                                  (when set-settings-open!
                                    (set-settings-open! (not (true? settings-open?)))))}
-          "⚙"]]))))
+          "⚙"]]]))))
 
 (declare webhook-routing-panel workflow-routing-panel stream-controls-panel audio-controls-panel)
 
