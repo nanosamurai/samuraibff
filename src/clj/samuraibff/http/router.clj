@@ -30,7 +30,7 @@
    [samuraibff.http.speakers :as http.speakers]
    [samuraibff.http.ui :as http.ui]
    [samuraibff.http.webhooks :as http.webhooks]
-    [samuraibff.http.workflows :as http.workflows]
+   [samuraibff.http.workflows :as http.workflows]
    [samuraibff.http.middleware.observability :as http.obs]
    [samuraibff.observability.metrics :as metrics]
    [samuraibff.schemas :as schemas]
@@ -243,10 +243,10 @@
           ["/recordings/:session_id" {:get {:handler http.ui/index-handler}}]
           ["/live" {:get {:handler http.ui/index-handler}}]
           ["/api-credentials" {:get {:handler http.ui/index-handler}}]
-           ["/webhooks" {:get {:handler http.ui/index-handler}}]
-           ["/webhooks-defaults" {:get {:handler http.ui/index-handler}}]
-           ["/workflows" {:get {:handler http.ui/index-handler}}]
-           ["/workflows-defaults" {:get {:handler http.ui/index-handler}}]
+          ["/webhooks" {:get {:handler http.ui/index-handler}}]
+          ["/webhooks-defaults" {:get {:handler http.ui/index-handler}}]
+          ["/workflows" {:get {:handler http.ui/index-handler}}]
+          ["/workflows-defaults" {:get {:handler http.ui/index-handler}}]
 
            ;; --- OpenAPI + Swagger UI ---
           ["/openapi" {:tags ["openapi"]}
@@ -448,61 +448,61 @@
                            :handler (http.webhooks/delete-webhook-handler deps)}}]]]
 
             ;; --- Workflows ---
-            ["/workflows"
-             {}
+           ["/workflows"
+            {}
 
-             ["/defaults"
-              {:get {:summary "Get workflow defaults"
-                     :description "Returns tenant defaults (workflow ids applied by default to new sessions)."
-                     :responses {200 {:body schemas/WorkflowDefaultsResponse}
-                                 403 {:body schemas/ApiErrorResponse}
-                                 503 {:body schemas/ApiErrorResponse}}
-                     :handler (http.workflows/get-defaults-handler deps)}
-               :put {:summary "Set workflow defaults"
-                     :description "Replaces tenant workflow defaults."
-                     :parameters {:body schemas/WorkflowDefaultsRequest}
-                     :responses {200 {:body schemas/ApiOkResponse}
+            ["/defaults"
+             {:get {:summary "Get workflow defaults"
+                    :description "Returns tenant defaults (workflow ids applied by default to new sessions)."
+                    :responses {200 {:body schemas/WorkflowDefaultsResponse}
+                                403 {:body schemas/ApiErrorResponse}
+                                503 {:body schemas/ApiErrorResponse}}
+                    :handler (http.workflows/get-defaults-handler deps)}
+              :put {:summary "Set workflow defaults"
+                    :description "Replaces tenant workflow defaults."
+                    :parameters {:body schemas/WorkflowDefaultsRequest}
+                    :responses {200 {:body schemas/ApiOkResponse}
+                                400 {:body schemas/ApiErrorResponse}
+                                403 {:body schemas/ApiErrorResponse}
+                                503 {:body schemas/ApiErrorResponse}}
+                    :handler (http.workflows/set-defaults-handler deps)}}]
+
+            [""
+             {:get {:summary "List workflows"
+                    :description "Lists configured workflow definitions for the current tenant."
+                    :responses {200 {:body schemas/WorkflowsListResponse}
+                                403 {:body schemas/ApiErrorResponse}
+                                503 {:body schemas/ApiErrorResponse}}
+                    :handler (http.workflows/list-workflows-handler deps)}
+
+              :post {:summary "Create workflow"
+                     :description "Creates a new workflow definition."
+                     :parameters {:body schemas/CreateWorkflowRequest}
+                     :responses {200 {:body schemas/CreateWorkflowResponse}
                                  400 {:body schemas/ApiErrorResponse}
                                  403 {:body schemas/ApiErrorResponse}
                                  503 {:body schemas/ApiErrorResponse}}
-                     :handler (http.workflows/set-defaults-handler deps)}}]
+                     :handler (http.workflows/create-workflow-handler deps)}}]
 
-             [""
-              {:get {:summary "List workflows"
-                     :description "Lists configured workflow definitions for the current tenant."
-                     :responses {200 {:body schemas/WorkflowsListResponse}
-                                 403 {:body schemas/ApiErrorResponse}
-                                 503 {:body schemas/ApiErrorResponse}}
-                     :handler (http.workflows/list-workflows-handler deps)}
-
-               :post {:summary "Create workflow"
-                      :description "Creates a new workflow definition."
-                      :parameters {:body schemas/CreateWorkflowRequest}
-                      :responses {200 {:body schemas/CreateWorkflowResponse}
-                                  400 {:body schemas/ApiErrorResponse}
-                                  403 {:body schemas/ApiErrorResponse}
-                                  503 {:body schemas/ApiErrorResponse}}
-                      :handler (http.workflows/create-workflow-handler deps)}}]
-
-             ["/:id"
-              {:parameters {:path [:map [:id :string]]}}
-              ["" {:put {:summary "Update workflow"
-                         :description "Updates a workflow definition."
-                         :parameters {:body schemas/UpdateWorkflowRequest}
-                         :responses {200 {:body schemas/ApiOkResponse}
-                                     400 {:body schemas/ApiErrorResponse}
-                                     403 {:body schemas/ApiErrorResponse}
-                                     404 {:body schemas/ApiErrorResponse}
-                                     503 {:body schemas/ApiErrorResponse}}
-                         :handler (http.workflows/update-workflow-handler deps)}
-                   :delete {:summary "Delete workflow"
-                            :description "Deletes a workflow definition."
-                            :responses {200 {:body schemas/ApiOkResponse}
-                                        400 {:body schemas/ApiErrorResponse}
-                                        403 {:body schemas/ApiErrorResponse}
-                                        404 {:body schemas/ApiErrorResponse}
-                                        503 {:body schemas/ApiErrorResponse}}
-                            :handler (http.workflows/delete-workflow-handler deps)}}]]]
+            ["/:id"
+             {:parameters {:path [:map [:id :string]]}}
+             ["" {:put {:summary "Update workflow"
+                        :description "Updates a workflow definition."
+                        :parameters {:body schemas/UpdateWorkflowRequest}
+                        :responses {200 {:body schemas/ApiOkResponse}
+                                    400 {:body schemas/ApiErrorResponse}
+                                    403 {:body schemas/ApiErrorResponse}
+                                    404 {:body schemas/ApiErrorResponse}
+                                    503 {:body schemas/ApiErrorResponse}}
+                        :handler (http.workflows/update-workflow-handler deps)}
+                  :delete {:summary "Delete workflow"
+                           :description "Deletes a workflow definition."
+                           :responses {200 {:body schemas/ApiOkResponse}
+                                       400 {:body schemas/ApiErrorResponse}
+                                       403 {:body schemas/ApiErrorResponse}
+                                       404 {:body schemas/ApiErrorResponse}
+                                       503 {:body schemas/ApiErrorResponse}}
+                           :handler (http.workflows/delete-workflow-handler deps)}}]]]
 
            ["/sessions/:session_id"
             {:patch {:summary "Rename session"
@@ -516,6 +516,18 @@
                                  503 {:body schemas/ApiErrorResponse}
                                  500 {:body schemas/ApiErrorResponse}}
                      :handler (http.ui/rename-session-handler deps)}}]
+
+           ["/sessions/:session_id/finish"
+            {:post {:summary "Finish session"
+                    :description "Marks the session as finished (explicit state-machine transition)."
+                    :parameters {:path [:map [:session_id :string]]}
+                    :responses {200 {:body schemas/FinishSessionResponse}
+                                400 {:body schemas/ApiErrorResponse}
+                                403 {:body schemas/ApiErrorResponse}
+                                404 {:body schemas/ApiErrorResponse}
+                                503 {:body schemas/ApiErrorResponse}
+                                500 {:body schemas/ApiErrorResponse}}
+                    :handler (http.ui/finish-session-handler deps)}}]
 
            ["/sessions/:session_id/webhook-delivery-outcomes"
             {:get {:summary "List webhook delivery outcomes"
@@ -637,7 +649,7 @@
            ["/refined" {:post {:summary "BFF-to-BFF refined callback (protobuf)"
                                :handler (http.internal/refined-callback-handler deps)}}]
            ["/workflow-result" {:post {:summary "BFF-to-BFF workflow result callback (json)"
-                                        :handler (http.internal/workflow-result-callback-handler deps)}}]]
+                                       :handler (http.internal/workflow-result-callback-handler deps)}}]]
 
            ;; WebSockets
           ["/ws" {:tags ["ws"]

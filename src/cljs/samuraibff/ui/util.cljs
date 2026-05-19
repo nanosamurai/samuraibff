@@ -23,6 +23,67 @@
   []
   (.now js/Date))
 
+(defn- pad2
+  "Left-pad a non-negative integer to 2 digits.
+
+  Inputs:
+  - n: number
+
+  Returns: string."
+  [n]
+  (let [n (js/Math.floor (js/Math.abs (double (or n 0))))
+        s (str n)]
+    (if (< (count s) 2)
+      (str "0" s)
+      s)))
+
+(defn iso->ms
+  "Parse an ISO timestamp into epoch milliseconds.
+
+  Inputs:
+  - iso: string?
+
+  Returns:
+  - number? (ms) when parseable
+  - nil otherwise."
+  [iso]
+  (when (seq (str iso))
+    (let [t (.getTime (js/Date. (str iso)))]
+      (when (and (number? t) (js/isFinite t))
+        t))))
+
+(defn fmt-local-ymd-hm
+  "Format epoch milliseconds into local YYYY-MM-DD HH:mm (24h) string.
+
+  Inputs:
+  - ms: number
+
+  Returns: string?"
+  [ms]
+  (when (and (number? ms) (js/isFinite ms))
+    (let [d (js/Date. ms)
+          y (.getFullYear d)
+          m (inc (.getMonth d))
+          dd (.getDate d)
+          hh (.getHours d)
+          mm (.getMinutes d)]
+      (str y "-" (pad2 m) "-" (pad2 dd) " " (pad2 hh) ":" (pad2 mm)))))
+
+(defn default-session-title
+  "Generate a stable display title for an untitled session.
+
+  This is only a UI presentation helper. It does not imply the session title is
+  persisted.
+
+  Inputs:
+  - created-at-ms: number?
+
+  Returns: string (best-effort)."
+  [created-at-ms]
+  (str "Session "
+       (or (fmt-local-ymd-hm created-at-ms)
+           "(untitled)")))
+
 (defn ws-url
   "Build a ws/wss URL from current location.
 

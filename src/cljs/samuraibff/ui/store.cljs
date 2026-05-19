@@ -13,6 +13,7 @@
 
   All public functions are side-effecting and named with verbs."
   (:require
+   [clojure.string :as str]
    [samuraibff.ui.api-credentials-store :as api-creds.store]
    [samuraibff.ui.transcript :as transcript]
    [samuraibff.ui.util :as util]))
@@ -24,6 +25,19 @@
 (defonce session*
   (atom {:id ""
          :title ""
+         ;; DB-backed session status.
+         ;;
+         ;; Expected values (backend): "created" | "active" | "finished" | "failed".
+         ;;
+         ;; Notes:
+         ;; - We keep this as a keyword in the UI for ergonomics.
+         ;; - nil means "unknown / not loaded".
+         :status nil
+         ;; Used only for consistent UI display of untitled sessions.
+         ;; - Set when selecting a session from the Sessions table.
+         ;; - Set when creating a new session.
+         ;; - Nil/0 means "unknown".
+         :created_at_ms nil
          :lang ""
          ;; Session-scoped webhook routing overrides.
          ;;
@@ -68,6 +82,7 @@
                      ;; Example: "screen:0:0" / "window:123:0"
                      :system_source_id nil
                      :system_source_name nil
+                     :mic_device_id nil
                      ;; Input gain knobs (frontend-only)
                      :mic_gain 1.0
                      :system_gain 1.0
@@ -546,6 +561,36 @@
   Returns: nil."
   [title]
   (swap! session* assoc :title (or title ""))
+  nil)
+
+(defn set-session-created-at-ms!
+  "Set the current session created_at timestamp in ms.
+
+  This is used for UI-only default title generation when session title is blank.
+
+  Inputs:
+  - created-at-ms: number? or nil
+
+  Returns: nil."
+  [created-at-ms]
+  (swap! session* assoc :created_at_ms created-at-ms)
+  nil)
+
+(defn set-session-status!
+  "Set the current session status.
+
+  This is the DB-backed session state machine status.
+
+  Inputs:
+  - status: string? | keyword? | nil (e.g. :created | :active | :finished | :failed)
+
+  Returns: nil."
+  [status]
+  (let [status (cond
+                 (keyword? status) status
+                 (string? status) (some-> status str str/trim not-empty keyword)
+                 :else nil)]
+    (swap! session* assoc :status status))
   nil)
 
 (defn set-lang!

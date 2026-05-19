@@ -756,6 +756,20 @@
    [:title {:optional true} [:maybe :string]]
    [:message {:optional true} :string]])
 
+(def FinishSessionResponse
+  "Response body for POST /api/sessions/{session_id}/finish.
+
+  Shape:
+  - {:ok true :session_id <uuid> :status \"finished\"}
+
+  Notes:
+  - This endpoint is used by UI to explicitly transition session state machine
+    when the user stops recording."
+  [:map
+   [:ok [:= true]]
+   [:session_id Uuid]
+   [:status [:= "finished"]]])
+
 (def ApiCredentialsListResponse
   "Response body for GET /api/api-credentials."
   [:map

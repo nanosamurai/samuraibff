@@ -728,10 +728,20 @@
                                (throw (ex-info "invalid-session-id"
                                                {:type :samuraibff.http/invalid-session-id
                                                 :session-id sid-str}))))
-              {:keys [deleted?]} (db.recordings/delete-session! ds tenant-uuid session-uuid)]
-          (if deleted?
-            (json-response 200 {:ok true :deleted true})
-            (json-response 404 {:ok false :message "not-found"})))
+              session (db.recordings/find-session-by-id ds tenant-uuid session-uuid)]
+          (cond
+            (nil? session)
+            (json-response 404 {:ok false :message "not-found"})
+
+            (= "active" (some-> (:status session) str))
+            (json-response 409 {:ok false :message "session-active"})
+
+            :else
+            (let [{:keys [deleted?]} (db.recordings/delete-session! ds tenant-uuid session-uuid)]
+              (if deleted?
+                (json-response 200 {:ok true :deleted true})
+                ;; Race / already deleted.
+                (json-response 404 {:ok false :message "not-found"})))))
         (catch clojure.lang.ExceptionInfo e
           (let [{:keys [type]} (ex-data e)]
             (case type

@@ -334,6 +334,24 @@
         title-display (let [t (str/trim (str (or current-title "")))]
                         (when (seq t) t))
 
+        created-at-ms (or (util/iso->ms (get-in detail [:session :created_at]))
+                          (util/now-ms))
+        title-display* (or title-display
+                           (util/default-session-title created-at-ms)
+                           "Recording")
+
+        session-status (str (or (get-in detail [:session :status]) ""))
+        status-label (cond
+                       (= session-status "active") "Recording"
+                       (seq session-status) (str/capitalize session-status)
+                       :else "Unknown")
+        status-kind (cond
+                      (= session-status "active") :warn
+                      (= session-status "failed") :bad
+                      (= session-status "finished") :ok
+                      :else :muted)
+        status-tooltip (str "Session status: " (or (seq session-status) "unknown"))
+
         on-title-saved (fn [new-title]
                          (set-detail! (fn [prev]
                                         (assoc-in (or prev {}) [:session :title] new-title))))]
@@ -374,19 +392,19 @@
           final-record (last (vec (or db-final [])))
           final-msgs (final-segments->messages (vec (or (:segments final-record) [])))
 
-           available-tabs
-           (recording-detail/available-transcript-tabs
-            {:realtime-msgs realtime-msgs
-             :refined-msgs refined-msgs
-             :final-msgs final-msgs})
+          available-tabs
+          (recording-detail/available-transcript-tabs
+           {:realtime-msgs realtime-msgs
+            :refined-msgs refined-msgs
+            :final-msgs final-msgs})
 
-           default-tab (recording-detail/default-transcript-tab available-tabs)
+          default-tab (recording-detail/default-transcript-tab available-tabs)
 
-           selected-tab (let [allowed? (contains? (set (or available-tabs [])) tab)]
-                          (cond
-                            allowed? tab
-                            (some? default-tab) default-tab
-                            :else nil))
+          selected-tab (let [allowed? (contains? (set (or available-tabs [])) tab)]
+                         (cond
+                           allowed? tab
+                           (some? default-tab) default-tab
+                           :else nil))
 
           ;; Playback is only shown when we have both:
           ;; - a recording stored
@@ -471,7 +489,13 @@
                               :on-close close-enroll!}]
        [:div {:class "page-header"}
         [:div
-         [:div {:class "page-title"} (or title-display "Recording")]
+         [:div {:class "page-title"}
+          title-display*
+          [:span {:style {:marginLeft "10px"}}
+           [shared/status-pill {:label status-label
+                                :kind status-kind
+                                :blink? (= session-status "active")
+                                :tooltip status-tooltip}]]]
          [:div {:class "mono muted"} session-id]
          (when loading?
            [:div {:class "muted"} "Loading…"])]
@@ -480,10 +504,20 @@
          [router/link {:route {:page :recordings :params {}}
                        :class "btn"}
           "Back to recordings"]
-         [router/link {:route {:page :live :params {}}
-                       :class "btn ghost"
-                       :on-click (fn [_] (store/set-session-id! session-id))}
-          "Open in Live Recording"]
+
+         (when (= session-status "created")
+           [router/link {:route {:page :live :params {}}
+                         :class "btn"
+                         :title "Record with this session"
+                         :on-click (fn [_]
+                                     (store/set-session-id! session-id)
+                                     (store/set-session-created-at-ms! created-at-ms)
+                                     (store/set-session-title!
+                                      (or (some-> current-title str str/trim not-empty)
+                                          (util/default-session-title created-at-ms)
+                                          ""))
+                                     (store/set-session-status! session-status))}
+            "Record with this session"])
 
          [title-editor {:session-id session-id
                         :current-title current-title
@@ -525,25 +559,25 @@
          [:div {:class "split"}
           [:div {:class "split-main"}
            [:div {:class "card"}
-             (if (empty? available-tabs)
-               [:div {:class "muted"}
-                "No transcripts available for this recording."]
-               [:div
-                [:div {:class "card-title"}
-                 (case selected-tab
-                   :refined "Refined real-time"
-                   :final "Final"
-                   "Real-time")]
+            (if (empty? available-tabs)
+              [:div {:class "muted"}
+               "No transcripts available for this recording."]
+              [:div
+               [:div {:class "card-title"}
                 (case selected-tab
-                  :final final-body
-                  :refined [components.transcript/transcript-view
-                            {:messages refined-msgs
-                             :empty-title "Refined real-time"
-                             :empty-hint "No refined transcript available"}]
-                  [components.transcript/transcript-view
-                   {:messages realtime-msgs
-                    :empty-title "Real-time transcript"
-                    :empty-hint "No realtime transcript available"}])])]]
+                  :refined "Refined real-time"
+                  :final "Final"
+                  "Real-time")]
+               (case selected-tab
+                 :final final-body
+                 :refined [components.transcript/transcript-view
+                           {:messages refined-msgs
+                            :empty-title "Refined real-time"
+                            :empty-hint "No refined transcript available"}]
+                 [components.transcript/transcript-view
+                  {:messages realtime-msgs
+                   :empty-title "Real-time transcript"
+                   :empty-hint "No realtime transcript available"}])])]]
 
           [:div {:class "split-side"}
            [:div {:class "right-panel"}
@@ -576,11 +610,11 @@
             [:div {:class "muted"}
              "No transcripts available for this recording."]
             [:div
-             [:div {:class "card-title"}
+             [:div {:class "card-title"}]
              (case selected-tab
-                :refined "Refined real-time"
-                :final "Final"
-                "Real-time")]
+               :refined "Refined real-time"
+               :final "Final"
+               "Real-time")
              (case selected-tab
                :final final-body
                :refined [components.transcript/transcript-view

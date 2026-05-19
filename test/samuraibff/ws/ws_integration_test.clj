@@ -169,7 +169,9 @@
           ;; Ensure that /ws/audio control params (lang) were applied to the session
           ;; before the realtime stream starts.
           (let [ws-registry (get system :samuraibff/ws-registry)
-                session (reg/get-session ws-registry nil session-id)]
+                ;; In auth-disabled test mode, the WS auth middleware assigns the
+                ;; configured guest tenant id; default is the all-zero UUID.
+                session (reg/get-session ws-registry "00000000-0000-0000-0000-000000000000" session-id)]
             (is (= "en" (:lang session)) (str "Expected :lang to be updated, got " (pr-str (select-keys session [:lang :sample-rate])))))
 
           ;; Send a few dummy frames (rtservice should handle silence)

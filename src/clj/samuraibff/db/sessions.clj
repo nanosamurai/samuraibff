@@ -263,3 +263,36 @@
              ["UPDATE sessions\n     SET status='active',\n         started_at=COALESCE(started_at, now()),\n         stream_controls=(?::jsonb)\n   WHERE tenant_id=? AND id=?"
               json tenant-id session-id])]
     {:updated? (pos? (long (or (:next.jdbc/update-count res) 0)))}))
+
+(defn finish-session!
+  "Mark a session as finished and set ended_at.
+
+  Intended to be called when the UI/user explicitly stops recording.
+
+  Semantics:
+  - status is set to \"finished\"
+  - ended_at is set to `now()` if not already set
+
+  Inputs:
+  - ds: DataSource
+  - tenant-id: UUID
+  - session-id: UUID
+
+  Returns:
+  - {:updated? boolean}
+
+  Notes:
+  - Uses `COALESCE(ended_at, now())` to keep the first stop time stable.
+  - Does not currently stop any WS registry activity; it is DB state only."
+  [^DataSource ds ^UUID tenant-id ^UUID session-id]
+  (when-not (and ds (instance? UUID tenant-id) (instance? UUID session-id))
+    (throw (ex-info "finish-session! missing required params"
+                    {:tenant-id tenant-id :session-id session-id})))
+  (let [q (-> (h/update :sessions)
+              (h/set {:status "finished"
+                      :ended_at [:coalesce :ended_at [:raw "now()"]]})
+              (h/where [:= :tenant_id tenant-id]
+                       [:= :id session-id]))
+        sqlvec (sql/format q)
+        res (jdbc/execute-one! ds sqlvec)]
+    {:updated? (pos? (long (or (:next.jdbc/update-count res) 0)))}))

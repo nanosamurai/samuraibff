@@ -20,6 +20,22 @@ clojure -M:run
 
 Default local bind is `127.0.0.1:8000`.
 
+## nREPL
+
+Start an nREPL server on port **7888**:
+
+```bash
+clojure -M:nrepl
+```
+
+### nREPL MCP Server
+
+To run the clojure repl MCP server:
+
+```bash
+clojure -X:mcp :not-cwd true :port 7888
+```
+
 ## UI (ClojureScript) — dev
 
 Install npm deps once:
@@ -38,6 +54,45 @@ Open:
 
 * http://127.0.0.1:8000/recordings
 * http://127.0.0.1:8000/live
+
+## gRPC proto generation
+
+To trigger generation and compilation of proto files:
+
+```bash
+clj -T:build proto+compile
+```
+
+## Running tests
+
+Run all unit + integration tests:
+
+```bash
+clojure -X:test
+```
+
+Run the same lightweight test plan used as the PR gate:
+
+```bash
+clojure -X:ci
+```
+
+### WS integration test (requires rtservice)
+
+The test namespace is:
+
+* `test/samuraibff/ws/ws_integration_test.clj` (`samuraibff.ws.ws-integration-test`)
+
+Prerequisite:
+
+* rtservice must be reachable at `localhost:50052`.
+  * If rtservice is not reachable, the test is skipped.
+
+If you run rtservice inside Kubernetes, port-forward it before running the full test suite:
+
+```bash
+kubectl port-forward svc/nanosamurai-stack-rtservice 50052:50052
+```
 
 ## Electron (Windows-first) — dev
 
@@ -63,3 +118,4 @@ npm run electron:dist
 Outputs:
 
 * `dist/electron/` (NSIS installer + portable exe)
+

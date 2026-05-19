@@ -39,6 +39,26 @@
   ([s {:keys [title]}]
    [:span {:class "icon" :title title} (or s "")]))
 
+(defn status-pill
+  "Render a compact session status pill.
+
+  Inputs:
+  - {:keys [label kind blink? tooltip]} where:
+      label   => string (required)
+      kind    => keyword? one of :ok :bad :warn :muted (optional; default :muted)
+      blink?  => boolean (optional; when true, the dot blinks)
+      tooltip => string? (optional)
+
+  Returns: hiccup."
+  [{:keys [label kind blink? tooltip]}]
+  (let [kind (or kind :muted)
+        tooltip (when (seq (str tooltip)) (str tooltip))]
+    [:span {:class (str "badge " (name kind))
+            :title tooltip}
+     [:span {:class (str "rec-dot " (name kind) (when blink? " blink"))
+             :title tooltip}]
+     [:span {:style {:marginLeft "8px"}} (str (or label ""))]]))
+
 ;; --- Fetch / clipboard safety helpers ---
 
 (defn safe-http-error
@@ -93,7 +113,7 @@
 (defn searchable-dropdown
   "A lightweight searchable dropdown.
 
-  Used for language selection on Live Recording.
+  Used for language selection on Record.
 
   Inputs:
   - value: currently selected option value (string)
@@ -224,11 +244,26 @@
   Returns: hiccup."
   [lang]
   (let [code (str (or lang ""))
-        flag (langs/lang->flag code)
         title (when-not (str/blank? code)
-                (str (langs/lang->display-name code) " (" code ")"))]
+                (str (langs/lang->display-name code) " (" code ")"))
+        icon (when-not (str/blank? code)
+               (langs/lang->flag-icon code))
+        icon-type (:type icon)
+        svg-src (:src icon)]
     [:span {:class "lang-flag" :title title}
-     (or flag "")]))
+     (cond
+       (and (= :svg icon-type)
+            (seq (str svg-src)))
+       [:img {:class "flag-icon"
+              :src svg-src
+              :alt (or (:alt icon) "")
+              :loading "lazy"}]
+
+       (= :emoji icon-type)
+       (or (:value icon) "")
+
+       :else
+       (or (langs/lang->flag code) ""))]))
 
 (defn memo-clear!
   "Clear HSX memoization cache (used by core reload hook)."

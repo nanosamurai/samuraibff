@@ -1,10 +1,11 @@
 (ns samuraibff.ui.components.pages.live
-  "Live Recording page."
+  "Record page (live recording)."
   (:require
    [clojure.string :as str]
    [samuraibff.ui.api :as api]
    [samuraibff.ui.audio :as audio]
-    [samuraibff.ui.env :as env]
+   [samuraibff.ui.media-devices :as media.devices]
+   [samuraibff.ui.env :as env]
    [samuraibff.ui.components.shared :as shared]
    [samuraibff.ui.components.transcript :as components.transcript]
    [samuraibff.ui.hooks :as hooks]
@@ -43,116 +44,235 @@
       [:span {:class (status-dot-class audio-status)}]
       [:span {:class "muted"} "audio:"]
       [:span (name audio-status)]]]))
+
 (defn controls
-  "Session controls (create session, set lang, start/stop).
+  "Record page controls (quick setup + record now).
 
-  This is the top strip of the Live Recording page.
+      UX goals:
+      - Starting a recording should be a single click (create session if needed).
+      - Device selection should be visible (not hidden behind settings).
 
-  Inputs:
-  - {:keys [settings-open? set-settings-open!]} where:
-    - settings-open?: boolean
-    - set-settings-open!: (fn [boolean])
+      Inputs:
+      - {:keys [settings-open? set-settings-open!]} where:
+        - settings-open?: boolean
+        - set-settings-open!: (fn [boolean])
 
-  Returns: hiccup."
+      Returns: hiccup."
   [{:keys [settings-open? set-settings-open!]}]
   (let [session (hooks/use-atom store/session*)
         {:keys [id lang]} session
+        controls (or (:controls session) {})
+        electron? (env/electron?)
+        audio-source (or (:audio_source controls) :mic)
+        mic-device-id (str (or (:mic_device_id controls) ""))
+
         running? (hooks/use-atom store/running?*)
+        starting?* (react/useState false)
+        starting? (aget starting?* 0)
+        set-starting! (aget starting?* 1)
+
+        mic-options* (react/useState [])
+        mic-options (aget mic-options* 0)
+        set-mic-options! (aget mic-options* 1)
+        mic-error* (react/useState nil)
+        mic-error (aget mic-error* 0)
+        set-mic-error! (aget mic-error* 1)
+
         set-settings-open! (when (fn? set-settings-open!) set-settings-open!)]
-    [:div {:class "controls"}
-     [:div {:class "controls-row"}
-      [:button {:class "btn"
-                :on-click (fn [_]
-                            (store/append-log! "[ui] creating session...")
-                            (let [req (session.req/create-session-request-body @store/session*)]
-                              (-> (api/create-session! req)
-                                  (.then (fn [{:keys [session_id title]}]
-                                           (store/set-session-id! session_id)
-                                           (store/set-session-title! (or title ""))
-                                           (store/add-recording! {:session_id session_id
-                                                                  :created_at_ms (util/now-ms)
-                                                                  :status :ready})
-                                           (store/append-log! (str "[ui] new session " session_id))))
-                                  (.catch (fn [e]
-                                            (store/append-log! (str "[ui] failed creating session: " e)))))))}
-       "New session"]
 
-      [:div {:class "field"}
-       [:div {:class "label"} "Session name"]
-       [:input {:value (or (get @store/session* :title) "")
-                :placeholder "Untitled session"
-                :on-change (fn [e]
-                             (store/set-session-title! (.. e -target -value)))}]
-       (when (seq (str id))
-         [:div {:class "hint"}
-          [:span {:class "mono"} id]])]
+    (react/useEffect
+     (fn []
+       (-> (media.devices/list-microphones!)
+           (.then (fn [xs]
+                    (set-mic-options! (vec (or xs [])))))
+           (.catch (fn [_]
+                                ;; Best-effort; do not block UI.
+                     (set-mic-error! "Microphone list not available"))))
+       js/undefined)
+     #js [])
 
-      [:div {:class "field"}
-       [:div {:class "label"} "Language"]
-       [shared/searchable-dropdown
-        {:value (or lang "")
-         :options (langs/language-options)
-         :placeholder "Auto"
-         :on-change (fn [new-val]
-                      (store/set-lang! new-val))}]]
+    (let [status (:status session)
+          terminal? (contains? #{:finished :failed :finalized} status)]
 
-      [:div {:class "spacer"}]
+      (letfn [(start-streaming! [sid] ;; Starting a new capture run; reset transcript time base.
+                (store/clear-segments!)
+                (store/set-session-status! :active)
+                (store/set-running! true)
+                (store/set-recording-status! sid :recording)
+                (store/append-log! (str "[ui] start session=" sid))
+                (ws/connect-events! sid)
+                (-> (audio/start-audio! sid lang)
+                    (.catch (fn [_]  ;; audio will log; ensure running resets
+                              (store/set-running! false)
+                              (store/set-recording-status! sid :ready)))))
 
-      [:button {:class "btn primary"
-                :disabled (or running? (empty? (str id)))
-                :on-click (fn [_]
-                            ;; Starting a new capture run; reset transcript time base.
-                            (store/clear-segments!)
-                            (store/set-running! true)
-                            (store/set-recording-status! id :recording)
-                            (store/append-log! "[ui] start")
-                            (ws/connect-events! id)
-                            (-> (audio/start-audio! id lang)
-                                (.catch (fn [_]
-                                          ;; audio will log; ensure running resets
-                                          (store/set-running! false)
-                                          (store/set-recording-status! id :ready)))))
-                :title "Start recording"}
-       [:span {:style {:color "var(--bad)"}} "●"]
-       "Start"]
+              (create-session! []
+                (store/append-log! "[ui] creating session...")
+                (let [req (session.req/create-session-request-body @store/session*)]
+                  (-> (api/create-session! req)
+                      (.then (fn [{:keys [session_id title]}]
+                               (store/set-session-id! session_id)
+                               (store/set-session-created-at-ms! (util/now-ms))
+                               (store/set-session-title! (or title ""))
+                               (store/set-session-status! :created)
+                               (store/add-recording! {:session_id    session_id
+                                                      :created_at_ms (util/now-ms)
+                                                      :status        :ready})
+                               (store/append-log! (str "[ui] new session " session_id))
+                               (str session_id)))
+                      (.catch (fn [e]
+                                (store/append-log! (str "[ui] failed creating session: " (shared/safe-http-error e)))
+                                (throw e))))))
 
-      [:button {:class "btn"
-                :disabled (not running?)
-                :on-click (fn [_]
-                            (store/append-log! "[ui] stop")
-                            (store/set-running! false)
-                            (store/set-recording-status! id :stopped)
-                            (audio/stop-audio!)
-                            (ws/close-events!))
-                :title "Stop recording"}
-       [:span {:style {:color "var(--muted)"}} "■"]
-       "Stop"]
+              (ensure-system-source! []
+                (if (and electron?
+                         (not= :mic audio-source)
+                         (empty? (str (or (:system_source_id controls) ""))))
+                  (audio/pick-system-source!)
+                  (js/Promise.resolve true)))
 
-      ;; Hide these for now; they were primarily for debugging.
-      #_[:button {:class "btn ghost"
-                  :on-click (fn [_] (store/clear-segments!))}
-         "Clear transcript"]
+              (record-now! []
+                (if (or (true? running?) (true? starting?))
+                  (js/Promise.resolve false)
+                  (do
+                    (set-starting! true)
+                    (let [existing-id (str (or id ""))
+                          sid-promise (if (seq existing-id)
+                                        (js/Promise.resolve existing-id)
+                                        (create-session!))]
+                      (-> sid-promise
+                          (.then (fn [sid]
+                                   (-> (ensure-system-source!)
+                                       (.then (fn [_]
+                                                (start-streaming! sid))))))
+                          (.finally (fn []
+                                      (set-starting! false))))))))
 
-      #_[:button {:class "btn ghost"
-                  :on-click (fn [_] (store/clear-log!))}
-         "Clear log"]
+              (stop! []
+                (store/append-log! "[ui] stop")
+                (store/set-running! false)
+                (store/set-recording-status! id :stopped)
+                (store/set-session-status! :finished)
+                (audio/stop-audio!)
+                (ws/close-events!)
+                           ;; Persist state machine transition best-effort.
+                           ;; This ensures Sessions table reflects Finished after refresh.
+                (when (seq (str id))
+                  (-> (api/finish-session! id)
+                      (.then (fn [_]
+                               (store/append-log! (str "[ui] session finished (db) " id))))
+                      (.catch (fn [e]
+                                (store/append-log!
+                                 (str "[ui] failed finishing session (db): " (shared/safe-http-error e))))))))
 
-      [:button {:class "btn icon"
-                :type "button"
-                :aria-label "Session settings"
-                :title "Session settings"
-                :on-click (fn [_]
-                            (when set-settings-open!
-                              (set-settings-open! (not (true? settings-open?)))))}
-       "⚙"]]]))
+              (new-session! []
+                (store/append-log! "[ui] new session")
+                                  ;; Defensive: ensure we are not streaming.
+                (store/set-running! false)
+                (audio/stop-audio!)
+                (ws/close-events!)
+                                  ;; Keep settings; reset only identity + state.
+                (store/set-session-id! "")
+                ;; now safe to clear (set-session-id! caches transcript/log under old id)
+                (store/clear-segments!)
+                (store/set-session-title! "")
+                (store/set-session-created-at-ms! nil)
+                (store/set-session-status! nil))]
 
-(declare webhook-routing-panel workflow-routing-panel stream-controls-panel)
+        [:div {:class "controls"}
+         [:div {:class "controls-row"}
+          [:div {:class "field"}
+           [:div {:class "label"} "Session name"]
+           [:input {:value       (or (get @store/session* :title) "")
+                    :placeholder "Untitled session"
+                    :disabled    (true? terminal?)
+                    :on-change   (fn [e]
+                                   (store/set-session-title! (.. e -target -value)))}]
+           (when (seq (str id))
+             [:div {:class "hint"}
+              [:span {:class "mono"} id]])]
+
+         [:div {:class "field"}
+          [:div {:class "label"} "Language"]
+          [shared/searchable-dropdown
+           {:value       (or lang "")
+            :options     (langs/language-options)
+            :placeholder "Auto"
+            :on-change   (fn [new-val]
+                           (store/set-lang! new-val))}]]
+
+         [:div {:class "field"}
+          [:div {:class "label"} "Audio input"]
+          [:select {:value     (name audio-source)
+                    :on-change (fn [e]
+                                 (let [v (keyword (.. e -target -value))]
+                                   (store/set-session-control! :audio_source v)))}
+           [:option {:value "mic"} "Microphone"]
+           [:option {:value "system" :disabled (not electron?)} "System output (Electron)"]
+           [:option {:value "mix" :disabled (not electron?)} "Mix mic + system (Electron)"]]
+
+          (when (and electron? (not= :mic audio-source))
+            [:div {:class "hint" :style {:marginTop "8px"}}
+             "System source is auto-selected when you start recording."])]
+
+         [:div {:class "field"}
+          [:div {:class "label"} "Microphone"]
+          [:select {:value     mic-device-id
+                    :disabled  (= :system audio-source)
+                    :on-change (fn [e]
+                                 (let [v (.. e -target -value)]
+                                   (store/set-session-control!
+                                    :mic_device_id
+                                    (when (seq (str v)) (str v)))))}
+           [:option {:value ""} "Default"]
+           (for [{:keys [id label]} (vec (or mic-options []))]
+             ^{:key (str "mic-" id)}
+             [:option {:value id} (or label id)])]
+          (when (seq (str mic-error))
+            [:div {:class "hint"} mic-error])]
+
+         [:div {:class "spacer"}]
+
+          (cond
+            terminal?
+            [:button {:class    "btn primary"
+                      :type     "button"
+                      :on-click (fn [_] (new-session!))
+                      :title    "Start a new session"}
+             "New session"]
+
+            (or running? (= status :active))
+            [:button {:class    "btn"
+                      :disabled (not running?)
+                      :on-click (fn [_] (stop!))
+                      :title    "Stop recording"}
+             [:span {:style {:color "var(--muted)"}} "■"]
+             "Stop"]
+
+            :else
+            [:button {:class    "btn primary"
+                      :disabled (or running? starting?)
+                      :on-click (fn [_] (record-now!))
+                      :title    "Start recording"}
+             [:span {:class (str "rec-dot" (when running? " blink"))}]
+             (if starting? "Starting…" "Record now")])
+         [:button {:class      "btn icon"
+                   :type       "button"
+                   :aria-label "Session settings"
+                   :title      "Session settings"
+                   :on-click   (fn [_]
+                                 (when set-settings-open!
+                                   (set-settings-open! (not (true? settings-open?)))))}
+          "⚙"]]]))))
+
+(declare webhook-routing-panel workflow-routing-panel stream-controls-panel audio-controls-panel)
 
 (defn- session-settings-panel
   "Single settings panel shown from the gear button.
 
    It contains tabs:
    - Stream settings
+   - Audio settings
    - Webhooks
    - Workflows
 
@@ -182,32 +302,96 @@
                                 (set-open! false)))}
          "Close"]]
 
-        [:div {:class "tabs" :style {:marginBottom "0"}}
+       [:div {:class "tabs" :style {:marginBottom "0"}}
         [:button {:class (str "tab " (when (= tab :stream) "active"))
                   :type "button"
                   :on-click (fn [_] (set-tab! :stream))}
          "Stream"]
+        [:button {:class (str "tab " (when (= tab :audio) "active"))
+                  :type "button"
+                  :on-click (fn [_] (set-tab! :audio))}
+         "Audio"]
         [:button {:class (str "tab " (when (= tab :webhooks) "active"))
                   :type "button"
                   :on-click (fn [_] (set-tab! :webhooks))}
          "Webhooks"]
-         [:button {:class (str "tab " (when (= tab :workflows) "active"))
-                   :type "button"
-                   :on-click (fn [_] (set-tab! :workflows))}
-          "Workflows"]
+        [:button {:class (str "tab " (when (= tab :workflows) "active"))
+                  :type "button"
+                  :on-click (fn [_] (set-tab! :workflows))}
+         "Workflows"]
         [:div {:class "spacer"}]]
 
        (case tab
+         :audio [audio-controls-panel]
          :webhooks [webhook-routing-panel]
-          :workflows [workflow-routing-panel]
+         :workflows [workflow-routing-panel]
          [stream-controls-panel])])))
+
+(defn- audio-controls-panel
+  "Audio capture settings.
+
+  This panel edits `store/session*` fields under `:controls`.
+
+  Returns: hiccup."
+  []
+  (let [controls (get (hooks/use-atom store/session*) :controls {})
+        electron? (env/electron?)
+        audio-source (or (:audio_source controls) :mic)]
+    [:div {:class "stream-controls-body"}
+     [:div {:class "sc-grid"}
+      [:div {:class "sc-cell sc-span-2"}
+       [:div {:class "label"} "Audio input"]
+       [:div {:class "hint" :style {:marginBottom "6px"}}
+        "Microphone works in all browsers. System/mix requires Electron (Windows-first)."]
+       [:select {:value (name audio-source)
+                 :on-change (fn [e]
+                              (let [v (keyword (.. e -target -value))]
+                                (store/set-session-control! :audio_source v)))}
+        [:option {:value "mic"} "Microphone"]
+        [:option {:value "system" :disabled (not electron?)} "System output (Electron)"]
+        [:option {:value "mix" :disabled (not electron?)} "Mix mic + system (Electron)"]]
+       (when (and electron? (not= :mic audio-source))
+         [:div {:class "hint" :style {:marginTop "8px"}}
+          "System source is auto-selected when you start recording (no manual picker yet). "])]
+
+      [:div {:class "sc-cell"}
+       [:div {:class "label"} "Mic gain"]
+       [:input {:type "number"
+                :min 0
+                :max 3
+                :step 0.1
+                :disabled (= :system audio-source)
+                :value (or (:mic_gain controls) 1.0)
+                :on-change (fn [e]
+                             (let [raw (.. e -target -value)
+                                   v (when (seq raw) (js/parseFloat raw))]
+                               (store/set-session-control! :mic_gain v)))}]
+       (when (= :system audio-source)
+         [:div {:class "hint"} "Mic is disabled in System-only mode."])]
+
+      [:div {:class "sc-cell"}
+       [:div {:class "label"} "System gain"]
+       [:input {:type "number"
+                :min 0
+                :max 3
+                :step 0.1
+                :disabled (or (not electron?) (= :mic audio-source))
+                :value (or (:system_gain controls) 1.0)
+                :on-change (fn [e]
+                             (let [raw (.. e -target -value)
+                                   v (when (seq raw) (js/parseFloat raw))]
+                               (store/set-session-control! :system_gain v)))}]
+       (when (and electron? (= :mic audio-source))
+         [:div {:class "hint"} "Select System/Mix to enable."])
+       (when-not electron?
+         [:div {:class "hint"} "System audio capture is only available in Electron."])]]]))
 
 (defn- workflow-routing-panel
   "Advanced panel for per-session workflow routing overrides.
 
   This panel controls `workflow_overrides` sent to `POST /api/sessions`.
 
-  Returns: hiccup." 
+  Returns: hiccup."
   []
   (let [session (hooks/use-atom store/session*)
 
@@ -508,9 +692,6 @@
         realtime? (true? (:realtime controls))
         refined? (true? (:refined controls))
         final? (true? (:final controls))
-        electron? (env/electron?)
-        audio-source (or (:audio_source controls) :mic)
-        system-name (or (:system_source_name controls) "")
         outputs-summary (->> [(when realtime? "Real-time")
                               (when refined? "Refined")
                               (when final? "Final")]
@@ -550,58 +731,6 @@
        [:div {:class "muted" :style {:fontSize "12px"}}
         (str "Outputs: " (if (seq outputs-summary) outputs-summary "None")
              " • Recording: " retention-summary)]
-
-        [:div {:class "sc-grid"}
-         [:div {:class "sc-cell sc-span-2"}
-          [:div {:class "label"} "Audio input"]
-          [:div {:class "hint" :style {:marginBottom "6px"}}
-           "Mic capture works in all browsers. System/mix requires Electron (Windows-first)."]
-          [:select {:value (name audio-source)
-                    :on-change (fn [e]
-                                 (let [v (keyword (.. e -target -value))]
-                                   (store/set-session-control! :audio_source v)))}
-           [:option {:value "mic"} "Microphone"]
-           [:option {:value "system" :disabled (not electron?)} "System output (Electron)"]
-           [:option {:value "mix" :disabled (not electron?)} "Mix mic + system (Electron)"]]
-
-          (when (and electron? (not= :mic audio-source))
-            [:div {:style {:marginTop "8px" :display "flex" :gap "8px" :alignItems "center" :flexWrap "wrap"}}
-             [:button {:class "btn"
-                       :type "button"
-                       :on-click (fn [_]
-                                   (-> (audio/pick-system-source!)
-                                       (.then (fn [{:keys [name]}]
-                                                (store/append-log! (str "[ui] picked system source: " (or name "")))))
-                                       (.catch (fn [err]
-                                                 (store/append-log! (str "[ui] failed to pick system source: " err))))))}
-              (if (seq system-name) "Change system source" "Pick system source")]
-             (when (seq system-name)
-               [:span {:class "muted"} system-name])])]
-
-         [:div {:class "sc-cell"}
-          [:div {:class "label"} "Mic gain"]
-          [:input {:type "number"
-                   :min 0
-                   :max 3
-                   :step 0.1
-                   :value (or (:mic_gain controls) 1.0)
-                   :on-change (fn [e]
-                                (let [raw (.. e -target -value)
-                                      v (when (seq raw) (js/parseFloat raw))]
-                                  (store/set-session-control! :mic_gain v)))}]]
-
-         [:div {:class "sc-cell"}
-          [:div {:class "label"} "System gain"]
-          [:input {:type "number"
-                   :min 0
-                   :max 3
-                   :step 0.1
-                   :disabled (or (not electron?) (= :mic audio-source))
-                   :value (or (:system_gain controls) 1.0)
-                   :on-change (fn [e]
-                                (let [raw (.. e -target -value)
-                                      v (when (seq raw) (js/parseFloat raw))]
-                                  (store/set-session-control! :system_gain v)))}]]]
 
        [:div {:class "sc-grid"}
         [:div {:class "sc-cell sc-span-2"}
@@ -756,7 +885,7 @@
        :title "Webhook dispatches"}]]))
 
 (defn right-panel
-  "Right-side panel for Live Recording.
+  "Right-side panel for Record.
 
   Contains tabs (for now: Log only)."
   []
@@ -793,7 +922,7 @@
         :webhooks [webhooks-view]
         :workflows
         [ui.wf.results/workflow-results-card
-          {:items workflow-results
+         {:items workflow-results
           :title "Workflow results (live)"
           :fill? true
           :empty-hint "No workflow results streamed yet."}]
@@ -816,11 +945,33 @@
     :empty-hint "No refined events yet…"}])
 
 (defn live-recording-page
-  "Live Recording page."
+  "Record page."
   []
   (let [tab* (react/useState :realtime)
         tab (aget tab* 0)
         set-tab! (aget tab* 1)
+
+        session (hooks/use-atom store/session*)
+        running? (hooks/use-atom store/running?*)
+        session-created-at-ms (or (:created_at_ms session) (util/now-ms))
+        session-title (let [t (str/trim (str (or (:title session) "")))]
+                        (when (seq t) t))
+        session-status (:status session)
+        header-title (or session-title (util/default-session-title session-created-at-ms) "Record")
+        status-label (cond
+                       (true? running?) "Recording"
+                       (keyword? session-status) (-> session-status name str/capitalize)
+                       :else "Unknown")
+        status-kind (cond
+                      (true? running?) :warn
+                      (= session-status :active) :warn
+                      (= session-status :failed) :bad
+                      (= session-status :finished) :ok
+                      (= session-status :created) :muted
+                      :else :muted)
+        status-tooltip (str "Session status: " (if (keyword? session-status)
+                                                  (name session-status)
+                                                  "unknown"))
 
         settings-open?* (react/useState false)
         settings-open? (aget settings-open?* 0)
@@ -828,12 +979,18 @@
     [:div {:class "page"}
      [:div {:class "page-header"}
       [:div
-       [:div {:class "page-title"} "Live Recording"]
+       [:div {:class "page-title"}
+        header-title
+        [:span {:style {:marginLeft "10px"}}
+         [shared/status-pill {:label status-label
+                              :kind status-kind
+                              :blink? (true? running?)
+                              :tooltip status-tooltip}]]]
        [:div {:class "muted"} "Capture audio and view the live transcript."]]
       [:div {:class "row"}
        [router/link {:route {:page :recordings :params {}}
                      :class "btn"}
-        "Recordings"]]]
+        "Sessions"]]]
 
      [controls {:settings-open? settings-open?
                 :set-settings-open! set-settings-open!}]
