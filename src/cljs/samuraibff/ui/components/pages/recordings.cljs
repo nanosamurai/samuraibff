@@ -87,7 +87,10 @@
   [{:keys [session_id title started_at created_at] :as rec}]
   (let [{:keys [label badge-class tooltip]
          icon-glyph :icon} (rec->display-status rec)
-        recordable? (false? (:has_recording rec))
+        session-status (str (or (:status rec) ""))
+        active? (= "active" session-status)
+        recordable? (and (= "created" session-status)
+                         (false? (:has_recording rec)))
         created-at-ms (or (util/iso->ms created_at) (util/now-ms))
         session-title (let [t (str/trim (str (or title "")))]
                         (when (seq t) t))
@@ -97,7 +100,7 @@
      [:td
       [:div {:style {:display "flex" :flexDirection "column" :gap "2px"}}
        [:div {:style {:display "flex" :gap "8px" :alignItems "baseline"}}
-         ;; Language flag hint (best-effort). Blank => omit.
+        ;; Language flag hint (best-effort). Blank => omit.
         (when (seq (str lang))
           [shared/lang-flag lang])
         [:span session-title-display]]
@@ -131,21 +134,25 @@
                                    (store/set-session-status! (:status rec)))}
           (shared/icon "●" {:title "Record"})]
          [:span {:class "btn ghost disabled"
-                 :title "Recording is already completed"}
+                 :title "Recording is not available for this session status"}
           (shared/icon "●" {:title "Not available"})])
 
-       [:button {:class "btn ghost"
-                 :title "Delete session"
-                 :on-click (fn [_]
-                             (when (js/confirm (str "Delete session " session_id
-                                                    "?\n\nThis will remove recordings and transcripts."))
-                               (-> (api/delete-recording! session_id)
-                                   (.then (fn [_]
-                                            (store/remove-recording-db! session_id)))
-                                   (.catch (fn [e]
-                                             (store/append-log!
-                                              (str "[ui] failed deleting session: " e)))))))}
-        (shared/icon "×" {:title "Delete"})]]]]))
+       (if active?
+         [:span {:class "btn ghost disabled"
+                 :title "Active sessions cannot be deleted"}
+          (shared/icon "×" {:title "Delete"})]
+         [:button {:class "btn ghost"
+                   :title "Delete session"
+                   :on-click (fn [_]
+                               (when (js/confirm (str "Delete session " session_id
+                                                      "?\n\nThis will remove recordings and transcripts."))
+                                 (-> (api/delete-recording! session_id)
+                                     (.then (fn [_]
+                                              (store/remove-recording-db! session_id)))
+                                     (.catch (fn [e]
+                                               (store/append-log!
+                                                (str "[ui] failed deleting session: " e)))))))}
+          (shared/icon "×" {:title "Delete"})])]]]))
 
 (defn- recordings-card
   "Render a single recording as a stacked card (mobile layout).
@@ -157,7 +164,10 @@
   [{:keys [session_id title started_at created_at] :as rec}]
   (let [{:keys [label badge-class tooltip]
          icon-glyph :icon} (rec->display-status rec)
-        recordable? (false? (:has_recording rec))
+        session-status (str (or (:status rec) ""))
+        active? (= "active" session-status)
+        recordable? (and (= "created" session-status)
+                         (false? (:has_recording rec)))
         created-at-ms (or (util/iso->ms created_at) (util/now-ms))
         session-title (let [t (str/trim (str (or title "")))]
                         (when (seq t) t))
@@ -202,21 +212,25 @@
                                   (store/set-session-status! (:status rec)))}
          (shared/icon "●" {:title "Record"})]
         [:span {:class "btn ghost icon disabled"
-                :title "Recording is already completed"}
+                :title "Recording is not available for this session status"}
          (shared/icon "●" {:title "Not available"})])
 
-      [:button {:class "btn ghost icon"
-                :title "Delete session"
-                :on-click (fn [_]
-                            (when (js/confirm (str "Delete session " session_id
-                                                   "?\n\nThis will remove recordings and transcripts."))
-                              (-> (api/delete-recording! session_id)
-                                  (.then (fn [_]
-                                           (store/remove-recording-db! session_id)))
-                                  (.catch (fn [e]
-                                            (store/append-log!
-                                             (str "[ui] failed deleting session: " e)))))))}
-       (shared/icon "×" {:title "Delete"})]]]))
+      (if active?
+        [:span {:class "btn ghost icon disabled"
+                :title "Active sessions cannot be deleted"}
+         (shared/icon "×" {:title "Delete"})]
+        [:button {:class "btn ghost icon"
+                  :title "Delete session"
+                  :on-click (fn [_]
+                              (when (js/confirm (str "Delete session " session_id
+                                                     "?\n\nThis will remove recordings and transcripts."))
+                                (-> (api/delete-recording! session_id)
+                                    (.then (fn [_]
+                                             (store/remove-recording-db! session_id)))
+                                    (.catch (fn [e]
+                                              (store/append-log!
+                                               (str "[ui] failed deleting session: " e)))))))}
+         (shared/icon "×" {:title "Delete"})])]]))
 
 (defn recordings-table
   "Table of DB-backed recordings."

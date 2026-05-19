@@ -244,11 +244,26 @@
   Returns: hiccup."
   [lang]
   (let [code (str (or lang ""))
-        flag (langs/lang->flag code)
         title (when-not (str/blank? code)
-                (str (langs/lang->display-name code) " (" code ")"))]
+                (str (langs/lang->display-name code) " (" code ")"))
+        icon (when-not (str/blank? code)
+               (langs/lang->flag-icon code))
+        icon-type (:type icon)
+        svg-src (:src icon)]
     [:span {:class "lang-flag" :title title}
-     (or flag "")]))
+     (cond
+       (and (= :svg icon-type)
+            (seq (str svg-src)))
+       [:img {:class "flag-icon"
+              :src svg-src
+              :alt (or (:alt icon) "")
+              :loading "lazy"}]
+
+       (= :emoji icon-type)
+       (or (:value icon) "")
+
+       :else
+       (or (langs/lang->flag code) ""))]))
 
 (defn memo-clear!
   "Clear HSX memoization cache (used by core reload hook)."
