@@ -132,20 +132,21 @@
                   (js/Promise.resolve true)))
 
               (record-now! []
-                (when (or (true? running?) (true? starting?))
-                  (js/Promise.resolve false))
-                (set-starting! true)
-                (let [existing-id (str (or id ""))
-                      sid-promise (if (seq existing-id)
-                                    (js/Promise.resolve existing-id)
-                                    (create-session!))]
-                  (-> sid-promise
-                      (.then (fn [sid]
-                               (-> (ensure-system-source!)
-                                   (.then (fn [_]
-                                            (start-streaming! sid))))))
-                      (.finally (fn []
-                                  (set-starting! false))))))
+                (if (or (true? running?) (true? starting?))
+                  (js/Promise.resolve false)
+                  (do
+                    (set-starting! true)
+                    (let [existing-id (str (or id ""))
+                          sid-promise (if (seq existing-id)
+                                        (js/Promise.resolve existing-id)
+                                        (create-session!))]
+                      (-> sid-promise
+                          (.then (fn [sid]
+                                   (-> (ensure-system-source!)
+                                       (.then (fn [_]
+                                                (start-streaming! sid))))))
+                          (.finally (fn []
+                                      (set-starting! false))))))))
 
               (stop! []
                 (store/append-log! "[ui] stop")
