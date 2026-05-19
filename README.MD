@@ -116,20 +116,6 @@ clojure -M:run
 
 Default local bind: `127.0.0.1:8000`.
 
-### Session lifecycle (UI)
-
-The UI uses an explicit session state machine:
-
-* `created`  – draft session (not recording yet)
-* `active`   – recording/transcription in progress
-* `finished` – user stopped recording
-
-When you press **Stop** on the Record page, the UI calls:
-
-* `POST /api/sessions/{session_id}/finish`
-
-to persist the transition to `finished` in Postgres (and set `ended_at`).
-
 ### UI (browser)
 
 Install npm deps once:
@@ -148,6 +134,17 @@ Open:
 
 * http://127.0.0.1:8000/recordings (Sessions)
 * http://127.0.0.1:8000/live (Record)
+
+### Tests
+
+Run the full unit + integration test suite:
+
+```bash
+clojure -X:test
+```
+
+See `docs/dev-runbook.md` for the lightweight CI test plan (`clojure -X:ci`),
+WS integration test prerequisites, proto generation, and nREPL.
 
 ### Electron (Windows-first)
 
@@ -172,9 +169,13 @@ See:
 
 ## Docs index
 
+* Documentation policy (where to put docs): `docs/documentation-policy.md`
 * Electron: `docs/electron.md`
 * Architecture: `docs/architecture.md`
 * Dev runbook (local): `docs/dev-runbook.md`
+* API docs (OpenAPI/Swagger + REST overview): `docs/api.md`
+* WebSocket contracts (`/ws/audio`, `/ws/events`): `docs/ws-contract.md`
+* Storage (Postgres + S3): `docs/storage.md`
 * Transcripts (realtime/refined/final): `docs/features-transcripts.md`
 * Recordings + playback + karaoke: `docs/features-recordings-playback-karaoke.md`
 * Webhooks + workflows: `docs/features-webhooks-workflows.md`
