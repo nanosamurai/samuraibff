@@ -171,8 +171,9 @@
                 (audio/stop-audio!)
                 (ws/close-events!)
                                   ;; Keep settings; reset only identity + state.
-                (store/clear-segments!)
                 (store/set-session-id! "")
+                ;; now safe to clear (set-session-id! caches transcript/log under old id)
+                (store/clear-segments!)
                 (store/set-session-title! "")
                 (store/set-session-created-at-ms! nil)
                 (store/set-session-status! nil))]
@@ -252,7 +253,8 @@
                       :disabled (or running? starting?)
                       :on-click (fn [_] (record-now!))
                       :title    "Start recording"}
-             [:span {:class (str "rec-dot" (when running? " blink"))}]])]
+             [:span {:class (str "rec-dot" (when running? " blink"))}]
+             (if starting? "Starting…" "Record now")])]
          [:button {:class      "btn icon"
                    :type       "button"
                    :aria-label "Session settings"
