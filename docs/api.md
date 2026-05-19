@@ -41,6 +41,10 @@ See also:
 * `GET /api/recordings` – list sessions (tenant-scoped)
 * `GET /api/recordings/{session_id}` – recording detail (includes stored transcripts)
 * `GET /api/recordings/{session_id}/audio` – audio stream (supports HTTP Range)
+* `DELETE /api/recordings/{session_id}` – delete a session (and cascaded recordings/transcripts)
+
+  Notes:
+  - **Active sessions cannot be deleted** (returns HTTP 409 with `{"ok":false,"message":"session-active"}`).
 
 See:
 

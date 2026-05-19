@@ -12,9 +12,9 @@
   - 404 on not-found within tenant."
   (:require
     [cheshire.core :as cheshire]
-    [clojure.test :refer :all]
+    [clojure.java.io :as io]
+    [clojure.test :refer [deftest is testing]]
     [next.jdbc :as jdbc]
-    [samuraibff.http.router :as http.router]
     [samuraibff.http.recordings :as http.recordings]
     [samuraibff.testcontainers.localstack :as tc.localstack]
     [samuraibff.testcontainers.postgres :as tc.pg])
@@ -27,7 +27,7 @@
       (nil? body) nil
       (map? body) body
       (string? body) (cheshire/parse-string body true)
-      (instance? java.io.InputStream body) (cheshire/parse-stream (clojure.java.io/reader body) true)
+      (instance? java.io.InputStream body) (cheshire/parse-stream (io/reader body) true)
       :else (cheshire/parse-string (str body) true))))
 
 (deftest recordings-list-and-detail-tenant-scoped-integration-test
@@ -173,6 +173,30 @@
         (is (= 200 (:status delete-ok)))
         (is (nil? row-session))
         (is (nil? row-tr))))))
+
+(deftest recordings-delete-active-session-rejected-integration-test
+  (testing "DELETE /api/recordings/:session_id rejects deleting active sessions"
+    (tc.pg/with-postgres [pg]
+      (let [jdbc-url (tc.pg/jdbc-url pg)
+            ds (tc.pg/datasource jdbc-url "drsynth" "drsynth")
+            _ (tc.pg/apply-schema! ds)
+
+            tenant-a (UUID/fromString "00000000-0000-0000-0000-000000000000")
+            _ (jdbc/execute! ds ["INSERT INTO tenants (id, name) VALUES (?, ?)" tenant-a "Tenant A"])
+
+            session-a (UUID/fromString "00000000-0000-0000-0000-000000000010")
+            _ (jdbc/execute! ds ["INSERT INTO sessions (id, tenant_id, session_key, status, created_at) VALUES (?, ?, ?, ?, now())"
+                                session-a tenant-a session-a "active"])
+
+            deps {:db {:ds ds}
+                  :config {:env :test}}
+            delete-handler (http.recordings/delete-recording-handler deps)
+            resp (delete-handler {:auth/tenant-id (str tenant-a)
+                                 :path-params {:session_id (str session-a)}})
+            body (parse-json-body resp)]
+        (is (= 409 (:status resp)))
+        (is (= false (:ok body)))
+        (is (= "session-active" (:message body)))))))
 
 (deftest recording-audio-handler-file-url-range-integration-test
   (testing "GET /api/recordings/:session_id/audio streams local file with Range"
