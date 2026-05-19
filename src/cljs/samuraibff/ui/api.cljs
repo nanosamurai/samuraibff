@@ -126,7 +126,7 @@
   - session-id: string
 
   Returns:
-  - Promise resolving to {:ok true :session_id <string> :status " finished "}"
+  - Promise resolving to {:ok true :session_id <string> :status finished}"
   [session-id]
   (-> (js/fetch (api-url (str "/api/sessions/"
                               (js/encodeURIComponent (or session-id ""))

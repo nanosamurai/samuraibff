@@ -285,21 +285,27 @@
                        (.finally (fn [] (set-loading! false)))))
         new-draft! (fn []
                      (store/append-log! "[ui] creating session draft...")
-                     (let [req (session.req/create-session-request-body @store/session*)]
+                     ;; Do not inherit previous live session title (bug).
+                     (let [req (session.req/create-session-request-body
+                                (assoc @store/session* :title ""))]
                        (-> (api/create-session! req)
                            (.then (fn [{:keys [session_id title]}]
                                     (store/set-session-id! session_id)
                                     (store/set-session-created-at-ms! (util/now-ms))
                                     (store/set-session-title! (or title ""))
-                                    (store/set-session-status! "created")
+                                    (store/set-session-status! :created)
                                     (store/add-recording! {:session_id session_id
                                                            :created_at_ms (util/now-ms)
                                                            :status :ready})
                                     ;; Refresh list so the draft is visible immediately.
                                     (refresh!)
+                                    ;; Navigate to Record page so user can start immediately.
+                                    (router/navigate! {:page :live :params {}})
                                     (store/append-log! (str "[ui] new draft session " session_id))))
                            (.catch (fn [e]
-                                     (store/append-log! (str "[ui] failed creating session draft: " e)))))))
+                                     (store/append-log!
+                                      (str "[ui] failed creating session draft: "
+                                           (shared/safe-http-error e))))))))
 
         go-record! (fn []
                      (router/navigate! {:page :live :params {}}))]

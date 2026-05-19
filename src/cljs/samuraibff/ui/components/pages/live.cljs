@@ -91,156 +91,176 @@
        js/undefined)
      #js [])
 
-    (letfn [(start-streaming! [sid]
-                                      ;; Starting a new capture run; reset transcript time base.
-              (store/clear-segments!)
-              (store/set-session-status! "active")
-              (store/set-running! true)
-              (store/set-recording-status! sid :recording)
-              (store/append-log! (str "[ui] start session=" sid))
-              (ws/connect-events! sid)
-              (-> (audio/start-audio! sid lang)
-                  (.catch (fn [_]
-                                                     ;; audio will log; ensure running resets
-                            (store/set-running! false)
-                            (store/set-recording-status! sid :ready)))))
+    (let [status (:status session)
+          terminal? (contains? #{:finished :failed :finalized} status)]
 
-            (create-session! []
-              (store/append-log! "[ui] creating session...")
-              (let [req (session.req/create-session-request-body @store/session*)]
-                (-> (api/create-session! req)
-                    (.then (fn [{:keys [session_id title]}]
-                             (store/set-session-id! session_id)
-                             (store/set-session-created-at-ms! (util/now-ms))
-                             (store/set-session-title! (or title ""))
-                             (store/set-session-status! "created")
-                             (store/add-recording! {:session_id    session_id
-                                                    :created_at_ms (util/now-ms)
-                                                    :status        :ready})
-                             (store/append-log! (str "[ui] new session " session_id))
-                             (str session_id)))
-                    (.catch (fn [e]
-                              (store/append-log! (str "[ui] failed creating session: " (shared/safe-http-error e)))
-                              (throw e))))))
+      (letfn [(start-streaming! [sid] ;; Starting a new capture run; reset transcript time base.
+                (store/clear-segments!)
+                (store/set-session-status! :active)
+                (store/set-running! true)
+                (store/set-recording-status! sid :recording)
+                (store/append-log! (str "[ui] start session=" sid))
+                (ws/connect-events! sid)
+                (-> (audio/start-audio! sid lang)
+                    (.catch (fn [_]  ;; audio will log; ensure running resets
+                              (store/set-running! false)
+                              (store/set-recording-status! sid :ready)))))
 
-            (ensure-system-source! []
-              (if (and electron?
-                       (not= :mic audio-source)
-                       (empty? (str (or (:system_source_id controls) ""))))
-                (audio/pick-system-source!)
-                (js/Promise.resolve true)))
+              (create-session! []
+                (store/append-log! "[ui] creating session...")
+                (let [req (session.req/create-session-request-body @store/session*)]
+                  (-> (api/create-session! req)
+                      (.then (fn [{:keys [session_id title]}]
+                               (store/set-session-id! session_id)
+                               (store/set-session-created-at-ms! (util/now-ms))
+                               (store/set-session-title! (or title ""))
+                               (store/set-session-status! :created)
+                               (store/add-recording! {:session_id    session_id
+                                                      :created_at_ms (util/now-ms)
+                                                      :status        :ready})
+                               (store/append-log! (str "[ui] new session " session_id))
+                               (str session_id)))
+                      (.catch (fn [e]
+                                (store/append-log! (str "[ui] failed creating session: " (shared/safe-http-error e)))
+                                (throw e))))))
 
-            (record-now! []
-              (when (or (true? running?) (true? starting?))
-                (js/Promise.resolve false))
-              (set-starting! true)
-              (let [existing-id (str (or id ""))
-                    sid-promise (if (seq existing-id)
-                                  (js/Promise.resolve existing-id)
-                                  (create-session!))]
-                (-> sid-promise
-                    (.then (fn [sid]
-                             (-> (ensure-system-source!)
-                                 (.then (fn [_]
-                                          (start-streaming! sid))))))
-                    (.finally (fn []
-                                (set-starting! false))))))
+              (ensure-system-source! []
+                (if (and electron?
+                         (not= :mic audio-source)
+                         (empty? (str (or (:system_source_id controls) ""))))
+                  (audio/pick-system-source!)
+                  (js/Promise.resolve true)))
 
-            (stop! []
-              (store/append-log! "[ui] stop")
-              (store/set-running! false)
-              (store/set-recording-status! id :stopped)
-              (store/set-session-status! "finished")
-              (audio/stop-audio!)
-              (ws/close-events!)
-              ;; Persist state machine transition best-effort.
-              ;; This ensures Sessions table reflects Finished after refresh.
-              (when (seq (str id))
-                (-> (api/finish-session! id)
-                    (.then (fn [_]
-                             (store/append-log! (str "[ui] session finished (db) " id))))
-                    (.catch (fn [e]
-                              (store/append-log!
-                               (str "[ui] failed finishing session (db): " (shared/safe-http-error e))))))))]
+              (record-now! []
+                (when (or (true? running?) (true? starting?))
+                  (js/Promise.resolve false))
+                (set-starting! true)
+                (let [existing-id (str (or id ""))
+                      sid-promise (if (seq existing-id)
+                                    (js/Promise.resolve existing-id)
+                                    (create-session!))]
+                  (-> sid-promise
+                      (.then (fn [sid]
+                               (-> (ensure-system-source!)
+                                   (.then (fn [_]
+                                            (start-streaming! sid))))))
+                      (.finally (fn []
+                                  (set-starting! false))))))
 
-      [:div {:class "controls"}
-       [:div {:class "controls-row"}
-        [:div {:class "field"}
-         [:div {:class "label"} "Session name"]
-         [:input {:value       (or (get @store/session* :title) "")
-                  :placeholder "Untitled session"
-                  :on-change   (fn [e]
-                                 (store/set-session-title! (.. e -target -value)))}]
-         (when (seq (str id))
-           [:div {:class "hint"}
-            [:span {:class "mono"} id]])]
+              (stop! []
+                (store/append-log! "[ui] stop")
+                (store/set-running! false)
+                (store/set-recording-status! id :stopped)
+                (store/set-session-status! :finished)
+                (audio/stop-audio!)
+                (ws/close-events!)
+                           ;; Persist state machine transition best-effort.
+                           ;; This ensures Sessions table reflects Finished after refresh.
+                (when (seq (str id))
+                  (-> (api/finish-session! id)
+                      (.then (fn [_]
+                               (store/append-log! (str "[ui] session finished (db) " id))))
+                      (.catch (fn [e]
+                                (store/append-log!
+                                 (str "[ui] failed finishing session (db): " (shared/safe-http-error e))))))))
 
-        [:div {:class "field"}
-         [:div {:class "label"} "Language"]
-         [shared/searchable-dropdown
-          {:value       (or lang "")
-           :options     (langs/language-options)
-           :placeholder "Auto"
-           :on-change   (fn [new-val]
-                          (store/set-lang! new-val))}]]
+              (new-session! []
+                (store/append-log! "[ui] new session")
+                                  ;; Defensive: ensure we are not streaming.
+                (store/set-running! false)
+                (audio/stop-audio!)
+                (ws/close-events!)
+                                  ;; Keep settings; reset only identity + state.
+                (store/clear-segments!)
+                (store/set-session-id! "")
+                (store/set-session-title! "")
+                (store/set-session-created-at-ms! nil)
+                (store/set-session-status! nil))]
 
-        [:div {:class "field"}
-         [:div {:class "label"} "Audio input"]
-         [:select {:value     (name audio-source)
-                   :on-change (fn [e]
-                                (let [v (keyword (.. e -target -value))]
-                                  (store/set-session-control! :audio_source v)))}
-          [:option {:value "mic"} "Microphone"]
-          [:option {:value "system" :disabled (not electron?)} "System output (Electron)"]
-          [:option {:value "mix" :disabled (not electron?)} "Mix mic + system (Electron)"]]
+        [:div {:class "controls"}
+         [:div {:class "controls-row"}
+          [:div {:class "field"}
+           [:div {:class "label"} "Session name"]
+           [:input {:value       (or (get @store/session* :title) "")
+                    :placeholder "Untitled session"
+                    :disabled    (true? terminal?)
+                    :on-change   (fn [e]
+                                   (store/set-session-title! (.. e -target -value)))}]
+           (when (seq (str id))
+             [:div {:class "hint"}
+              [:span {:class "mono"} id]])]]
 
-         (when (and electron? (not= :mic audio-source))
-           [:div {:class "hint" :style {:marginTop "8px"}}
-            "System source is auto-selected when you start recording."])]
+         [:div {:class "field"}
+          [:div {:class "label"} "Language"]
+          [shared/searchable-dropdown
+           {:value       (or lang "")
+            :options     (langs/language-options)
+            :placeholder "Auto"
+            :on-change   (fn [new-val]
+                           (store/set-lang! new-val))}]]
 
-        [:div {:class "field"}
-         [:div {:class "label"} "Microphone"]
-         [:select {:value     mic-device-id
-                   :disabled  (= :system audio-source)
-                   :on-change (fn [e]
-                                (let [v (.. e -target -value)]
-                                  (store/set-session-control!
-                                   :mic_device_id
-                                   (when (seq (str v)) (str v)))))}
-          [:option {:value ""} "Default"]
-          (for [{:keys [id label]} (vec (or mic-options []))]
-            ^{:key (str "mic-" id)}
-            [:option {:value id} (or label id)])]
-         (when (seq (str mic-error))
-           [:div {:class "hint"} mic-error])]
+         [:div {:class "field"}
+          [:div {:class "label"} "Audio input"]
+          [:select {:value     (name audio-source)
+                    :on-change (fn [e]
+                                 (let [v (keyword (.. e -target -value))]
+                                   (store/set-session-control! :audio_source v)))}
+           [:option {:value "mic"} "Microphone"]
+           [:option {:value "system" :disabled (not electron?)} "System output (Electron)"]
+           [:option {:value "mix" :disabled (not electron?)} "Mix mic + system (Electron)"]]
 
-        [:div {:class "spacer"}]
+          (when (and electron? (not= :mic audio-source))
+            [:div {:class "hint" :style {:marginTop "8px"}}
+             "System source is auto-selected when you start recording."])]
 
-        [:button {:class    "btn primary"
-                  :disabled (or running? starting?)
-                  :on-click (fn [_] (record-now!))
-                  :title    "Start recording"}
-         [:span {:class (str "rec-dot" (when running? " blink"))}]
-         (cond
-           running? "Recording now"
-           starting? "Starting…"
-           :else "Record now")]
+         [:div {:class "field"}
+          [:div {:class "label"} "Microphone"]
+          [:select {:value     mic-device-id
+                    :disabled  (= :system audio-source)
+                    :on-change (fn [e]
+                                 (let [v (.. e -target -value)]
+                                   (store/set-session-control!
+                                    :mic_device_id
+                                    (when (seq (str v)) (str v)))))}
+           [:option {:value ""} "Default"]
+           (for [{:keys [id label]} (vec (or mic-options []))]
+             ^{:key (str "mic-" id)}
+             [:option {:value id} (or label id)])]
+          (when (seq (str mic-error))
+            [:div {:class "hint"} mic-error])]
 
-        [:button {:class    "btn"
-                  :disabled (not running?)
-                  :on-click (fn [_] (stop!))
-                  :title    "Stop recording"}
-         [:span {:style {:color "var(--muted)"}} "■"]
-         "Stop"]
+         [:div {:class "spacer"}
 
-        [:button {:class      "btn icon"
-                  :type       "button"
-                  :aria-label "Session settings"
-                  :title      "Session settings"
-                  :on-click   (fn [_]
-                                (when set-settings-open!
-                                  (set-settings-open! (not (true? settings-open?)))))}
-         "⚙"]]])))
+          (cond
+            terminal?
+            [:button {:class    "btn primary"
+                      :type     "button"
+                      :on-click (fn [_] (new-session!))
+                      :title    "Start a new session"}
+             "New session"]
+
+            (or running? (= status :active))
+            [:button {:class    "btn"
+                      :disabled (not running?)
+                      :on-click (fn [_] (stop!))
+                      :title    "Stop recording"}
+             [:span {:style {:color "var(--muted)"}} "■"]
+             "Stop"]
+
+            :else
+            [:button {:class    "btn primary"
+                      :disabled (or running? starting?)
+                      :on-click (fn [_] (record-now!))
+                      :title    "Start recording"}
+             [:span {:class (str "rec-dot" (when running? " blink"))}]])]
+         [:button {:class      "btn icon"
+                   :type       "button"
+                   :aria-label "Session settings"
+                   :title      "Session settings"
+                   :on-click   (fn [_]
+                                 (when set-settings-open!
+                                   (set-settings-open! (not (true? settings-open?)))))}
+          "⚙"]]))))
 
 (declare webhook-routing-panel workflow-routing-panel stream-controls-panel audio-controls-panel)
 
@@ -933,20 +953,22 @@
         session-created-at-ms (or (:created_at_ms session) (util/now-ms))
         session-title (let [t (str/trim (str (or (:title session) "")))]
                         (when (seq t) t))
-        session-status (str (or (:status session) ""))
+        session-status (:status session)
         header-title (or session-title (util/default-session-title session-created-at-ms) "Record")
         status-label (cond
                        (true? running?) "Recording"
-                       (seq session-status) (str/capitalize session-status)
+                       (keyword? session-status) (-> session-status name str/capitalize)
                        :else "Unknown")
         status-kind (cond
                       (true? running?) :warn
-                      (= session-status "active") :warn
-                      (= session-status "failed") :bad
-                      (= session-status "finished") :ok
-                      (= session-status "created") :muted
+                      (= session-status :active) :warn
+                      (= session-status :failed) :bad
+                      (= session-status :finished) :ok
+                      (= session-status :created) :muted
                       :else :muted)
-        status-tooltip (str "Session status: " (or (seq session-status) "unknown"))
+        status-tooltip (str "Session status: " (if (keyword? session-status)
+                                                  (name session-status)
+                                                  "unknown"))
 
         settings-open?* (react/useState false)
         settings-open? (aget settings-open?* 0)

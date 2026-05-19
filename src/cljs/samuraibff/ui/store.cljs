@@ -13,6 +13,7 @@
 
   All public functions are side-effecting and named with verbs."
   (:require
+   [clojure.string :as str]
    [samuraibff.ui.api-credentials-store :as api-creds.store]
    [samuraibff.ui.transcript :as transcript]
    [samuraibff.ui.util :as util]))
@@ -24,14 +25,14 @@
 (defonce session*
   (atom {:id ""
          :title ""
-         ;; DB-backed session status string.
+         ;; DB-backed session status.
          ;;
          ;; Expected values (backend): "created" | "active" | "finished" | "failed".
          ;;
          ;; Notes:
-         ;; - UI may temporarily override this to "active" while streaming.
-         ;; - Empty string means "unknown / not loaded".
-         :status ""
+         ;; - We keep this as a keyword in the UI for ergonomics.
+         ;; - nil means "unknown / not loaded".
+         :status nil
          ;; Used only for consistent UI display of untitled sessions.
          ;; - Set when selecting a session from the Sessions table.
          ;; - Set when creating a new session.
@@ -581,11 +582,15 @@
   This is the DB-backed session state machine status.
 
   Inputs:
-  - status: string? (e.g. \"created\" | \"active\" | \"finished\" | \"failed\" | nil)
+  - status: string? | keyword? | nil (e.g. :created | :active | :finished | :failed)
 
   Returns: nil."
   [status]
-  (swap! session* assoc :status (str (or status "")))
+  (let [status (cond
+                 (keyword? status) status
+                 (string? status) (some-> status str str/trim not-empty keyword)
+                 :else nil)]
+    (swap! session* assoc :status status))
   nil)
 
 (defn set-lang!
