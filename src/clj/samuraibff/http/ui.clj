@@ -19,6 +19,7 @@
    [ring.util.response :as resp]
    [samuraibff.auth.oidc :as oidc]
    [samuraibff.db.sessions :as db.sessions]
+   [samuraibff.features :as features]
    [samuraibff.kafka.producer :as kafka.producer]
    [samuraibff.schemas :as schemas]
    [samuraibff.sessions.meta :as sessions.meta]
@@ -82,6 +83,19 @@
 (def ^:private guest-user-external-id
   "External id used when auth is disabled."
   "guest")
+
+(defn- request-contains-key?
+  "Return true when a request body contains a key as keyword or string.
+
+  Inputs:
+  - body: request body map
+  - k: keyword
+
+  Returns: boolean."
+  [body k]
+  (let [k-str (name k)]
+    (or (contains? body k)
+        (contains? body k-str))))
 
 (defn- tenant-uuid
   "Return a tenant UUID.
@@ -151,6 +165,14 @@
     (let [tenant-id (:auth/tenant-id req)]
       (try
         (let [body (or (:body-params req) (:body req) {})
+              feature-enabled? (features/workflow-webhook-runtime-enabled? config)
+              webhook-overrides-present? (request-contains-key? body :webhook_overrides)
+              workflow-overrides-present? (request-contains-key? body :workflow_overrides)
+              _ (when (and (not feature-enabled?)
+                           (or webhook-overrides-present? workflow-overrides-present?))
+                  (throw (ex-info "workflow-webhook-overrides-disabled"
+                                  {:type :samuraibff.http/feature-not-enabled
+                                   :feature :workflow-webhook-runtime})))
               ;; Request body is optional for backward compatibility.
               {:keys [title webhook_overrides session_settings workflow_overrides]} (try
                                                                                       (schemas/decode-and-validate! schemas/CreateSessionRequest body)
@@ -190,17 +212,26 @@
           ;;
           ;; IMPORTANT: even when auth is disabled, we bind the in-memory session
           ;; under the same tenant UUID that we persisted into Postgres.
-          (ws.registry/ensure-session! ws-registry (str tenant-id-uuid) session-id {:webhook_overrides webhook_overrides
-                                                                                    :workflow_overrides workflow_overrides})
+          (ws.registry/ensure-session!
+           ws-registry
+           (str tenant-id-uuid)
+           session-id
+           (cond-> {}
+             feature-enabled? (assoc :webhook_overrides webhook_overrides
+                                     :workflow_overrides workflow_overrides)))
 
           ;; Publish session routing snapshot (compacted topic) best-effort.
           (when (and ds kafka-producer)
             (try
               (log/info "Resolving sessions.meta routing snapshot" {:tenant_id (str tenant-id-uuid)
                                                                     :session_id session-id
-                                                                    :webhook_overrides_present? (some? webhook_overrides)})
-              (let [routing (webhooks.snapshot/resolve-routing-snapshot ds tenant-id-uuid session-uuid webhook_overrides)
-                    wf-targets (workflows.snapshot/resolve-targets ds tenant-id-uuid session-uuid workflow_overrides)
+                                                                    :webhook_overrides_present? (and feature-enabled? (some? webhook_overrides))
+                                                                    :workflow_webhook_runtime_enabled feature-enabled?})
+              (let [routing (when feature-enabled?
+                              (webhooks.snapshot/resolve-routing-snapshot ds tenant-id-uuid session-uuid webhook_overrides))
+                    wf-targets (if feature-enabled?
+                                 (workflows.snapshot/resolve-targets ds tenant-id-uuid session-uuid workflow_overrides)
+                                 [])
                     workflow-needs-consolidation?
                     (workflows.snapshot/any-target-requires-refined-consolidation? wf-targets)
                     session-settings'
@@ -230,10 +261,15 @@
           (json-response 200 {:session_id session-id
                               :title title'}))
         (catch clojure.lang.ExceptionInfo e
-          (if (= :samuraibff.http/missing-tenant-id (:type (ex-data e)))
+          (case (:type (ex-data e))
+            :samuraibff.http/missing-tenant-id
             (do
               (log/warn "Refusing to create session without tenant-id" {:uri (:uri req)})
               (json-response 403 {:ok false :message "missing-tenant-id"}))
+
+            :samuraibff.http/feature-not-enabled
+            (features/not-enabled-response config (or (:feature (ex-data e)) :workflow-webhook-runtime))
+
             (do
               (log/error e "Failed to create session" {:uri (:uri req)})
               (json-response 500 {:ok false :message "session-create-failed"}))))

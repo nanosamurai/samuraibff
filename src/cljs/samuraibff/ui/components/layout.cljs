@@ -24,24 +24,27 @@
   Returns:
   - vector of item maps {:label string :route route-map :active? boolean}."
   [active-page]
-  [{:label "Sessions"
-    :route {:page :recordings :params {}}
-    :active? (= active-page :recordings)}
-   {:label "Record"
-    :route {:page :live :params {}}
-    :active? (= active-page :live)}
-   {:label "Webhooks"
-    :route {:page :webhooks :params {}}
-    :active? (= active-page :webhooks)}
-   {:label "Workflows"
-    :route {:page :workflows :params {}}
-    :active? (= active-page :workflows)}
-   {:label "Speakers"
-    :route {:page :speakers :params {}}
-    :active? (= active-page :speakers)}
-   {:label "API Credentials"
-    :route {:page :api-credentials :params {}}
-    :active? (= active-page :api-credentials)}])
+  (cond-> [{:label "Sessions"
+            :route {:page :recordings :params {}}
+            :active? (= active-page :recordings)}
+           {:label "Record"
+            :route {:page :live :params {}}
+            :active? (= active-page :live)}]
+    (store/workflow-webhook-runtime-enabled?)
+    (conj {:label "Webhooks"
+           :route {:page :webhooks :params {}}
+           :active? (= active-page :webhooks)}
+          {:label "Workflows"
+           :route {:page :workflows :params {}}
+           :active? (= active-page :workflows)})
+
+    true
+    (into [{:label "Speakers"
+            :route {:page :speakers :params {}}
+            :active? (= active-page :speakers)}
+           {:label "API Credentials"
+            :route {:page :api-credentials :params {}}
+            :active? (= active-page :api-credentials)}])))
 
 (defn- sidebar-item
   [{:keys [active? label route on-click]}]

@@ -33,8 +33,9 @@
                  (if authed?
                    (store/set-auth-status! :authenticated {:user (js->clj (aget body "user") :keywordize-keys true)
                                                            :tenant_id (aget body "tenant_id")
-                                                           :tenant_name (aget body "tenant_name")})
-                   (store/set-auth-status! :anonymous nil))
+                                                           :tenant_name (aget body "tenant_name")
+                                                           :features (js->clj (aget body "features") :keywordize-keys true)})
+                   (store/set-auth-status! :anonymous {:features (js->clj (aget body "features") :keywordize-keys true)}))
                  body)))
       (.catch (fn [e]
                 ;; If /api/me is protected and returns 401/403, treat as anonymous,

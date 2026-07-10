@@ -127,6 +127,8 @@
     {:samuraibff/config
      {:env (some-> (s "SAMURAIBFF_ENV") keyword)
 
+      :features {:ce-mode? (b "SAMURAIBFF_CE_MODE")}
+
       :http {:host (s "SAMURAIBFF_HTTP_HOST")
              :port (i "SAMURAIBFF_HTTP_PORT")}
 

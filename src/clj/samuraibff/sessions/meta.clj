@@ -21,6 +21,7 @@
   Returns:
   - map suitable for JSON encoding and publishing to Kafka topic `sessions.meta`"
   (:require
+   [samuraibff.features :as features]
    [samuraibff.util.uuid :as util.uuid]))
 
 (def ^:private default-max-bytes
@@ -64,26 +65,22 @@
                             (if (contains? cfg :include_full_text)
                               (boolean (:include_full_text cfg))
                               default-include-full-text))
+        runtime-enabled? (features/workflow-webhook-runtime-enabled? config)
         routing-map (or webhook-routing {:targets_by_event_type {}})
         workflow-targets (vec (or workflow-targets []))
-        schema-version 2]
-    {:session_id (str session-id)
-     :tenant_id (str tenant-id)
-     :schema_version schema-version
-     ;; emit event_id too so router/dispatcher can correlate meta revisions
-     :event_id (str (util.uuid/uuid7))
-
-     ;; Legacy key (keep for transition)
-     :routing routing-map
-     ;; New explicit key
-     :webhook_routing routing-map
-
-     :refined_transcript
-     {:consolidation
-      {:enabled enabled?
-       :max_bytes (long max-bytes)
-       :topic (str topic)
-       :include_full_text (boolean include-full-text)}}
-
-     :workflows
-     {:targets workflow-targets}}))
+        schema-version 2
+        base {:session_id (str session-id)
+              :tenant_id (str tenant-id)
+              :schema_version schema-version
+              :event_id (str (util.uuid/uuid7))
+              :refined_transcript
+              {:consolidation
+               {:enabled enabled?
+                :max_bytes (long max-bytes)
+                :topic (str topic)
+                :include_full_text (boolean include-full-text)}}}]
+    (cond-> base
+      runtime-enabled?
+      (assoc :routing routing-map
+             :webhook_routing routing-map
+             :workflows {:targets workflow-targets}))))

@@ -33,6 +33,7 @@
    [jsonista.core :as json]
    [org.corfield.logging4j2 :as log]
    [org.httpkit.client :as http]
+   [samuraibff.features :as features]
    [samuraibff.ws.registry :as ws.registry])
   (:import
    (java.net URI)
@@ -252,17 +253,23 @@
 
 (defmethod ig/init-key :samuraibff/workflow-results-consumer
   [_ {:keys [config ws-registry]}]
-  (let [running?* (atom true)
-        thread (doto (Thread. #(run-supervised! {:config config
-                                                 :ws-registry ws-registry
-                                                 :running?* running?*})
-                              "samuraibff-workflow-results-consumer")
-                 (.setDaemon true)
-                 (.start))]
-    {:thread thread
-     :running?* running?*
-     :ws-registry ws-registry
-     :config config}))
+  (if-not (features/workflow-webhook-runtime-enabled? config)
+    (do
+      (log/info "Workflow results Kafka consumer disabled by feature state" {:features (features/feature-state config)})
+      {:disabled? true
+       :ws-registry ws-registry
+       :config config})
+    (let [running?* (atom true)
+          thread (doto (Thread. #(run-supervised! {:config config
+                                                   :ws-registry ws-registry
+                                                   :running?* running?*})
+                                "samuraibff-workflow-results-consumer")
+                   (.setDaemon true)
+                   (.start))]
+      {:thread thread
+       :running?* running?*
+       :ws-registry ws-registry
+       :config config})))
 
 (defmethod ig/halt-key! :samuraibff/workflow-results-consumer
   [_ {:keys [running?* ^Thread thread]}]

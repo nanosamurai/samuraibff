@@ -18,6 +18,23 @@
    [samuraibff.ui.store :as store]
    ["react" :as react]))
 
+(defn- feature-unavailable-page
+  "Render a small unavailable page for feature-gated routes.
+
+  Inputs:
+  - title: string
+
+  Returns: hiccup."
+  [title]
+  [:div {:class "page"}
+   [:div {:class "page-header"}
+    [:div
+     [:div {:class "page-title"} title]
+     [:div {:class "muted"} "This feature is not enabled in Community Edition."]]
+    [router/link {:route {:page :recordings :params {}}
+                  :class "btn"}
+     "Sessions"]]])
+
 (defn app
   "Root app component.
 
@@ -68,8 +85,12 @@
          :live [pages.live/live-recording-page]
          :recording [pages.recording-detail/recording-detail-page
                      {:session-id (get-in route [:params :session_id])}]
-          :webhooks [pages.webhooks/webhooks-page]
-          :workflows [pages.workflows/workflows-page]
+          :webhooks (if (store/workflow-webhook-runtime-enabled?)
+                      [pages.webhooks/webhooks-page]
+                      [feature-unavailable-page "Webhooks"])
+          :workflows (if (store/workflow-webhook-runtime-enabled?)
+                       [pages.workflows/workflows-page]
+                       [feature-unavailable-page "Workflows"])
          :speakers [pages.speakers/speakers-page]
          :api-credentials [pages.api-credentials/api-credentials-page]
          [pages.recordings/recordings-page])]]]))

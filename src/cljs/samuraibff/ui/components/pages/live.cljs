@@ -286,6 +286,7 @@
   (let [tab* (react/useState :stream)
         tab (aget tab* 0)
         set-tab! (aget tab* 1)
+        runtime-enabled? (store/workflow-webhook-runtime-enabled?)
         set-open! (when (fn? set-open!) set-open!)]
     (when (true? open?)
       [:div {:class "controls stream-controls"}
@@ -311,17 +312,19 @@
                   :type "button"
                   :on-click (fn [_] (set-tab! :audio))}
          "Audio"]
-        [:button {:class (str "tab " (when (= tab :webhooks) "active"))
-                  :type "button"
-                  :on-click (fn [_] (set-tab! :webhooks))}
-         "Webhooks"]
-        [:button {:class (str "tab " (when (= tab :workflows) "active"))
-                  :type "button"
-                  :on-click (fn [_] (set-tab! :workflows))}
-         "Workflows"]
+        (when runtime-enabled?
+          [:button {:class (str "tab " (when (= tab :webhooks) "active"))
+                    :type "button"
+                    :on-click (fn [_] (set-tab! :webhooks))}
+           "Webhooks"])
+        (when runtime-enabled?
+          [:button {:class (str "tab " (when (= tab :workflows) "active"))
+                    :type "button"
+                    :on-click (fn [_] (set-tab! :workflows))}
+           "Workflows"])
         [:div {:class "spacer"}]]
 
-       (case tab
+       (case (if runtime-enabled? tab (if (contains? #{:webhooks :workflows} tab) :stream tab))
          :audio [audio-controls-panel]
          :webhooks [webhook-routing-panel]
          :workflows [workflow-routing-panel]
@@ -892,6 +895,8 @@
   (let [active* (react/useState :workflows)
         active (aget active* 0)
         set-active! (aget active* 1)
+        runtime-enabled? (store/workflow-webhook-runtime-enabled?)
+        active (if runtime-enabled? active :log)
         debug-asr? (hooks/use-atom store/debug-asr-log?*)
         workflow-results (hooks/use-atom store/workflow-results*)]
     [:div {:class "right-panel"}
@@ -899,12 +904,14 @@
       [:button {:class (str "tab " (when (= active :log) "active"))
                 :on-click (fn [_] (set-active! :log))}
        "Log"]
-      [:button {:class (str "tab " (when (= active :webhooks) "active"))
-                :on-click (fn [_] (set-active! :webhooks))}
-       "Webhooks"]
-      [:button {:class (str "tab " (when (= active :workflows) "active"))
-                :on-click (fn [_] (set-active! :workflows))}
-       "Workflows"]]
+      (when runtime-enabled?
+        [:button {:class (str "tab " (when (= active :webhooks) "active"))
+                  :on-click (fn [_] (set-active! :webhooks))}
+         "Webhooks"])
+      (when runtime-enabled?
+        [:button {:class (str "tab " (when (= active :workflows) "active"))
+                  :on-click (fn [_] (set-active! :workflows))}
+         "Workflows"])]
      [:div {:class "right-panel-body"}
       [ws-indicator]
       [:label {:class "muted"

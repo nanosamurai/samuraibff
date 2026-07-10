@@ -116,6 +116,10 @@ clojure -M:run
 
 Default local bind: `127.0.0.1:8000`.
 
+Community Edition mode is enabled by default. It hides/disables workflow and
+webhook runtime features unless `SAMURAIBFF_CE_MODE=false` is set by a
+commercial/full deployment.
+
 ### UI (browser)
 
 Install npm deps once:

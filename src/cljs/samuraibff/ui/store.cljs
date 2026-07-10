@@ -510,6 +510,28 @@
   (atom {:status :unknown
          :detail nil}))
 
+(defn feature-state
+  "Return feature state from the latest `/api/me` response.
+
+  Inputs: none.
+
+  Returns: map with JSON-derived keyword keys."
+  []
+  (or (get-in @auth* [:detail :features])
+      {:ce_mode true
+       :workflow_webhook_runtime_enabled false
+       :webhooks_enabled false
+       :workflows_enabled false}))
+
+(defn workflow-webhook-runtime-enabled?
+  "Return true when workflow/webhook runtime UI should be shown.
+
+  Inputs: none.
+
+  Returns: boolean."
+  []
+  (true? (:workflow_webhook_runtime_enabled (feature-state))))
+
 (def ^:private max-log-lines 200)
 (def ^:private max-segments 400)
 
