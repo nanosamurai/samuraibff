@@ -46,7 +46,8 @@
     [ring.util.codec :as codec]
     [ring.util.response :as resp]
     [samuraibff.auth.oidc :as oidc]
-    [samuraibff.db.tenants :as db.tenants])
+    [samuraibff.db.tenants :as db.tenants]
+    [samuraibff.features :as features])
   (:import
     (java.net URI)
     (java.net.http HttpClient HttpClient$Redirect HttpRequest HttpRequest$BodyPublishers HttpResponse$BodyHandlers)
@@ -54,9 +55,6 @@
     (java.security MessageDigest SecureRandom)
     (java.time Duration)
     (java.util Base64)))
-
-(def ^:private json-mapper
-  (json/object-mapper {:encode-key-fn name}))
 
 (def ^:private http-client
   (-> (HttpClient/newBuilder)
@@ -481,7 +479,10 @@
                             :authenticated true
                             :tenant_id tenant-id-str
                             :tenant_name tenant-name
+                            :features (features/feature-state config)
                             :user (select-keys user [:sub :preferred_username :email])}))
       (if (oidc/auth-required? config)
         (json-response 401 {:ok false :authenticated false :message "not-authenticated"})
-        (json-response 200 {:ok true :authenticated false})))))
+        (json-response 200 {:ok true
+                            :authenticated false
+                            :features (features/feature-state config)})))))

@@ -1,6 +1,6 @@
 # Community Edition feature flags
 
-Status: planning
+Status: implemented in samuraibff
 
 Last updated: 2026-07-10
 
@@ -67,6 +67,17 @@ false when CE mode is true.
 8. After code lands, update `nanosamurai` docs to rely on the default CE mode
    and update `nanodeploy` k8s/Compose values to set
    `SAMURAIBFF_CE_MODE=false`.
+
+## samuraibff implementation notes
+
+- `SAMURAIBFF_CE_MODE` is parsed into `[:features :ce-mode?]` and defaults to
+  true.
+- `/api/me` returns a JSON-friendly `features` map for UI gating.
+- In CE mode, `/api/webhooks`, `/api/workflows`, their defaults routes,
+  workflow result callbacks/consumer behavior, and session
+  workflow/webhook overrides return a clear `feature-not-enabled` response.
+- In CE mode, `sessions.meta` still publishes core session/refined transcript
+  settings but omits workflow/webhook routing fields.
 
 ## Security note
 

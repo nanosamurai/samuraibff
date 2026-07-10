@@ -12,6 +12,11 @@
   :ws   {:host "127.0.0.1"
          :port 8000}
 
+  ;; --- Edition / product feature flags ---
+  ;; Community Edition mode hides/disables workflow and webhook runtime features.
+  ;; Commercial deployments should set SAMURAIBFF_CE_MODE=false.
+  :features {:ce-mode? true}
+
   ;; --- Auth / Keycloak ---
   :auth {:required? true
          ;; Optional dev/test-only fallback used ONLY when :required? is false.

@@ -19,6 +19,7 @@
    [next.jdbc :as jdbc]
    [reitit.ring :as ring]
    [reitit.core]
+   [samuraibff.features :as features]
    [samuraibff.ws.audio :as ws.audio]
    [samuraibff.ws.events :as ws.events]
    [samuraibff.http.auth :as http.auth]
@@ -392,7 +393,7 @@
                     :responses {200 {:body schemas/WebhookDefaultsResponse}
                                 403 {:body schemas/ApiErrorResponse}
                                 503 {:body schemas/ApiErrorResponse}}
-                    :handler (http.webhooks/get-defaults-handler deps)}
+                    :handler (features/wrap-enabled config :webhooks (http.webhooks/get-defaults-handler deps))}
               :put {:summary "Set webhook defaults"
                     :description "Replaces tenant webhook defaults."
                     :parameters {:body schemas/WebhookDefaultsRequest}
@@ -400,7 +401,7 @@
                                 400 {:body schemas/ApiErrorResponse}
                                 403 {:body schemas/ApiErrorResponse}
                                 503 {:body schemas/ApiErrorResponse}}
-                    :handler (http.webhooks/set-defaults-handler deps)}}]
+                    :handler (features/wrap-enabled config :webhooks (http.webhooks/set-defaults-handler deps))}}]
 
             [""
              {:get {:summary "List webhooks"
@@ -408,7 +409,7 @@
                     :responses {200 {:body schemas/WebhooksListResponse}
                                 403 {:body schemas/ApiErrorResponse}
                                 503 {:body schemas/ApiErrorResponse}}
-                    :handler (http.webhooks/list-webhooks-handler deps)}
+                    :handler (features/wrap-enabled config :webhooks (http.webhooks/list-webhooks-handler deps))}
 
               :post {:summary "Create webhook"
                      :description "Creates a new webhook endpoint and its event subscriptions. Secrets are write-only."
@@ -417,7 +418,7 @@
                                  400 {:body schemas/ApiErrorResponse}
                                  403 {:body schemas/ApiErrorResponse}
                                  503 {:body schemas/ApiErrorResponse}}
-                     :handler (http.webhooks/create-webhook-handler deps)}}]
+                     :handler (features/wrap-enabled config :webhooks (http.webhooks/create-webhook-handler deps))}}]
 
             ;; NOTE: We intentionally do NOT constrain :id with a regex here.
             ;; Reitit uses `{...}` to denote path parameter constraints, which
@@ -437,7 +438,7 @@
                                     403 {:body schemas/ApiErrorResponse}
                                     404 {:body schemas/ApiErrorResponse}
                                     503 {:body schemas/ApiErrorResponse}}
-                        :handler (http.webhooks/update-webhook-handler deps)}
+                        :handler (features/wrap-enabled config :webhooks (http.webhooks/update-webhook-handler deps))}
                   :delete {:summary "Delete webhook"
                            :description "Deletes a webhook endpoint."
                            :responses {200 {:body schemas/ApiOkResponse}
@@ -445,7 +446,7 @@
                                        403 {:body schemas/ApiErrorResponse}
                                        404 {:body schemas/ApiErrorResponse}
                                        503 {:body schemas/ApiErrorResponse}}
-                           :handler (http.webhooks/delete-webhook-handler deps)}}]]]
+                           :handler (features/wrap-enabled config :webhooks (http.webhooks/delete-webhook-handler deps))}}]]]
 
             ;; --- Workflows ---
            ["/workflows"
@@ -457,7 +458,7 @@
                     :responses {200 {:body schemas/WorkflowDefaultsResponse}
                                 403 {:body schemas/ApiErrorResponse}
                                 503 {:body schemas/ApiErrorResponse}}
-                    :handler (http.workflows/get-defaults-handler deps)}
+                    :handler (features/wrap-enabled config :workflows (http.workflows/get-defaults-handler deps))}
               :put {:summary "Set workflow defaults"
                     :description "Replaces tenant workflow defaults."
                     :parameters {:body schemas/WorkflowDefaultsRequest}
@@ -465,7 +466,7 @@
                                 400 {:body schemas/ApiErrorResponse}
                                 403 {:body schemas/ApiErrorResponse}
                                 503 {:body schemas/ApiErrorResponse}}
-                    :handler (http.workflows/set-defaults-handler deps)}}]
+                    :handler (features/wrap-enabled config :workflows (http.workflows/set-defaults-handler deps))}}]
 
             [""
              {:get {:summary "List workflows"
@@ -473,7 +474,7 @@
                     :responses {200 {:body schemas/WorkflowsListResponse}
                                 403 {:body schemas/ApiErrorResponse}
                                 503 {:body schemas/ApiErrorResponse}}
-                    :handler (http.workflows/list-workflows-handler deps)}
+                    :handler (features/wrap-enabled config :workflows (http.workflows/list-workflows-handler deps))}
 
               :post {:summary "Create workflow"
                      :description "Creates a new workflow definition."
@@ -482,7 +483,7 @@
                                  400 {:body schemas/ApiErrorResponse}
                                  403 {:body schemas/ApiErrorResponse}
                                  503 {:body schemas/ApiErrorResponse}}
-                     :handler (http.workflows/create-workflow-handler deps)}}]
+                     :handler (features/wrap-enabled config :workflows (http.workflows/create-workflow-handler deps))}}]
 
             ["/:id"
              {:parameters {:path [:map [:id :string]]}}
@@ -494,7 +495,7 @@
                                     403 {:body schemas/ApiErrorResponse}
                                     404 {:body schemas/ApiErrorResponse}
                                     503 {:body schemas/ApiErrorResponse}}
-                        :handler (http.workflows/update-workflow-handler deps)}
+                        :handler (features/wrap-enabled config :workflows (http.workflows/update-workflow-handler deps))}
                   :delete {:summary "Delete workflow"
                            :description "Deletes a workflow definition."
                            :responses {200 {:body schemas/ApiOkResponse}
@@ -502,7 +503,7 @@
                                        403 {:body schemas/ApiErrorResponse}
                                        404 {:body schemas/ApiErrorResponse}
                                        503 {:body schemas/ApiErrorResponse}}
-                           :handler (http.workflows/delete-workflow-handler deps)}}]]]
+                           :handler (features/wrap-enabled config :workflows (http.workflows/delete-workflow-handler deps))}}]]]
 
            ["/sessions/:session_id"
             {:patch {:summary "Rename session"
@@ -538,7 +539,7 @@
                                403 {:body schemas/ApiErrorResponse}
                                404 {:body schemas/ApiErrorResponse}
                                503 {:body schemas/ApiErrorResponse}}
-                   :handler (http.wh.outcomes/list-webhook-delivery-outcomes-handler deps)}}]
+                   :handler (features/wrap-enabled config :webhooks (http.wh.outcomes/list-webhook-delivery-outcomes-handler deps))}}]
 
            ["/speakers"
             {}

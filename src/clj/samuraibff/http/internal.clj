@@ -19,6 +19,7 @@
    [clojure.java.io :as io]
    [jsonista.core :as json]
    [org.corfield.logging4j2 :as log]
+   [samuraibff.features :as features]
    [samuraibff.ws.registry :as ws.registry])
   (:import
    (java.io ByteArrayOutputStream)
@@ -117,7 +118,7 @@
               (.write out buf 0 n)
               (recur (+ total n)))))))))
 
-(defn workflow-result-callback-handler
+(defn- workflow-result-callback-handler*
   "Create a Ring handler for `POST /internal/workflow-result`.
 
   Purpose:
@@ -214,3 +215,16 @@
       (catch Exception e
         (log/warn e "Failed to process workflow result callback")
         (json-response 400 {:ok false :message "invalid-payload"})))))
+
+(defn workflow-result-callback-handler
+  "Create a Ring handler for `POST /internal/workflow-result`.
+
+  In Community Edition mode, this endpoint returns feature-not-enabled and does
+  not forward workflow result payloads to connected clients.
+
+  Inputs:
+  - deps: map with :config and :ws-registry
+
+  Returns: Ring handler fn."
+  [{:keys [config] :as deps}]
+  (features/wrap-enabled config :workflows (workflow-result-callback-handler* deps)))

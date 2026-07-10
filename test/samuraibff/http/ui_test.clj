@@ -3,7 +3,7 @@
   (:require
    [cheshire.core :as cheshire]
    [clojure.string :as str]
-   [clojure.test :refer :all]
+   [clojure.test :refer [deftest is testing]]
    [clojure.java.io :as io]
    [next.jdbc :as jdbc]
    [next.jdbc.result-set :as rs]
@@ -59,7 +59,8 @@
 
             ws-registry {:config {:env :test}
                          :sessions (atom {})}
-            handler (http.ui/create-session-handler {:config {:auth {:required? false}}
+            handler (http.ui/create-session-handler {:config {:auth {:required? false}
+                                                              :features {:ce-mode? false}}
                                                      :ws-registry ws-registry
                                                      :db {:ds ds}})
             resp (handler {})
@@ -118,6 +119,48 @@
           (is (= true (get overrides :use_defaults)))
           (is (= ["11111111-1111-1111-1111-111111111111"] (get overrides :webhook_ids)))
           (is (= ["recording.finished"] (get overrides :disable_event_types))))))))
+
+(deftest create-session-handler-rejects-workflow-webhook-overrides-in-ce-test
+  (testing "POST /api/sessions rejects workflow/webhook overrides in default CE mode"
+    (let [ws-registry {:config {:env :test}
+                       :sessions (atom {})}
+          handler (http.ui/create-session-handler {:config {:auth {:required? false}}
+                                                   :ws-registry ws-registry
+                                                   :db {:ds nil}})
+          webhook-resp (handler {:body-params {:webhook_overrides {:use_defaults true}}})
+          webhook-body (parse-json-body webhook-resp)
+          workflow-resp (handler {:body-params {:workflow_overrides {:use_defaults true}}})
+          workflow-body (parse-json-body workflow-resp)]
+      (is (= 403 (:status webhook-resp)))
+      (is (= false (:ok webhook-body)))
+      (is (= "feature-not-enabled" (:message webhook-body)))
+      (is (= "workflow-webhook-runtime" (:feature webhook-body)))
+
+      (is (= 403 (:status workflow-resp)))
+      (is (= false (:ok workflow-body)))
+      (is (= "feature-not-enabled" (:message workflow-body)))
+      (is (= "workflow-webhook-runtime" (:feature workflow-body))))))
+
+(deftest create-session-handler-allows-workflow-webhook-overrides-when-enabled-test
+  (testing "POST /api/sessions accepts workflow/webhook overrides when CE mode is false"
+    (let [ws-registry {:config {:env :test}
+                       :sessions (atom {})}
+          handler (http.ui/create-session-handler {:config {:auth {:required? false}
+                                                            :features {:ce-mode? false}}
+                                                   :ws-registry ws-registry
+                                                   :db {:ds nil}})
+          resp (handler {:body-params {:title "commercial"
+                                       :webhook_overrides {:use_defaults false
+                                                           :webhook_ids []
+                                                           :disable_event_types []}
+                                       :workflow_overrides {:use_defaults false
+                                                            :workflow_ids []}}})
+          body (parse-json-body resp)
+          sid (:session_id body)]
+      (is (= 200 (:status resp)))
+      (is (re-matches uuid-regex sid))
+      (is (some? (get-in @(:sessions ws-registry)
+                         ["00000000-0000-0000-0000-000000000000" sid]))))))
 
 (deftest create-session-handler-persists-session-settings-integration-test
   (testing "POST /api/sessions persists session_settings JSONB when provided"

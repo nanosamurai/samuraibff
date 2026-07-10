@@ -583,6 +583,12 @@
      [:sub {:optional true} :string]
      [:preferred_username {:optional true} :string]
      [:email {:optional true} :string]]]
+   [:features {:optional true}
+    [:map
+     [:ce_mode :boolean]
+     [:workflow_webhook_runtime_enabled :boolean]
+     [:webhooks_enabled :boolean]
+     [:workflows_enabled :boolean]]]
    [:message {:optional true} :string]])
 
 (def RecordingItem

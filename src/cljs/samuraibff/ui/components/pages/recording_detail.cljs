@@ -301,8 +301,9 @@
         follow?* (react/useState false)
         follow? (aget follow?* 0)
         set-follow! (aget follow?* 1)
-        show-workflows?* (react/useState true)
-        show-workflows? (aget show-workflows?* 0)
+        runtime-enabled? (store/workflow-webhook-runtime-enabled?)
+        show-workflows?* (react/useState runtime-enabled?)
+        show-workflows? (and runtime-enabled? (aget show-workflows?* 0))
         set-show-workflows! (aget show-workflows?* 1)
 
         loading* (react/useState true)
@@ -540,7 +541,8 @@
                :final "Final transcript"
                (name tab-id))]))
         [:div {:class "spacer"}]
-        [:button {:class "btn ghost icon"
+        (when runtime-enabled?
+          [:button {:class "btn ghost icon"
                   :type "button"
                   :aria-label (if show-workflows?
                                 "Hide workflows panel"
@@ -553,7 +555,7 @@
          (shared/icon (if show-workflows? "❯" "❮")
                       {:title (if show-workflows?
                                 "Hide workflows panel"
-                                "Show workflows panel")})]]
+                                "Show workflows panel")})])]
 
        (if show-workflows?
          [:div {:class "split"}
