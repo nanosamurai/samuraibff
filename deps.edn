@@ -134,8 +134,9 @@
 
   ;; CI (PR gate): run only non-Testcontainers tests
   ;;
-  ;; This exists so our PR CI does NOT require Docker.
-  ;; Heavy integration tests are covered by the manual/nightly workflow.
+  ;; This provides fast PR feedback without requiring Docker.
+  ;; The full Testcontainers suite runs in a separate PR, manual, and nightly
+  ;; workflow.
   :ci
   {:extra-paths ["test" "test-resources"]
    :extra-deps  {org.clojure/test.check               {:mvn/version "1.1.2"}

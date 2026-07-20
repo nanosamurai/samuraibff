@@ -71,7 +71,12 @@ Run all unit + integration tests:
 clojure -X:test
 ```
 
-Run the same lightweight test plan used as the PR gate:
+Tests for workflow and webhook behavior that is unavailable in Community
+Edition explicitly use `:features {:ce-mode? false}`; CE feature-gate tests
+keep CE mode enabled. Static-asset routing tests use a small fixture
+from `test-resources/` and do not require a compiled UI bundle.
+
+Run the same lightweight test plan used as the fast PR check:
 
 ```bash
 clojure -X:ci

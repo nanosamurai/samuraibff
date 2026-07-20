@@ -73,6 +73,7 @@
 (defn- start-bff-a!
   [{:keys [port bootstrap]}]
   (let [cfg {:samuraibff/config {:env :test
+                                 :features {:ce-mode? false}
                                  :http {:host "127.0.0.1" :port port}
                                  :kafka {:bootstrap-servers bootstrap
                                          :topics {:workflow-result "workflow.result"}
@@ -91,6 +92,7 @@
 (defn- start-bff-b!
   [{:keys [bootstrap]}]
   (let [cfg {:samuraibff/config {:env :test
+                                 :features {:ce-mode? false}
                                  :http {:host "127.0.0.1" :port 0}
                                  :kafka {:bootstrap-servers bootstrap
                                          :consumer-group-id-workflow-results (str "samuraibff-wf-test-" (UUID/randomUUID))
