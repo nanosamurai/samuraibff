@@ -2,15 +2,15 @@ name: CI
 
 on:
   pull_request:
-  push:
     branches:
       - master
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -79,14 +79,3 @@ jobs:
 
       - name: Build UI bundle
         run: npm run ui:release
-
-  docker-build:
-    name: Docker build (smoke)
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Docker build
-        run: docker build -t samuraibff:ci .

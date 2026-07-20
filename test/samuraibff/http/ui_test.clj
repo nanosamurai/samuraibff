@@ -97,7 +97,8 @@
 
             ws-registry {:config {:env :test}
                          :sessions (atom {})}
-            handler (http.ui/create-session-handler {:config {:auth {:required? false}}
+            handler (http.ui/create-session-handler {:config {:auth {:required? false}
+                                                              :features {:ce-mode? false}}
                                                      :ws-registry ws-registry
                                                      :db {:ds ds}})
             resp (handler {:body-params {:title "t"

@@ -105,8 +105,9 @@ Nanosamurai solution currently consists of:
 
 ## How to run (local dev)
 
-This README documents **local developer workflows only**.
-Docker/Kubernetes/CI/CD is owned by **nanodeploy**.
+This README documents **local developer workflows only**. This repository owns
+its CI checks and service-image publication; Docker/Kubernetes deployment
+orchestration is owned by **nanodeploy**.
 
 ### Backend
 
@@ -177,6 +178,7 @@ See:
 * Electron: `docs/electron.md`
 * Architecture: `docs/architecture.md`
 * Dev runbook (local): `docs/dev-runbook.md`
+* CI and image publication: `docs/ci-cd.md`
 * API docs (OpenAPI/Swagger + REST overview): `docs/api.md`
 * WebSocket contracts (`/ws/audio`, `/ws/events`): `docs/ws-contract.md`
 * Storage (Postgres + S3): `docs/storage.md`

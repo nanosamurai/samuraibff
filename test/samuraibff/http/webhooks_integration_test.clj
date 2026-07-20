@@ -26,6 +26,7 @@
   [ds]
   (http.router/create-router
     {:config {:env :test
+              :features {:ce-mode? false}
               :auth {:required? true
                      :cookie-name "access_token"}}
      :db {:ds ds}
