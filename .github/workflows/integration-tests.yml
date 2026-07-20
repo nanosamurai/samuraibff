@@ -1,6 +1,10 @@
 name: Integration tests
 
 on:
+  pull_request:
+    branches:
+      - master
+  workflow_call:
   workflow_dispatch:
   schedule:
     # Nightly (UTC)
@@ -10,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: integration-tests-${{ github.ref }}
+  group: integration-tests-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
