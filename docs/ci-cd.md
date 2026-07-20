@@ -7,7 +7,8 @@ Pull requests targeting `master` run:
 - `Clojure tests (PR gate)` via the lightweight `clojure -X:ci` plan
 - `UI build (shadow-cljs release)`
 - `Full backend test suite (Testcontainers)` via `clojure -X:test`
-- `scan`, which runs Gitleaks against the complete repository history
+- `scan`, which runs the pinned open-source Gitleaks CLI against the complete
+  repository history without injecting a repository secret
 
 The repository ruleset for `master` must require all four checks before merge,
 require the branch to be up to date, and prevent routine bypass. Workflow
@@ -31,7 +32,8 @@ ghcr.io/nanosamurai/samuraibff:sha-<git-sha>
 ```
 
 Validation jobs have read-only permissions. Only the publication job receives
-`packages: write`, and only the Gitleaks gate receives `GITLEAKS_LICENSE`.
+`packages: write`; the Gitleaks gate does not require
+`GITLEAKS_LICENSE`.
 
 Deployment orchestration and environment-specific configuration remain owned
 by the deployment repository.
