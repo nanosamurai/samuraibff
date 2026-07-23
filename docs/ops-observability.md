@@ -44,7 +44,9 @@ Important:
 
 ## Tracing
 
-OpenTelemetry integration is supported. For cluster-level setup see nanodeploy.
+OpenTelemetry integration is supported. For the Community Edition observability
+setup, see the
+[`nanosamurai` observability guide](https://github.com/nanosamurai/nanosamurai#observability).
 
 ## Logs ↔ traces correlation
 

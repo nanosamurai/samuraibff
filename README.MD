@@ -49,8 +49,6 @@ flowchart LR
     SamuraiBFF -->|"produce compacted JSON\ntopic: sessions.meta"| KafkaBroker
 
     KafkaBroker -->|"consume protobuf RefinedEvent\ntopic: transcripts.refined"| SamuraiBFF
-    KafkaBroker -->|"consume JSON workflow.result\ntopic: workflow.result"| SamuraiBFF
-
     KafkaBroker -->|"consume\ntopic: audio.raw"| WhisperXWorker
     WhisperXWorker -->|"produce protobuf RefinedEvent\ntopic: transcripts.refined"| KafkaBroker
 
@@ -62,23 +60,8 @@ flowchart LR
 
     KafkaBroker -->|"consume + persist\ntopic: transcripts.refined"| Persistor["samuraipersistor\n(Postgres writer)"]
     KafkaBroker -->|"consume + persist\ntopic: transcripts.final"| Persistor
-    KafkaBroker -->|"consume + persist\ntopic: workflow.result"| Persistor
-    KafkaBroker -->|"consume + persist\ntopic: webhook.delivery_outcome"| Persistor
-
     Persistor -->|persist| Postgres[(Postgres)]
     SamuraiBFF -->|query| Postgres
-
-    KafkaBroker -->|"consume\ntopic: sessions.meta"| WebhookRouter[webhook-router]
-    KafkaBroker -->|"consume\ntopics: transcripts.refined, transcripts.final, recordings.finished"| WebhookRouter
-
-    WebhookRouter -->|"produce\ntopic: webhook.dispatch"| KafkaBroker
-    WebhookRouter -->|"produce\ntopic: workflow.dispatch"| KafkaBroker
-
-    KafkaBroker -->|"consume\ntopic: webhook.dispatch"| WebhookDispatcher[webhook-dispatcher]
-    WebhookDispatcher -->|"produce\ntopic: webhook.delivery_outcome"| KafkaBroker
-
-    KafkaBroker -->|"consume\ntopic: workflow.dispatch"| WorkflowRunner[workflow-runner]
-    WorkflowRunner -->|"produce\ntopic: workflow.result"| KafkaBroker
 ```
 
 Read more:
@@ -87,27 +70,23 @@ Read more:
 
 ## Related repositories / projects (nanosamur.ai)
 
-Nanosamurai solution currently consists of:
+The Community Edition consists of:
 
 * **SamuraiBFF** (this repo)
-* **xamurai** https://github.com/mikub/xamurai (locally usually at `%USERPROFILE%\PycharmProjects\xamurai`)
+* **xamurai** https://github.com/nanosamurai/xamurai
   * xamurai is a monorepo with speech-to-text and speaker diarization services.
-* **samuraipersistor** https://github.com/mikub/samuraipersistor (locally usually at `%USERPROFILE%\IdeaProjects\samuraipersistor`)
+* **samuraipersistor** https://github.com/mikub/samuraipersistor
   * persistence service consuming Kafka topics and storing to Postgres.
-* **nanodeploy** https://github.com/mikub/nanodeploy (locally usually at `%USERPROFILE%\PycharmProjects\nanodeploy`)
-  * Helm charts / local k8s / docker compose setups.
-* **nanplatform** https://github.com/mikub/nanplatform (locally usually at `%USERPROFILE%\PycharmProjects\nanplatform`)
-  * Pulumi infra in AWS.
-* **nanosamurai-sdk** https://github.com/mikub/nanosamurai-sdk (locally usually at `%USERPROFILE%\PycharmProjects\nanosamurai-sdk`)
-* **webhook-router** (local: `%USERPROFILE%\IdeaProjects\webhook-router`)
-* **webhook-dispatcher** (local: `%USERPROFILE%\IdeaProjects\webhook-dispatcher`)
-* **workflow-runner** https://github.com/mikub/workflow-runner (local: `%USERPROFILE%\IdeaProjects\workflow-runner`)
+* **nanosamurai** https://github.com/nanosamurai/nanosamurai
+  * public Docker Compose quickstart and operator guidance.
+* **nanosamurai-sdk** https://github.com/nanosamurai/nanosamurai-sdk
 
 ## How to run (local dev)
 
 This README documents **local developer workflows only**. This repository owns
-its CI checks and service-image publication; Docker/Kubernetes deployment
-orchestration is owned by **nanodeploy**.
+its CI checks and service-image publication. For the supported Community Edition
+Docker Compose setup, use the
+[nanosamurai quickstart](https://github.com/nanosamurai/nanosamurai).
 
 ### Backend
 
@@ -187,4 +166,3 @@ See:
 * Webhooks + workflows: `docs/features-webhooks-workflows.md`
 * Security + auth: `docs/security-auth.md`
 * Ops + observability: `docs/ops-observability.md`
-* Historical long-form README (archive): `docs/readme-archive.md`

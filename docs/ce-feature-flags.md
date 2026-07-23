@@ -17,8 +17,8 @@ Use a single edition flag first:
 | `SAMURAIBFF_CE_MODE` | `true` | When true, hide/disable workflow and webhook runtime features. |
 
 This keeps OSS easy to run: the `nanosamurai` Compose stack can omit the flag
-and get CE behavior. Commercial/full deployments managed by `nanodeploy` should
-set `SAMURAIBFF_CE_MODE=false`.
+and get CE behavior. A deployment that intentionally enables the non-CE
+integration contracts must set `SAMURAIBFF_CE_MODE=false`.
 
 If we later need finer control, add positive enablement flags such as
 `SAMURAIBFF_WORKFLOWS_ENABLED` and `SAMURAIBFF_WEBHOOKS_ENABLED`, defaulting to
@@ -65,8 +65,8 @@ false when CE mode is true.
 7. Add focused tests for default CE behavior and `SAMURAIBFF_CE_MODE=false`
    compatibility.
 8. After code lands, update `nanosamurai` docs to rely on the default CE mode
-   and update `nanodeploy` k8s/Compose values to set
-   `SAMURAIBFF_CE_MODE=false`.
+   and document `SAMURAIBFF_CE_MODE=false` only in the deployment configuration
+   that owns the non-CE integrations.
 
 ## samuraibff implementation notes
 

@@ -9,20 +9,17 @@ The UI can provide **session-scoped webhook routing overrides** when creating a
 session. These are persisted in Postgres and used to resolve an immutable
 routing snapshot published to Kafka (`sessions.meta`).
 
-Read more:
-
-* `docs/readme-archive.md` (historical detail until this doc is further expanded)
-
 ## Workflows
 
-Workflows are tenant-scoped post-processing definitions executed by
-**workflow-runner**.
+Workflows are tenant-scoped post-processing definitions executed by an
+external integration that is not part of Community Edition.
 
 ### Results streaming
 
 Data flow (high level):
 
-* workflow-runner produces results to Kafka topic `workflow.result` (JSON)
+* an external workflow integration produces results to Kafka topic
+  `workflow.result` (JSON)
 * every BFF instance consumes from `workflow.result`
 * non-origin instances forward to origin instance via:
   * `POST /internal/workflow-result` (`application/json`)

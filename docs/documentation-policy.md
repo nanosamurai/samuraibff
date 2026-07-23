@@ -47,7 +47,8 @@ Feature docs (deep semantics):
 
 ## Archive
 
-`docs/readme-archive.md` is intentionally kept as a historical long-form reference.
+Superseded documentation remains available in Git history rather than in the
+current public tree.
 
 Rules:
 

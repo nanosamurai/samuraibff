@@ -2,7 +2,8 @@
 
 This repo intentionally documents **local developer workflows only**.
 
-For Docker/Kubernetes/CI/CD orchestration, see the **nanodeploy** repository.
+For the supported Community Edition Docker Compose setup, see the
+[`nanosamurai` quickstart](https://github.com/nanosamurai/nanosamurai).
 
 ## Prerequisites
 
