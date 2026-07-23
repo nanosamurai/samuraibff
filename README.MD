@@ -75,11 +75,12 @@ The Community Edition consists of:
 * **SamuraiBFF** (this repo)
 * **xamurai** https://github.com/nanosamurai/xamurai
   * xamurai is a monorepo with speech-to-text and speaker diarization services.
-* **samuraipersistor** https://github.com/mikub/samuraipersistor
+* **samuraipersistor** https://github.com/nanosamurai/samuraipersistor
   * persistence service consuming Kafka topics and storing to Postgres.
 * **nanosamurai** https://github.com/nanosamurai/nanosamurai
   * public Docker Compose quickstart and operator guidance.
-* **nanosamurai-sdk** https://github.com/nanosamurai/nanosamurai-sdk
+* **nanosamurai-sdk** https://github.com/nanosamurai/nanosamurai-sdk the
+  Python client SDK.
 
 ## How to run (local dev)
 
