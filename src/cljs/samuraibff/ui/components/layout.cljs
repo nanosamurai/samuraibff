@@ -76,7 +76,7 @@
                :aria-modal true}
         [:div {:class "drawer-header"}
          [:div {:style {:display "flex" :gap "10px" :alignItems "center"}}
-          [:img {:class "logo" :src "/img/nonosamurai_art.jpg" :alt "nanosamur.ai"}]
+          [:img {:class "logo" :src "/img/nanosamurai_logo_finished_shoulders.svg" :alt "nanosamur.ai"}]
           [:div {:class "brand-name"} "nanosamur.ai"]]
          [:button {:class "btn ghost"
                    :title "Close"
@@ -156,7 +156,7 @@
                  :on-click (fn [_] (on-open-menu))}
         "☰"])
      [:div {:class "brand"}
-      [:img {:class "logo" :src "/img/nonosamurai_art.jpg" :alt "nanosamur.ai"}]
+      [:img {:class "logo" :src "/img/nanosamurai_logo_finished_shoulders.svg" :alt "nanosamur.ai"}]
       [:div {:class "brand-name"} "nanosamur.ai"]]
      [breadcrumbs route]
      [:div {:class "topbar-right"}
