@@ -31,9 +31,26 @@ The successful image is published as:
 ghcr.io/nanosamurai/samuraibff:sha-<git-sha>
 ```
 
-Validation jobs have read-only permissions. Only the publication job receives
-`packages: write`; the Gitleaks gate does not require
-`GITLEAKS_LICENSE`.
+Validation jobs have read-only permissions. The publication job receives
+`packages: write` and the GitHub attestation permissions; the Gitleaks gate does
+not require `GITLEAKS_LICENSE`.
+
+### Image SBOM
+
+The published image includes an SPDX JSON software bill of materials as a
+GHCR-attached OCI attestation. The workflow validates the SBOM after the push
+and also uploads it as a workflow artifact named
+`sbom-samuraibff-<git-sha>`. Public repositories additionally publish a signed
+GitHub artifact attestation; that signing step is skipped while the repository
+is private.
+
+Retrieve the canonical SBOM attached to an image with:
+
+```bash
+docker buildx imagetools inspect \
+  ghcr.io/nanosamurai/samuraibff:sha-<git-sha> \
+  --format "{{ json .SBOM.SPDX }}" > samuraibff.spdx.json
+```
 
 Deployment orchestration and environment-specific configuration remain owned
 by the deployment repository.
