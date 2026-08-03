@@ -103,6 +103,8 @@ commercial/full deployment.
 
 ### UI (browser)
 
+The browser UI uses the nanosamur.ai logo as its favicon.
+
 Install npm deps once:
 
 ```bash
