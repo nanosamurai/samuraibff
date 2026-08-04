@@ -155,9 +155,9 @@ via electron-builder targets.
 
 Notes:
 
-* On some Windows machines, extracting electron-builder helper binaries may fail
-  due to missing symlink privileges. We disable Windows signing/editing for local
-  builds (`win.signAndEditExecutable: false`) to avoid this.
+* Electron-builder executable editing is enabled so Windows artifacts receive
+  the nanosamur.ai icon. Local packaging therefore requires Windows Developer
+  Mode or equivalent symlink privileges for helper extraction.
 
 ---
 
@@ -202,7 +202,7 @@ Legend: ✅ done, 🟡 partial, ⏳ planned, ❌ not planned.
 | UI capture | Mix mode (mic + system summed to mono) | ✅ | Gain controls included |
 | UI capture | Desktop source picker UX | 🟡 | Auto-selects a desktop source when starting recording; no user-facing picker yet |
 | Packaging | electron-builder config (`electron-builder.yml`) | ✅ | Builds NSIS + portable |
-| Packaging | Local packaging works (`npm run electron:dist`) | ✅ | Signing/edit disabled for local builds |
+| Packaging | Local packaging works (`npm run electron:dist`) | ✅ | Developer Mode/symlink privileges required for executable icon embedding |
 | CI | Windows artifact workflow (`.github/workflows/electron-windows.yml`) | ✅ | Manual `workflow_dispatch` |
 | Docs | Known limitations (no audio track, best-effort) | ✅ | See Risks section |
 | Browser-only alt | Pure web “tab audio” capture (Chrome/Firefox) | ⏳ | Separate path; not implemented in Electron W1 |

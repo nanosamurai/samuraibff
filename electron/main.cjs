@@ -19,12 +19,14 @@ const isDev = !app.isPackaged;
 // resources/public/ (shadow-cljs watch keeps resources/public/js/main.js fresh).
 // In prod we load the packaged index.html.
 const devUrl = process.env.SAMURAIBFF_ELECTRON_DEV_URL || 'http://localhost:8000';
+const appIconPath = path.join(__dirname, '..', 'build', 'icon.png');
 
 function createWindow() {
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
     backgroundColor: '#0b0f14',
+    icon: appIconPath,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

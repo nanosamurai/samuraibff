@@ -14,6 +14,8 @@ For the detailed design/implementation notes, see:
 
 * Node.js (recommended: 20.x) + npm
 * A running SamuraiBFF backend (default `http://localhost:8000`)
+* Windows Developer Mode (or equivalent symlink privileges) when packaging, so
+  electron-builder can extract the helpers used to embed executable icons
 
 ## Dev run
 
@@ -44,6 +46,16 @@ npm run electron:dist
 Outputs:
 
 * `dist/electron/` (NSIS installer + portable exe)
+
+The Electron window, taskbar entry, executables, shortcuts, installer, and
+uninstaller use the nanosamur.ai icon. The committed assets are generated from
+`resources/public/img/nanosamurai_logo_finished_shoulders.svg`:
+
+* `build/icon.png` - transparent 1024x1024 runtime icon
+* `build/icon.ico` - multi-resolution Windows packaging icon
+
+The artifacts remain unsigned unless code-signing credentials are configured,
+so Windows SmartScreen warnings may still appear.
 
 ## Known limitations
 

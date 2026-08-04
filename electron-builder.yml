@@ -4,17 +4,16 @@ productName: samuraibff
 files:
   - "electron/**/*"
   - "resources/public/**/*"
+  - "build/icon.png"
 
 directories:
+  buildResources: "build"
   output: "dist/electron"
 
 asar: true
 
 win:
-  # Local developer machines may not have symlink privileges (Developer mode).
-  # Disabling sign+edit avoids downloading/extracting winCodeSign binaries.
-  # (Signing is not part of our first milestone.)
-  signAndEditExecutable: false
+  icon: "icon.ico"
   target:
     - target: nsis
       arch:
@@ -27,3 +26,5 @@ nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
+  installerIcon: "icon.ico"
+  uninstallerIcon: "icon.ico"
