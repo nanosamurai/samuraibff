@@ -103,6 +103,8 @@ commercial/full deployment.
 
 ### UI (browser)
 
+The browser UI uses the nanosamur.ai logo as its favicon.
+
 Install npm deps once:
 
 ```bash
@@ -134,6 +136,8 @@ WS integration test prerequisites, proto generation, and nREPL.
 ### Electron (Windows-first)
 
 Electron connects to an **already-running** backend.
+The nanosamur.ai icon is used for the Electron window, Windows executables,
+shortcuts, installer, and uninstaller.
 
 ```bash
 npm run electron:dev
@@ -146,6 +150,10 @@ npm run electron:dist
 ```
 
 Outputs: `dist/electron/`.
+
+Windows Developer Mode (or equivalent symlink privileges) is required for
+electron-builder to extract its executable-editing helpers. Local artifacts are
+unsigned unless code-signing credentials are configured.
 
 See:
 

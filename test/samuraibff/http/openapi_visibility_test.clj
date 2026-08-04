@@ -12,7 +12,7 @@
   (:require
     [cheshire.core :as cheshire]
     [clojure.java.io :as io]
-    [clojure.test :refer :all]
+    [clojure.test :refer [deftest is testing]]
     [samuraibff.http.router :as http.router]))
 
 (defn- parse-json
@@ -82,11 +82,23 @@
         (is (not (contains? paths "/ready")))))))
 
 (deftest docs-do-not-break-static-assets
-  (testing "Swagger UI assets are reachable and do not block /js/main.js"
+  (testing "Swagger UI and application static assets are reachable"
     (let [h (handler)
           css-resp (h {:request-method :get :uri "/docs/swagger-ui.css" :headers {}})
-          js-resp (h {:request-method :get :uri "/js/main.js" :headers {}})]
+          js-resp (h {:request-method :get :uri "/js/main.js" :headers {}})
+          favicon-resp (h {:request-method :get
+                           :uri "/img/nanosamurai_logo_finished_shoulders.svg"
+                           :headers {}})
+          index-resp (h {:request-method :get :uri "/" :headers {}})
+          index-html (slurp (:body index-resp))]
       (is (= 200 (:status css-resp)))
       ;; NOTE: we don't validate JS content, only that it is not intercepted.
       ;; The handler should return nil for /js/main.js so that the resource handler can serve it.
-      (is (= 200 (:status js-resp))))))
+      (is (= 200 (:status js-resp)))
+      (is (= 200 (:status favicon-resp)))
+      (is (= "image/svg+xml" (get-in favicon-resp [:headers "Content-Type"])))
+      (is (= 200 (:status index-resp)))
+      (is (= 1
+             (count
+              (re-seq #"<link rel=\"icon\"[^>]*href=\"/img/nanosamurai_logo_finished_shoulders\.svg\"[^>]*/>"
+                      index-html)))))))
