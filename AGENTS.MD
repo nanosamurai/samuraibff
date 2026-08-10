@@ -78,7 +78,7 @@ The Community Edition consists of:
 - **SamuraiBFF** (this repo): API, browser UI, authentication, and orchestration.
 - **xamurai** (https://github.com/nanosamurai/xamurai): speech-to-text
   and speaker-diarization workers.
-- **samuraipersistor** (https://github.com/mikub/samuraipersistor): Kafka-to-Postgres
+- **samuraipersistor** (https://github.com/nanosamurai/samuraipersistor): Kafka-to-Postgres
   persistence.
 - **nanosamurai** (https://github.com/nanosamurai/nanosamurai): the public
   Docker Compose quickstart and operator guidance.
