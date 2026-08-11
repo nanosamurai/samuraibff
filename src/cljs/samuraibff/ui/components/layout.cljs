@@ -15,6 +15,12 @@
   Must match the @media rule in `resources/public/index.html`."
   "(max-width: 768px)")
 
+(def ^:private logo-src
+  "Logo URL for browser-served and packaged Electron renderers."
+  (if (= "file:" (some-> js/window .-location .-protocol))
+    "img/nanosamurai_logo_finished_shoulders.svg"
+    "/img/nanosamurai_logo_finished_shoulders.svg"))
+
 (defn- nav-items
   "Return the navigation items for the sidebar/drawer.
 
@@ -76,7 +82,7 @@
                :aria-modal true}
         [:div {:class "drawer-header"}
          [:div {:style {:display "flex" :gap "10px" :alignItems "center"}}
-          [:img {:class "logo" :src "/img/nanosamurai_logo_finished_shoulders.svg" :alt "nanosamur.ai"}]
+          [:img {:class "logo" :src logo-src :alt "nanosamur.ai"}]
           [:div {:class "brand-name"} "nanosamur.ai"]]
          [:button {:class "btn ghost"
                    :title "Close"
@@ -156,7 +162,7 @@
                  :on-click (fn [_] (on-open-menu))}
         "☰"])
      [:div {:class "brand"}
-      [:img {:class "logo" :src "/img/nanosamurai_logo_finished_shoulders.svg" :alt "nanosamur.ai"}]
+      [:img {:class "logo" :src logo-src :alt "nanosamur.ai"}]
       [:div {:class "brand-name"} "nanosamur.ai"]]
      [breadcrumbs route]
      [:div {:class "topbar-right"}

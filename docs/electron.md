@@ -36,6 +36,8 @@ Notes:
 
 * In dev, Electron loads the UI from the running backend (default `http://localhost:8000`).
 * `shadow-cljs watch` runs in parallel and continuously recompiles the UI bundle into `resources/public/js/main.js`.
+* Packaged builds load bundled logos and flag SVGs from relative `file://`
+  paths; development builds load the same assets from the backend origin.
 
 ## Build Windows artifacts
 
@@ -53,6 +55,9 @@ uninstaller use the nanosamur.ai icon. The committed assets are generated from
 
 * `build/icon.png` - transparent 1024x1024 runtime icon
 * `build/icon.ico` - multi-resolution Windows packaging icon
+
+On Windows the runtime also sets the application user-model ID to the packaged
+application ID so taskbar grouping retains the nanosamur.ai identity.
 
 The artifacts remain unsigned unless code-signing credentials are configured,
 so Windows SmartScreen warnings may still appear.
