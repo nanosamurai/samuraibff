@@ -29,6 +29,7 @@
     samuraibff.http.readiness-integration-test
     samuraibff.http.server-integration-test
     samuraibff.http.server-test
+    samuraibff.ui.routing-test
     samuraibff.ui.transcript-test
     samuraibff.ws.registry-test
     samuraibff.ws.ws-auth-required-integration-test

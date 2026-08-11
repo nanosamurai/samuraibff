@@ -38,6 +38,9 @@ Notes:
 * `shadow-cljs watch` runs in parallel and continuously recompiles the UI bundle into `resources/public/js/main.js`.
 * Packaged builds load bundled logos and flag SVGs from relative `file://`
   paths; development builds load the same assets from the backend origin.
+* Packaged navigation uses hash routes such as `index.html#/live`. Keeping the
+  packaged document path intact ensures dynamically rendered assets continue
+  to resolve inside `app.asar` before authentication redirects to the backend.
 
 ## Build Windows artifacts
 
