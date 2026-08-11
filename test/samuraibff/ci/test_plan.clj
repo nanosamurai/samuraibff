@@ -25,6 +25,7 @@
   '[samuraibff.auth.oidc-audience-test
     samuraibff.auth.oidc-jwks-fetch-test
     samuraibff.auth.oidc-test
+    samuraibff.http.auth-test
     samuraibff.http.readiness-integration-test
     samuraibff.http.server-integration-test
     samuraibff.http.server-test

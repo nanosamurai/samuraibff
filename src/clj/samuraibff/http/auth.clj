@@ -260,9 +260,20 @@
   Returns: wrapped handler" 
   [handler config]
   (fn [req]
-    (let [token (oidc/extract-token config req)]
+    (let [token (oidc/extract-token config req)
+          required? (oidc/auth-required? config)
+          guest-tenant-id (when-not required?
+                            (some-> (get-in config [:auth :guest-tenant-id])
+                                    str
+                                    str/trim
+                                    not-empty))
+          anonymous-request (fn []
+                              (assoc req
+                                     :auth/token token
+                                     :auth/user nil
+                                     :auth/tenant-id guest-tenant-id))]
       (if-not token
-        (handler (assoc req :auth/token nil :auth/user nil :auth/tenant-id nil))
+        (handler (anonymous-request))
         (try
           (let [user (oidc/verify-token config token)
                 tenant-id (oidc/extract-tenant-from-claims* config user)]
@@ -271,14 +282,14 @@
                             :auth/user user
                             :auth/tenant-id tenant-id)))
           (catch Exception e
-            (if (and (oidc/auth-required? config) (api-path? req))
+            (if (and required? (api-path? req))
               (do
                 (log/info "Auth failed (token invalid)" {:message (.getMessage e)
                                                          :uri (:uri req)})
                 (json-response 401 {:ok false :message "invalid-token"}))
               (do
                 (log/warn e "Auth failed but ignored")
-                (handler (assoc req :auth/token token :auth/user nil :auth/tenant-id nil))))))))))
+                (handler (anonymous-request))))))))))
 
 (defn wrap-require-auth
   "Ring middleware enforcing that :auth/user is present.

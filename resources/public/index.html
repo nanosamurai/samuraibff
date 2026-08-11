@@ -3,10 +3,16 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link rel="icon"
+  <link id="app-favicon"
+        rel="icon"
         href="/img/nanosamurai_logo_finished_shoulders.svg"
         type="image/svg+xml"
         sizes="any" />
+  <script>
+    if (window.location.protocol === 'file:') {
+      document.getElementById('app-favicon').href = 'img/nanosamurai_logo_finished_shoulders.svg';
+    }
+  </script>
   <title>nanosamur.ai</title>
   <style>
     :root {

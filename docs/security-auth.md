@@ -20,6 +20,12 @@ The backend accepts access tokens from:
 
 WebSockets `/ws/events` and `/ws/audio` enforce auth **before upgrade** when `:auth {:required? true}`.
 
+When authentication is disabled, HTTP and WebSocket requests run under the
+configured development guest tenant (`SAMURAIBFF_AUTH_GUEST_TENANT_ID`). This
+keeps tenant-scoped sessions, recordings, and speakers usable for the
+localhost-only Community Edition quickstart. Do not use guest mode on a shared
+or publicly reachable deployment.
+
 ## Tenant isolation (current model)
 
 At the moment, isolation is enforced **per-tenant** (not per-user):

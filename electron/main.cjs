@@ -20,6 +20,7 @@ const isDev = !app.isPackaged;
 // In prod we load the packaged index.html.
 const devUrl = process.env.SAMURAIBFF_ELECTRON_DEV_URL || 'http://localhost:8000';
 const appIconPath = path.join(__dirname, '..', 'build', 'icon.png');
+const windowsAppUserModelId = 'ai.nanosamurai.samuraibff';
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -66,6 +67,10 @@ ipcMain.handle('samuraibff:listDesktopSources', async (_event, opts) => {
 });
 
 app.whenReady().then(() => {
+  if (process.platform === 'win32') {
+    app.setAppUserModelId(windowsAppUserModelId);
+  }
+
   createWindow();
 
   app.on('activate', () => {
