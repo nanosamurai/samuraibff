@@ -100,5 +100,9 @@
       (is (= 200 (:status index-resp)))
       (is (= 1
              (count
-              (re-seq #"<link rel=\"icon\"[^>]*href=\"/img/nanosamurai_logo_finished_shoulders\.svg\"[^>]*/>"
+              (re-seq #"(?s)<link(?=[^>]*\bid=\"app-favicon\")(?=[^>]*\brel=\"icon\")(?=[^>]*\bhref=\"/img/nanosamurai_logo_finished_shoulders\.svg\")[^>]*/>"
+                      index-html))))
+      (is (= 1
+             (count
+              (re-seq #"document\.getElementById\('app-favicon'\)\.href = 'img/nanosamurai_logo_finished_shoulders\.svg';"
                       index-html)))))))
