@@ -136,8 +136,21 @@ WS integration test prerequisites, proto generation, and nREPL.
 ### Electron (Windows-first)
 
 Electron connects to an **already-running** backend.
+Both development and packaged builds load the UI from that backend, keeping
+assets, REST, authentication, recording playback, and WebSockets same-origin.
+The BFF remains responsible for all S3 access; Electron never connects to S3 or
+LocalStack directly.
 The nanosamur.ai icon is used for the Electron window, Windows executables,
 shortcuts, installer, and uninstaller.
+
+The backend defaults to `http://localhost:8000`. Set the canonical API URL for
+a different local or cloud deployment before launching Electron:
+
+```powershell
+$env:NANOSAMURAI_API_URL = "https://your-nanosamurai.example"
+```
+
+Remote origins must use HTTPS. Plain HTTP is accepted only for loopback hosts.
 
 ```bash
 npm run electron:dev
