@@ -244,8 +244,8 @@
         set-show-drafts! (aget show-drafts?* 1)
         recs (if show-drafts?
                (vec recs0)
-               (vec (remove (fn [r] (false? (:has_recording r))) recs0)))
-        drafts-count (count (filter (fn [r] (false? (:has_recording r))) recs0))]
+               (vec (remove (fn [r] (= "created" (:status r))) recs0)))
+        drafts-count (count (filter (fn [r] (= "created" (:status r))) recs0))]
     [:div {:class "card"}
      [:div {:class "row" :style {:alignItems "center"}}
       [:div {:class "card-title"} "Sessions"]
