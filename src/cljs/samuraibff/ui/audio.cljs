@@ -98,14 +98,12 @@
   "List available desktop capture sources (Electron-only).
 
   Returns:
-  - Promise resolving to vector of {:id :name :thumbnailDataUrl :appIconDataUrl}
+  - Promise resolving to vector of {:id :name}
   - rejects if not in Electron."
   []
   (if-not (env/electron?)
     (js/Promise.reject (js/Error. "desktop capture not available (not Electron)"))
-    (-> (.listDesktopSources (.-samuraibffElectron js/window)
-                             #js {:types #js ["screen" "window"]
-                                  :thumbnailSize #js {:width 320 :height 200}})
+    (-> (.listDesktopSources (.-samuraibffElectron js/window))
         (.then (fn [xs]
                  (->> (js->clj xs :keywordize-keys true)
                       vec))))))

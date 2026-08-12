@@ -16,10 +16,8 @@
   "(max-width: 768px)")
 
 (def ^:private logo-src
-  "Logo URL for browser-served and packaged Electron renderers."
-  (if (= "file:" (some-> js/window .-location .-protocol))
-    "img/nanosamurai_logo_finished_shoulders.svg"
-    "/img/nanosamurai_logo_finished_shoulders.svg"))
+  "Same-origin logo URL served by SamuraiBFF."
+  "/img/nanosamurai_logo_finished_shoulders.svg")
 
 (defn- nav-items
   "Return the navigation items for the sidebar/drawer.

@@ -36,7 +36,8 @@
   All functions return JS Promises."
   (:require
    [clojure.string :as str]
-   [samuraibff.ui.env :as env]))
+   [samuraibff.ui.env :as env]
+   [samuraibff.ui.urls :as urls]))
 
 (defn- api-url
   "Build absolute API URL.
@@ -46,8 +47,7 @@
 
   Returns: string."
   [path]
-  (let [base (env/backend-base-url)]
-    (str base (str path))))
+  (urls/api-url (env/backend-base-url) path))
 
 (defn- ensure-ok!
   "Ensure a fetch Response is OK.
@@ -321,9 +321,9 @@
   - session-id: string
 
   Returns:
-  - string URL (relative)"
+  - string URL resolved through the common BFF API URL builder."
   [session-id]
-  (str "/api/recordings/" (js/encodeURIComponent (or session-id "")) "/audio"))
+  (urls/recording-audio-url (env/backend-base-url) session-id))
 
 (defn delete-recording!
   "Delete a session/recording (tenant-scoped).
