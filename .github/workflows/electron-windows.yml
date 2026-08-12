@@ -28,6 +28,9 @@ jobs:
       - name: Install deps
         run: npm ci
 
+      - name: Test Electron policies
+        run: npm test
+
       - name: Build Electron dist
         run: npm run electron:dist
 

@@ -26,6 +26,7 @@
     "react-dom": "19.2.3"
   },
   "scripts": {
+    "test": "node --test electron/*.test.cjs",
     "flags:sync": "node tools/flags-sync.cjs",
 
     "ui:watch": "npm run -s flags:sync && shadow-cljs watch app",

@@ -10,6 +10,25 @@ Endpoints:
 * `GET /auth/callback?code=...&state=...`
 * `POST /auth/logout`
 
+## Electron login flow
+
+Electron loads the UI from the configured BFF origin, so REST requests,
+WebSockets, playback media, and the BFF-managed HttpOnly cookie remain
+same-origin. The main window is not allowed to navigate to the identity
+provider.
+
+Instead, Electron opens `/auth/login` in a sandboxed child window that shares
+the main window's cookie session but has no preload bridge. HTTPS identity
+provider navigation is allowed in that isolated window; HTTP is limited to
+loopback development providers. After `/auth/callback` redirects to the
+validated internal `next` pathname, Electron closes the child and reloads the
+main renderer's auth state.
+
+IPC handlers validate both the sender window and configured BFF origin. The
+main renderer cannot navigate to another origin, and popup creation is denied.
+Do not add CORS support for `Origin: null`: packaged Electron does not use
+`file://`, and broad null-origin access would weaken the BFF trust boundary.
+
 ## Token transport
 
 The backend accepts access tokens from:

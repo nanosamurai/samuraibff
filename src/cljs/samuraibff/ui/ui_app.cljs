@@ -45,6 +45,7 @@
   (let [route (hooks/use-atom store/route*)
         {:keys [status detail]} (hooks/use-atom store/auth*)
         auth-required? (true? (get detail :auth-required?))
+        login-cancelled? (true? (get detail :login-cancelled?))
 
         drawer-open?* (react/useState false)
         drawer-open? (aget drawer-open?* 0)
@@ -65,11 +66,12 @@
      #js [drawer-open?])
     (react/useEffect
      (fn []
-       (when (and (= status :anonymous) auth-required?)
-         ;; Keep it harder to poke around: force a full redirect to login.
+       (when (and (= status :anonymous)
+                  auth-required?
+                  (not login-cancelled?))
          (auth/login! (router/route->href route)))
        js/undefined)
-     #js [status auth-required? (:page route) (get-in route [:params :session_id])])
+     #js [status auth-required? login-cancelled? (:page route) (get-in route [:params :session_id])])
 
     [:div {:class "app"}
      [components.layout/topbar {:route route

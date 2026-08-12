@@ -8,11 +8,6 @@
         href="/img/nanosamurai_logo_finished_shoulders.svg"
         type="image/svg+xml"
         sizes="any" />
-  <script>
-    if (window.location.protocol === 'file:') {
-      document.getElementById('app-favicon').href = 'img/nanosamurai_logo_finished_shoulders.svg';
-    }
-  </script>
   <title>nanosamur.ai</title>
   <style>
     :root {
@@ -567,12 +562,7 @@
     // (which would make CSS classes not line up with the rendered DOM).
     (function(){
       var s = document.createElement('script');
-      // In Electron production builds we load index.html from file:// and must use
-      // a relative script URL.
-      var base = (window.location && window.location.protocol === 'file:')
-        ? 'js/main.js'
-        : '/js/main.js';
-      s.src = base + '?v=' + Date.now();
+      s.src = '/js/main.js?v=' + Date.now();
       document.body.appendChild(s);
     })();
   </script>

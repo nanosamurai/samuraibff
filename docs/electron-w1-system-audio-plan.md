@@ -31,7 +31,7 @@ Scope decisions (explicit):
                 │ contextIsolation (preload bridge)
 ┌───────────────▼──────────────────────────────────────────────┐
 │ Electron renderer (existing CLJS UI)                          │
-│  - selects backend base URL (default localhost:8000)          │
+│  - is served by the configured BFF origin                     │
 │  - selects desktop capture source (screen/window)             │
 │  - getUserMedia(mic) + getUserMedia(desktop source)           │
 │  - WebAudio mixes sources → downsample → PCM16LE              │
@@ -91,18 +91,15 @@ xamurai/rtservice.
 
 ## 3) UI changes (high-level)
 
-### 3.1 Backend base URL configurability
+### 3.1 Backend origin and same-origin networking
 
-Electron production builds typically load UI from `file://.../index.html`, where
-relative `/api/...` and `/ws/...` calls are not valid.
+Development and packaged Electron builds load the UI from the configured BFF.
+`NANOSAMURAI_API_URL` selects the origin and defaults to
+`http://localhost:8000`; non-loopback origins require HTTPS.
 
-We will add an app-level configuration function that returns a backend base URL:
-
-* Browser (served by BFF): empty base (same-origin).
-* Electron: default `http://localhost:8000`, configurable (stored in
-  localStorage).
-
-All `fetch` and `ws-url` helpers will use this base.
+All assets, `fetch` calls, media URLs, authentication cookies, and WebSockets
+therefore use the BFF origin. Electron does not use a `file://` renderer or
+connect directly to object storage.
 
 ### 3.2 System source selection UX
 
@@ -124,6 +121,7 @@ Proposed new files:
 * `electron/main.cjs` — Electron main process entry.
 * `electron/preload.cjs` — safe preload bridge exposing:
   * `listDesktopSources()`
+  * `login(nextPath)`
 
 ### 4.2 Security posture
 
@@ -131,7 +129,10 @@ We keep safe defaults:
 
 * `contextIsolation: true`
 * `nodeIntegration: false`
-* preload exposes a minimal, typed surface only
+* sandbox enabled
+* IPC sender and BFF origin validation
+* OIDC child window has no preload bridge
+* preload exposes source identifiers and names, never desktop thumbnails
 
 ---
 
@@ -193,10 +194,10 @@ Legend: ✅ done, 🟡 partial, ⏳ planned, ❌ not planned.
 | Area | Item | Status | Notes / links |
 |------|------|--------|---------------|
 | Electron scaffold | Main process (`electron/main.cjs`) | ✅ | Creates BrowserWindow, loads UI |
-| Electron scaffold | Preload bridge (`electron/preload.cjs`) | ✅ | Exposes `window.samuraibffElectron.listDesktopSources()` |
-| Electron scaffold | Security posture (contextIsolation, nodeIntegration) | ✅ | Kept safe defaults |
-| UI networking | Configurable backend base URL (`samuraibff.ui.env/backend-base-url`) | ✅ | Needed for `file://` builds |
-| UI networking | All UI fetch/WS calls use backend base URL | ✅ | `ui.api`, `ui.auth`, `ui.ws`, `ui.audio` |
+| Electron scaffold | Preload bridge (`electron/preload.cjs`) | ✅ | Exposes origin-gated desktop-source and login operations |
+| Electron scaffold | Security posture | ✅ | Sandboxed, origin-pinned main window; isolated OIDC child |
+| UI networking | Configurable BFF origin | ✅ | `NANOSAMURAI_API_URL`, localhost default, HTTPS required remotely |
+| UI networking | Same-origin assets, HTTP, media, auth, and WS | ✅ | BFF serves the Electron renderer in development and packages |
 | UI capture | Mic capture mode | ✅ | Default mode |
 | UI capture | System capture mode (Electron desktop) | ✅ | Best-effort; may have no audio track |
 | UI capture | Mix mode (mic + system summed to mono) | ✅ | Gain controls included |
@@ -212,9 +213,10 @@ Legend: ✅ done, 🟡 partial, ⏳ planned, ❌ not planned.
 2. Add npm deps + scripts.
 3. Ensure Electron can load the UI.
 
-### Phase B — Backend base URL plumbing
-1. Add backend-base URL helper.
-2. Update all `fetch` and WS URL builders.
+### Phase B — BFF origin and networking
+1. Validate `NANOSAMURAI_API_URL` in the main process.
+2. Load the renderer from the BFF in development and packaged builds.
+3. Keep all HTTP, media, auth, and WS traffic same-origin.
 
 ### Phase C — W1 system capture + mixing
 1. Add desktop source listing (preload + UI).
@@ -236,6 +238,7 @@ Important:
 
 * Electron connects to an **already-running** SamuraiBFF backend.
 * We do **not** bundle or launch the backend from Electron.
+* We do **not** bundle the browser renderer into Electron; the BFF serves it.
 
 ### 8.1 Prerequisites
 
@@ -267,6 +270,8 @@ What this does:
 * starts `shadow-cljs watch` (continuous UI recompilation to `resources/public/js/main.js`)
 * waits for the backend (`http://localhost:8000`)
 * launches Electron and loads the UI from the backend
+
+Set `NANOSAMURAI_API_URL` before launch to use another local or cloud BFF.
 
 ### 8.3 Build Windows artifacts (NSIS + portable)
 

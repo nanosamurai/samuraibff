@@ -6,6 +6,7 @@ For the data model, see `resources/proto/stream.proto` and the Malli schemas in
 - All changes should be documented in the relevant `.md` files. Before claiming
   a task is complete, check the docs for gaps or stale information and fix it.
 - For any task, create a dedicated branch (named imperatively) from master (unless told otherwise) and as you progress make small(er) atomic commits named imperatively
+- Never configure a task branch to track `master` or `origin/master`; leave it without an upstream until its same-named remote branch exists, then track only that branch.
 - For a task to be completed, there should be no security risks or concerns, always assess task's completion also from the security standpoint and highlight any risks.
 - NEVER EXPOSE PORTS on local LAN for testing, always use localhost or 127.0.0.1
 - Xamurai used to be called "drsynth", so do not be confused if you do see this name somewhere. That name however is legacy and you should always use xamurai when naming things related to xamurai stack- alternatively, you can also use nanosamurai if the name refers to the whole solution and not just the subset of voice-to-text services

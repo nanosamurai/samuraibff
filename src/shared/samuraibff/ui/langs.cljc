@@ -174,10 +174,7 @@
           handles errors/fallback." 
         [region]
         (let [region (some-> region str str/trim str/lower-case)
-              prefix (if (= "file:"
-                            (some-> js/window .-location .-protocol))
-                       "img/flags/4x3/"
-                       "/img/flags/4x3/")]
+              prefix "/img/flags/4x3/"]
           (when (and (string? region)
                      (= 2 (count region))
                      (re-matches #"[a-z]{2}" region))

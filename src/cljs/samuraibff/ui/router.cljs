@@ -25,7 +25,6 @@
   (:require
     [io.factorhouse.hsx.core :as hsx]
     [clojure.string :as str]
-    [samuraibff.ui.routing :as routing]
     [samuraibff.ui.store :as store]))
 
 (def ^:private known-pages
@@ -107,21 +106,7 @@
 
 (defn- current-path
   []
-  (let [location (.-location js/window)]
-    (routing/location-route-path (.-protocol location)
-                                 (.-pathname location)
-                                 (.-hash location))))
-
-(defn- route-navigation-href
-  "Return a navigation href for the current browser protocol.
-
-  Inputs:
-  - route: application route map
-
-  Returns: pathname for HTTP(S), or a hash route for packaged Electron."
-  [route]
-  (routing/navigation-href (.. js/window -location -protocol)
-                           (route->href route)))
+  (.-pathname (.-location js/window)))
 
 (defn set-route-from-location!
   "Set store route from current window.location.
@@ -154,7 +139,7 @@
   [route]
   (when-not (contains? known-pages (:page route))
     (throw (js/Error. (str "Unknown route page: " (pr-str (:page route))))))
-  (let [href (route-navigation-href route)]
+  (let [href (route->href route)]
     (.pushState (.-history js/window) #js {} "" href)
     (store/set-route! route))
   nil)
@@ -172,7 +157,7 @@
 
   Returns: HSX element." 
   [{:keys [route class title on-click]} & children]
-  (let [href (route-navigation-href route)]
+  (let [href (route->href route)]
     (into
       [:a {:href href
            :class class

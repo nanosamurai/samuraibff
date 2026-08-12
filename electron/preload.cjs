@@ -8,8 +8,11 @@ const { contextBridge, ipcRenderer } = require('electron');
  */
 
 contextBridge.exposeInMainWorld('samuraibffElectron', {
-  listDesktopSources: async (opts) => {
-    return ipcRenderer.invoke('samuraibff:listDesktopSources', opts || {});
+  listDesktopSources: async () => {
+    return ipcRenderer.invoke('samuraibff:listDesktopSources');
+  },
+  login: async (nextPath) => {
+    return ipcRenderer.invoke('samuraibff:login', nextPath);
   },
   isElectron: true,
 });

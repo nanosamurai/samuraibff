@@ -46,16 +46,49 @@
                   e)))))
 
 (defn login!
-  "Start login flow by navigating to /auth/login.
+  "Start the backend-managed login flow.
 
-  We keep routing simple by full-page redirect.
+  Browser behavior:
+  - navigate the current page to /auth/login.
+
+  Electron behavior:
+  - ask the main process to open an isolated, no-preload OIDC window;
+  - reload the trusted BFF renderer after the shared auth cookie is set.
 
   Inputs:
-  - next-path: string (e.g. \"/live\")" 
+  - next-path: internal application pathname, such as /live.
+
+  Returns:
+  - Electron: Promise resolving after reload is requested, or false on cancel.
+  - Browser: nil after assigning window.location."
   [next-path]
   (let [next-path (or next-path "/recordings")
-        url (str (env/backend-base-url) "/auth/login?next=" (js/encodeURIComponent next-path))]
-    (set! (.-location js/window) url)))
+        electron-api (.-samuraibffElectron js/window)]
+    (if (env/electron?)
+      (if (some? (.-login electron-api))
+        (do
+          (store/set-auth-status! :loading nil)
+          (-> (.login electron-api next-path)
+              (.then (fn [_]
+                       (.reload (.-location js/window))
+                       true))
+              (.catch (fn [error]
+                        (store/set-auth-status! :anonymous
+                                                {:auth-required? true
+                                                 :login-cancelled? true})
+                        (store/append-log! (str "[auth] Electron login did not complete: " error))
+                        false))))
+        (do
+          (store/set-auth-status! :anonymous
+                                  {:auth-required? true
+                                   :login-cancelled? true})
+          (store/append-log! "[auth] Electron shell does not support isolated login")
+          (js/Promise.resolve false)))
+      (let [url (str (env/backend-base-url)
+                     "/auth/login?next="
+                     (js/encodeURIComponent next-path))]
+        (set! (.-location js/window) url)
+        nil))))
 
 (defn logout!
   "Logout by POSTing to /auth/logout (clears cookie).

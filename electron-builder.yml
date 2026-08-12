@@ -3,7 +3,6 @@ productName: samuraibff
 
 files:
   - "electron/**/*"
-  - "resources/public/**/*"
   - "build/icon.png"
 
 directories:
