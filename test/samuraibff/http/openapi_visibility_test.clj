@@ -102,7 +102,7 @@
              (count
               (re-seq #"(?s)<link(?=[^>]*\bid=\"app-favicon\")(?=[^>]*\brel=\"icon\")(?=[^>]*\bhref=\"/img/nanosamurai_logo_finished_shoulders\.svg\")[^>]*/>"
                       index-html))))
-      (is (= 1
-             (count
-              (re-seq #"document\.getElementById\('app-favicon'\)\.href = 'img/nanosamurai_logo_finished_shoulders\.svg';"
-                      index-html)))))))
+      (is (not (re-find #"window\.location\.protocol\s*===\s*'file:'"
+                        index-html)))
+      (is (not (re-find #"href\s*=\s*'img/nanosamurai_logo_finished_shoulders\.svg'"
+                        index-html))))))
