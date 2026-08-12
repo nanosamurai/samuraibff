@@ -47,23 +47,23 @@
        :icon "●"
        :tooltip "Recording/transcription in progress"}
 
-      (= status "finished")
-      {:label "Finished"
-       :badge-class "muted"
-       :icon "■"
-       :tooltip "Recording stopped; final transcript not available yet"}
-
       (= status "created")
       {:label "Created"
        :badge-class "muted"
        :icon "○"
        :tooltip "Draft session (recording not started)"}
 
-      has-final?
+      (and (= status "finished") has-final?)
       {:label "Finalized"
        :badge-class "ok"
        :icon "✓"
        :tooltip "Final transcript is available"}
+
+      (= status "finished")
+      {:label "Finished"
+       :badge-class "muted"
+       :icon "■"
+       :tooltip "Recording stopped; final transcript not available yet"}
 
       has-recording?
       {:label "Processing"
