@@ -43,7 +43,7 @@ Electron offers Retry or Quit instead of switching to another origin.
 
 Prerequisites:
 
-* Node.js 20.x and npm
+* Node.js 22.12 or newer and npm; Node.js 24 is used in CI
 * a running SamuraiBFF backend
 
 Start a source-backed BFF, then run:
@@ -89,6 +89,15 @@ from the backend API.
 Windows Developer Mode, or equivalent symlink privileges, may be required for
 electron-builder to embed executable icons. Artifacts remain unsigned unless
 code-signing credentials are configured, so Windows SmartScreen may warn.
+
+## Runtime maintenance
+
+The packaged application pins Electron 43.4.0, which embeds Chromium 150 and
+is supported by Electron through January 5, 2027. Electron supports only its
+latest three stable major releases, so an Electron artifact must not be
+released from an end-of-life major. Weekly Dependabot checks are restricted to
+`electron` and `electron-builder`; major upgrades require the Electron breaking
+changes review and the full packaging and smoke-test workflow described above.
 
 ## Known limitations
 
