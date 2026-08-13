@@ -71,11 +71,14 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
 
       - name: Install UI deps
         run: npm ci
+
+      - name: Audit UI dependencies
+        run: npm audit --audit-level=high
 
       - name: Build UI bundle
         run: npm run ui:release

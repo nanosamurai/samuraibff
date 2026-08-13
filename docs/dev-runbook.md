@@ -8,7 +8,7 @@ For the supported Community Edition Docker Compose setup, see the
 ## Prerequisites
 
 * Java + Clojure CLI tools (to run the backend)
-* Node.js (recommended: 20.x) + npm
+* Node.js 22.12 or newer (Node.js 24 recommended) + npm
 
 ## Backend (HTTP + WS) — dev
 

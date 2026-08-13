@@ -138,6 +138,8 @@ WS integration test prerequisites, proto generation, and nREPL.
 Electron connects to an **already-running** backend.
 Both development and packaged builds load the UI from that backend, keeping
 assets, REST, authentication, recording playback, and WebSockets same-origin.
+The desktop shell pins Electron 43.4.0, a supported Electron release line with
+Chromium 150; Electron and electron-builder updates are monitored weekly.
 The BFF remains responsible for all S3 access; Electron never connects to S3 or
 LocalStack directly.
 The nanosamur.ai icon is used for the Electron window, Windows executables,

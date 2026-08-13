@@ -242,7 +242,7 @@ Important:
 
 ### 8.1 Prerequisites
 
-* Node.js (recommended: 20.x)
+* Node.js 22.12 or newer (Node.js 24 recommended)
 * npm
 
 ### 8.2 Run locally (dev loop)

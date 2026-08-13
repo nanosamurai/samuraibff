@@ -7,6 +7,7 @@ out
 .shadow-cljs
 .cljs_node_modules
 node_modules
+dist
 
 # large / irrelevant local files
 *.log
@@ -20,7 +21,7 @@ test-results
 
 # Allow generated artifacts in image build, but we generate them in Docker anyway.
 #
-# Note: do NOT ignore package-lock.json because we intentionally don't commit it
-# today; if we start committing it later, Docker caching improves automatically.
+# Keep package-lock.json in the context so Docker uses the reviewed dependency
+# graph committed by the repository.
 resources/public/js
 src/java/samuraibff/proto
