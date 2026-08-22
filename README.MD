@@ -25,7 +25,8 @@ flowchart LR
     end
 
     subgraph Xamurai["xamurai (Python services)"]
-        RTService["rtservice\n(realtime ASR)"]
+        RTService["rtservice\n(Faster-Whisper RealtimeASR)"]
+        QwenRT["qwen-rtservice\n(Qwen RealtimeASR)"]
         WhisperXWorker["whisperx_worker\n(slice refinement)"]
         RecorderWorker["recorder_worker\n(session WAV)"]
         FinalizerWorker["finalizer_worker\n(final transcript)"]
@@ -39,7 +40,8 @@ flowchart LR
     Electron -->|"WS audio\nWebSocket /ws/audio\nPCM16LE mono 16kHz"| WSAudio
     Electron ---|"WS events\nWebSocket /ws/events\nJSON events"| WSEvents
 
-    SamuraiBFF -->|gRPC bidirectional stream| RTService
+    SamuraiBFF -->|"bounded gRPC track\nfaster-whisper"| RTService
+    SamuraiBFF -->|"bounded gRPC track\nqwen"| QwenRT
 
     subgraph Kafka["Kafka"]
         KafkaBroker[(Kafka broker)]
@@ -69,8 +71,8 @@ Read more:
 * `docs/architecture.md`
 
 Closing `/ws/audio` finishes the session's audio input: SamuraiBFF drains the
-accepted frames and half-closes the rtservice request while `/ws/events` stays
-open long enough to deliver the terminal realtime event.
+accepted frames and half-closes every configured realtime request while
+`/ws/events` stays open long enough to deliver their terminal events.
 
 ## Related repositories / projects (nanosamur.ai)
 
