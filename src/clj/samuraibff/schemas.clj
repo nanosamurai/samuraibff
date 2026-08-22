@@ -86,6 +86,9 @@
    BaseWsEvent
    [:map
     [:type [:= "asr"]]
+    [:track {:optional true} :string]
+    [:primary_track {:optional true} :boolean]
+    [:provider_profile_id {:optional true} :string]
     [:start_s Sec]
     [:end_s Sec]
     [:text :string]

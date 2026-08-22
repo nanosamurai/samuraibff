@@ -122,21 +122,23 @@
 (deftest ws-audio-close-flushes-terminal-asr-test
   (let [port (free-port)
         session-id (str (UUID/randomUUID))
-        completed?* (atom false)
-        sent-count* (atom 0)
+        completed* (atom #{})
+        sent-counts* (atom {})
         fake-start-stream!
-        (fn [_client {:keys [on-next on-error on-complete]}]
+        (fn [client {:keys [on-next on-error on-complete]}]
           {:send! (fn [_audio-chunk]
-                    (swap! sent-count* inc))
+                    (swap! sent-counts* update (:id client) (fnil inc 0)))
            :complete! (fn []
-                        (when (compare-and-set! completed?* false true)
+                        (when-not (contains? @completed* (:id client))
+                          (swap! completed* conj (:id client))
                           (on-next (-> (AsrEvent/newBuilder)
                                        (.setSessionId session-id)
                                        (.setStartS 0.0)
                                        (.setEndS 0.02)
-                                       (.setText "synthetic terminal")
+                                       (.setText (str "synthetic terminal " (:id client)))
                                        (.setType AsrType/FINAL)
                                        (.setLang "en")
+                                       (.setProviderProfileId (str (:id client) "-profile"))
                                        (.build)))
                           (on-complete)))
            :error! (fn [error]
@@ -147,10 +149,13 @@
              :samuraibff/ws-registry {:config (ig/ref :samuraibff/config)}
              :samuraibff/router {:config (ig/ref :samuraibff/config)
                                  :ws-registry (ig/ref :samuraibff/ws-registry)
-                                 :grpc {}}
+                                 :grpc {:tracks [{:id "faster"}
+                                                 {:id "qwen"}]}}
              :samuraibff/http-server {:config (ig/ref :samuraibff/config)
                                       :handler (ig/ref :samuraibff/router)}}]
-    (with-redefs [grpc/start-stream! fake-start-stream!]
+    (with-redefs [grpc/get-capabilities (fn [client _]
+                                         {:provider-profile-id (str (:id client) "-profile")})
+                  grpc/start-stream! fake-start-stream!]
       (let [system (ig/init cfg)
             q (LinkedBlockingQueue.)
             events* (atom nil)
@@ -187,10 +192,17 @@
                                          (json/read-value message mapper)
                                          (catch Exception _
                                            nil))))))]
-            (is (= 3 @sent-count*) "Accepted audio should drain before gRPC completion")
-            (is @completed?* "Closing /ws/audio should half-close the gRPC request")
-            (is (some #(and (= "asr" (:type %)) (true? (:final %))) decoded)
-                (str "Expected terminal ASR event after audio close, got " msgs))
+            (is (= {"faster" 3 "qwen" 3} @sent-counts*)
+                "Accepted audio should reach both tracks before completion")
+            (is (= #{"faster" "qwen"} @completed*)
+                "Closing /ws/audio should half-close both requests")
+            (is (= #{["faster" "faster-profile" true]
+                     ["qwen" "qwen-profile" false]}
+                   (->> decoded
+                        (filter #(and (= "asr" (:type %)) (true? (:final %))))
+                        (map (juxt :track :provider_profile_id :primary_track))
+                        set))
+                (str "Expected labelled terminal events from both tracks, got " msgs))
             (is (not-any? #(.startsWith ^String % "CLOSED:") msgs)
                 (str "Events WebSocket should remain open through terminal delivery, got " msgs)))
 

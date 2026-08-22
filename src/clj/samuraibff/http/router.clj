@@ -20,6 +20,7 @@
    [reitit.ring :as ring]
    [reitit.core]
    [samuraibff.features :as features]
+   [samuraibff.grpc.client :as grpc.client]
    [samuraibff.ws.audio :as ws.audio]
    [samuraibff.ws.events :as ws.events]
    [samuraibff.http.auth :as http.auth]
@@ -163,10 +164,7 @@
                servers))))))
 
 (defn- grpc-up?
-  "Best-effort rtservice (gRPC) reachability check.
-
-  We treat rtservice as reachable when we can establish a TCP connection to
-  the configured `[:grpc :rtservice-addr]` host:port.
+  "Best-effort capability check for every configured realtime ASR track.
 
   Inputs:
   - deps: router deps map, expects :config
@@ -174,12 +172,25 @@
   Returns:
   - boolean"
   [deps]
-  (let [addr (some-> (get-in deps [:config :grpc :rtservice-addr]) str str/trim)]
-    (if (str/blank? addr)
-      true
-      (if-let [{:keys [host port]} (parse-host-port addr)]
-        (tcp-up? host port 500)
-        false))))
+  (let [track-clients (some-> (:grpc deps) grpc.client/tracks)]
+    (if (seq track-clients)
+      (every?
+       (fn [track]
+         (try
+           (boolean (:provider-profile-id (grpc.client/get-capabilities track 500)))
+           (catch Exception _
+             false)))
+       track-clients)
+      (let [addresses (or (seq (map :address (get-in deps [:config :grpc :realtime-tracks])))
+                          (some-> (get-in deps [:config :grpc :rtservice-addr]) vector))]
+        (if-not (seq addresses)
+          true
+          (every?
+           (fn [addr]
+             (if-let [{:keys [host port]} (parse-host-port (str addr))]
+               (tcp-up? host port 500)
+               false))
+           addresses))))))
 
 (defn- readiness-route
   "Create readiness route definition.

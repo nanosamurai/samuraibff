@@ -2,7 +2,7 @@
   "Integration tests for the gRPC client component. These tests assume the
   rtservice gRPC server is reachable at localhost:50052."
   (:require
-   [clojure.test :refer :all]
+   [clojure.test :refer [deftest is testing]]
    [integrant.core :as ig]
    [samuraibff.grpc.client :as grpc])
   (:import
@@ -32,8 +32,10 @@
               completed? (promise)
               errors (promise)]
           (try
-            (let [stream (grpc/start-stream!
-                           component
+            (let [track (first (grpc/tracks component))
+                  capabilities (grpc/get-capabilities track 2000)
+                  stream (grpc/start-stream!
+                           track
                            {:on-complete #(deliver completed? true)
                             :on-error #(deliver errors %)
                             :on-next (fn [_] nil)})
@@ -45,6 +47,7 @@
                             (.setLang "en")
                             (.setPcm16Le (ByteString/copyFrom (byte-array 320)))
                             (.build))]
+              (is (seq (:provider-profile-id capabilities)))
               ((:send! stream) audio)
               (grpc/close! stream)
               (is (= true (deref completed? 5000 ::timeout))
