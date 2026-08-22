@@ -68,6 +68,10 @@ Read more:
 
 * `docs/architecture.md`
 
+Closing `/ws/audio` finishes the session's audio input: SamuraiBFF drains the
+accepted frames and half-closes the rtservice request while `/ws/events` stays
+open long enough to deliver the terminal realtime event.
+
 ## Related repositories / projects (nanosamur.ai)
 
 The Community Edition consists of:

@@ -55,6 +55,10 @@ Semantics:
 
 * If `realtime=false`, the BFF does not start the gRPC realtime stream.
 * If `refined=false` and `final=false`, the BFF does not publish audio to Kafka.
+* Normal `/ws/audio` closure finishes that session's audio input. The BFF drains
+  accepted frames and half-closes the rtservice gRPC request while keeping
+  `/ws/events` active so the terminal realtime event can be delivered. Clients
+  should create a new session before starting another audio stream.
 
 Example (tune realtime only):
 

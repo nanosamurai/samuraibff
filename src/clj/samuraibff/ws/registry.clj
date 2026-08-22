@@ -778,9 +778,23 @@
   session)
 
 (defn mark-audio-disconnected!
-  "Decrement the count of connected `/ws/audio` sockets and close session if unused."
+  "Decrement connected `/ws/audio` sockets and finish input after the last one.
+
+  Closing `:audio-ch` drains its buffered frames before the forwarding loop
+  half-closes realtime gRPC. The events side remains open until its subscribers
+  disconnect, allowing rtservice to deliver a terminal ASR event.
+
+  Inputs:
+  - registry ws-registry component
+  - session  session map
+
+  Returns: nil."
   [registry session]
-  (swap! (:audio-socks* session) (fn [n] (max 0 (dec n))))
+  (let [remaining (swap! (:audio-socks* session) (fn [n] (max 0 (dec n))))]
+    (when (zero? remaining)
+      (log/info "Finishing audio input" {:session-id (:session-id session)
+                                          :tenant-id (:tenant-id session)})
+      (async/close! (:audio-ch session))))
   (maybe-close-if-unused! registry session)
   nil)
 
