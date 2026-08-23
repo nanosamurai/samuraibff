@@ -682,17 +682,27 @@
       "Applies only when creating a new session. Existing sessions keep their routing snapshot."]]))
 
 (defn- stream-controls-panel
-  "Render per-stream output + realtime/refined knobs.
+  "Render per-stream output, track selection, and realtime/refined knobs.
 
-  This panel edits `store/session*` fields under `:controls`.
+  This panel edits `store/session*` fields under `:controls`. Realtime track IDs
+  come from `/api/me`; a missing explicit selection means all advertised tracks.
 
   Notes:
   - defaults are backwards compatible (all enabled)
-  - when realtime disabled, realtime knobs are visually disabled
-  - when final disabled, recording retention is forced off on the backend"
+  - when realtime is disabled, realtime controls are visually disabled
+  - when final is disabled, recording retention is forced off on the backend"
   []
   (let [controls (get (hooks/use-atom store/session*) :controls {})
+        auth-state (hooks/use-atom store/auth*)
+        running? (hooks/use-atom store/running?*)
+        available-realtime-tracks (vec (get-in auth-state [:detail :realtime_tracks] []))
+        requested-realtime-track-set (set (:realtime_tracks controls))
+        selected-realtime-tracks (if (seq requested-realtime-track-set)
+                                   (filterv requested-realtime-track-set available-realtime-tracks)
+                                   available-realtime-tracks)
+        selected-realtime-track-set (set selected-realtime-tracks)
         realtime? (true? (:realtime controls))
+        track-selection-disabled? (or (not realtime?) (true? running?))
         refined? (true? (:refined controls))
         final? (true? (:final controls))
         outputs-summary (->> [(when realtime? "Real-time")
@@ -729,7 +739,13 @@
                          (some? max) (assoc :max max)
                          (some? step) (assoc :step step))]
                (when (seq (str hint))
-                 [:div {:class "hint"} hint])])]
+                 [:div {:class "hint"} hint])])
+
+            (set-track-selected! [track-id selected?]
+              (let [next-track-set ((if selected? conj disj) selected-realtime-track-set track-id)
+                    next-tracks (filterv next-track-set available-realtime-tracks)]
+                (when (seq next-tracks)
+                  (store/set-session-control! :realtime_tracks next-tracks))))]
       [:div {:class "stream-controls-body"}
        [:div {:class "muted" :style {:fontSize "12px"}}
         (str "Outputs: " (if (seq outputs-summary) outputs-summary "None")
@@ -780,6 +796,36 @@
        [:div {:class "sc-divider"}]
 
        [:div {:class "sc-grid"}
+        [:div {:class "sc-cell sc-span-2"}
+         [:div {:class "label"} "Realtime tracks"]
+         (if (seq available-realtime-tracks)
+           [:details {:class (str "track-picker" (when track-selection-disabled? " disabled"))}
+            [:summary {:class "track-picker-summary"
+                       :aria-disabled track-selection-disabled?
+                       :on-click (fn [event]
+                                   (when track-selection-disabled?
+                                     (.preventDefault event)))}
+             [:span (str (count selected-realtime-tracks) " selected")]
+             [:span {:class "muted track-picker-selected"}
+              (str/join ", " selected-realtime-tracks)]]
+            [:div {:class "track-picker-options"}
+             (for [track-id available-realtime-tracks]
+               (let [selected? (contains? selected-realtime-track-set track-id)]
+                 ^{:key (str "track-option-" track-id)}
+                 [checkbox-row {:id (str "sc-track-" track-id)
+                                :label track-id
+                                :checked selected?
+                                :disabled? (or track-selection-disabled?
+                                               (and selected?
+                                                    (= 1 (count selected-realtime-tracks))))
+                                :on-change (fn [checked?]
+                                             (set-track-selected! track-id checked?))}]))]]
+           [:div {:class "hint"} "Track configuration is loading."])
+         [:div {:class "hint"}
+          (if (true? running?)
+            "Track selection is locked once recording starts."
+            "Select one to four operator-configured providers for this session.")]]
+
         [:div {:class "sc-cell"}
          [:div {:class "label"} "Real-time"]
          [:div {:class "checkbox-group"}
@@ -936,12 +982,32 @@
         [log-view])]]))
 
 (defn- live-transcript
-  "Transcript component bound to the live session store."
-  []
-  [components.transcript/transcript-view
-   {:messages (hooks/use-atom store/asr-segments*)
-    :empty-title "Real-time transcript"
-    :empty-hint "No ASR events yet…"}])
+  "Render selected realtime tracks as independently labelled transcript panels.
+
+  Inputs:
+  - track-ids: ordered vector of operator-configured track ID strings
+
+  Returns Hiccup containing one to four horizontally arranged panels."
+  [track-ids]
+  (let [messages (hooks/use-atom store/asr-segments*)
+        track-ids (if (seq track-ids) (vec track-ids) ["default"])]
+    [:div {:class "realtime-track-grid"
+           :style {:gridTemplateColumns (str "repeat(" (count track-ids) ", minmax(280px, 1fr))")}}
+     (for [[index track-id] (map-indexed vector track-ids)]
+       (let [track-messages (filterv #(or (= track-id (:track %))
+                                          (and (zero? index) (nil? (:track %))))
+                                     messages)
+             profile-id (some :provider_profile_id (rseq track-messages))]
+         ^{:key (str "realtime-panel-" track-id)}
+         [:section {:class "realtime-track-panel"}
+          [:div {:class "realtime-track-panel-header"}
+           [:span {:class "realtime-track-label"} track-id]
+           (when (seq profile-id)
+             [:span {:class "muted realtime-track-profile"} profile-id])]
+          [components.transcript/transcript-view
+           {:messages track-messages
+            :empty-title "Real-time transcript"
+            :empty-hint (str "Waiting for " track-id " events…")}]]))]))
 
 (defn- refined-live-transcript
   "Refined realtime transcript component bound to the live session store."
@@ -959,6 +1025,13 @@
         set-tab! (aget tab* 1)
 
         session (hooks/use-atom store/session*)
+        auth-state (hooks/use-atom store/auth*)
+        available-realtime-tracks (vec (get-in auth-state [:detail :realtime_tracks] []))
+        requested-realtime-track-set (set (get-in session [:controls :realtime_tracks]))
+        realtime-track-ids (let [selected (if (seq requested-realtime-track-set)
+                                            (filterv requested-realtime-track-set available-realtime-tracks)
+                                            available-realtime-tracks)]
+                             (if (seq selected) selected ["default"]))
         running? (hooks/use-atom store/running?*)
         session-created-at-ms (or (:created_at_ms session) (util/now-ms))
         session-title (let [t (str/trim (str (or (:title session) "")))]
@@ -1018,6 +1091,6 @@
       [:div {:class "split-main"}
        (case tab
          :refined [refined-live-transcript]
-         [live-transcript])]
+         [live-transcript realtime-track-ids])]
       [:div {:class "split-side"}
        [right-panel]]]]))

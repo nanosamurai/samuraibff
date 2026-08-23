@@ -24,6 +24,7 @@
   - :speaker string? (optional)
   - :lang    string? (optional)
   - :final   boolean? (only for :kind asr)
+  - :track   string? (operator-configured realtime track ID)
 
   ### Refined replacement semantics
 
@@ -85,7 +86,8 @@
 
   Inputs:
   - ev: map (decoded JSON from WS) with keys:
-      :seq, :ts_ms, :start_s, :end_s, :text, :speaker?, :lang?, :final
+      :seq, :ts_ms, :start_s, :end_s, :text, :speaker?, :lang?, :final,
+      :track?, :primary_track?, :provider_profile_id?
 
   Returns:
   - transcript message map (see namespace docstring)."
@@ -98,6 +100,9 @@
    :text (str (or (:text ev) ""))
    :speaker (some-> (:speaker ev) str)
    :lang (some-> (:lang ev) str)
+   :track (some-> (:track ev) str)
+   :primary_track (boolean (:primary_track ev))
+   :provider_profile_id (some-> (:provider_profile_id ev) str)
    :final (boolean (:final ev))})
 
 (defn normalize-refined
@@ -256,9 +261,10 @@
         ;; - FINAL can match any ASR message (partial preferred by overlap).
         ;; - and for multi-speaker, pairing must be speaker-compatible.
         candidate?
-        (fn [m]
-          (and (= "asr" (:kind m))
-               (speaker-compatible? m msg)
+         (fn [m]
+           (and (= "asr" (:kind m))
+                (= (:track m) (:track msg))
+                (speaker-compatible? m msg)
                (or (true? (:final msg))
                    (false? (:final m)))))
         ;; If a PARTIAL arrives *after* a FINAL for the same window, ignore it.
@@ -271,7 +277,8 @@
           (let [{:keys [m score]}
                 (->> msgs
                      (filter #(and (= "asr" (:kind %))
-                                   (true? (:final %))
+                                    (= (:track %) (:track msg))
+                                    (true? (:final %))
                                    (speaker-compatible? % msg)))
                      (map (fn [m]
                             {:m m
@@ -462,9 +469,10 @@
          (fn [prev next]
            (and (= "asr" (:kind prev))
                 (= "asr" (:kind next))
-                (true? (:final prev))
-                (true? (:final next))
-                (= (speaker-key prev) (speaker-key next))
+                 (true? (:final prev))
+                 (true? (:final next))
+                 (= (:track prev) (:track next))
+                 (= (speaker-key prev) (speaker-key next))
                 (<= (max 0.0 (- (double (:start_s next)) (double (:end_s prev)))) max-gap-s)))
          merge2
          (fn [prev next]

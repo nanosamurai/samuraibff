@@ -8,6 +8,7 @@
   - start-audio!
   - stop-audio!"
   (:require
+   [clojure.string :as str]
    [samuraibff.ui.env :as env]
    [samuraibff.ui.store :as store]
    [samuraibff.ui.util :as util]))
@@ -296,6 +297,7 @@
                     :rt_partial_enable (if (false? (:rt_partial_enable controls)) "false" "true")}
 
              ;; Optional numeric knobs (omit when nil)
+             (seq (:realtime_tracks controls)) (assoc :realtime_tracks (str/join "," (:realtime_tracks controls)))
              (some? (:rt_window_sec controls)) (assoc :rt_window_sec (:rt_window_sec controls))
              (some? (:rt_overlap_sec controls)) (assoc :rt_overlap_sec (:rt_overlap_sec controls))
              (some? (:rt_emit_every_sec controls)) (assoc :rt_emit_every_sec (:rt_emit_every_sec controls))
