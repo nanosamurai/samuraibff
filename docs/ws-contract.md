@@ -29,6 +29,8 @@ Optional:
 Output selection (all default to `true` when omitted):
 
 * `realtime=true|false` – whether to run configured realtime ASR tracks (gRPC)
+* `realtime_tracks=<track-id>,...` – optional non-empty subset of the one to
+  four operator-configured track IDs; omission selects every configured track
 * `refined=true|false` – whether to publish audio to the refined pipeline (Kafka)
 * `final=true|false` – whether to produce final transcript artifacts (pipeline)
 
@@ -54,6 +56,9 @@ Realtime tuning (forwarded service overrides):
 Semantics:
 
 * If `realtime=false`, the BFF does not start the gRPC realtime stream.
+* An explicit `realtime_tracks` value containing an empty, duplicate, or
+  unconfigured ID is rejected before WebSocket upgrade. Clients cannot provide
+  service addresses or arbitrary model identifiers.
 * If `refined=false` and `final=false`, the BFF does not publish audio to Kafka.
 * Normal `/ws/audio` closure finishes that session's audio input. The BFF drains
   accepted frames and half-closes every active realtime gRPC request while
@@ -63,6 +68,10 @@ Semantics:
 Example (tune realtime only):
 
 `/ws/audio?session_id=<uuid>&lang=en&sample_rate=16000&rt_window_sec=5.0&rt_overlap_sec=0.5&rt_emit_every_sec=1.0`
+
+Example (run only the configured Qwen track):
+
+`/ws/audio?session_id=<uuid>&lang=en&sample_rate=16000&realtime_tracks=qwen`
 
 ## `/ws/events`
 

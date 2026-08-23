@@ -71,8 +71,14 @@ Read more:
 * `docs/architecture.md`
 
 Closing `/ws/audio` finishes the session's audio input: SamuraiBFF drains the
-accepted frames and half-closes every configured realtime request while
+accepted frames and half-closes every selected realtime request while
 `/ws/events` stays open long enough to deliver their terminal events.
+
+Operators register one to four fixed realtime services with
+`SAMURAIBFF_GRPC_REALTIME_TRACKS`. The browser receives only their stable IDs,
+not service addresses, and can select any non-empty subset for a session. An
+omitted selection remains compatible and uses every configured track. The live
+UI labels each selected track and renders simultaneous results side by side.
 
 ## Related repositories / projects (nanosamur.ai)
 
