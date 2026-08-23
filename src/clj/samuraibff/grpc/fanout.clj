@@ -71,19 +71,29 @@
      :stream stream*}))
 
 (defn start!
-  "Start all configured realtime tracks.
+  "Start the selected operator-configured realtime tracks.
 
   Inputs:
   - grpc-component: configured peer clients from `samuraibff.grpc.client`
   - handlers: `:on-next`, `:on-error`, and `:on-complete` callbacks
-  - options: `:buffer-size` positive integer and optional gRPC `:metadata`
+  - options: `:buffer-size` positive integer, optional gRPC `:metadata`, and
+    optional `:track-ids`. Omission selects every configured track.
 
   Returns a fan-out map accepted by `offer!`, `complete!`, and `cancel!`."
-  [grpc-component handlers {:keys [buffer-size metadata]}]
-  (let [track-clients (grpc/tracks grpc-component)
+  [grpc-component handlers {:keys [buffer-size metadata track-ids]}]
+  (let [configured-track-clients (grpc/tracks grpc-component)
+        requested-track-ids (when (some? track-ids) (set track-ids))
+        configured-track-ids (set (map :id configured-track-clients))
+        unknown-track-ids (seq (remove configured-track-ids requested-track-ids))
+        _ (when unknown-track-ids
+            (throw (ex-info "Unconfigured realtime ASR track selected"
+                            {:track-ids (vec unknown-track-ids)})))
+        track-clients (if (some? requested-track-ids)
+                        (filterv #(contains? requested-track-ids (:id %)) configured-track-clients)
+                        configured-track-clients)
         size (max 1 (int (or buffer-size 8)))]
     (when-not (seq track-clients)
-      (throw (ex-info "No realtime ASR tracks are registered" {})))
+      (throw (ex-info "No realtime ASR tracks are selected" {})))
     {:tracks
      (mapv
       (fn [index track-client]

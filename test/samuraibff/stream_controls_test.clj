@@ -27,6 +27,28 @@
             (stream-controls/parse-and-validate {:final "false"
                                                  :store_recording "true"}))))))
 
+(deftest parse-and-validate-realtime-tracks-test
+  (testing "an omitted selection resolves to every configured track"
+    (is (= ["faster" "qwen"]
+           (:realtime_tracks
+            (stream-controls/parse-and-validate {} ["faster" "qwen"])))))
+
+  (testing "an explicit selection is returned in operator-configured order"
+    (is (= ["faster" "qwen"]
+           (:realtime_tracks
+            (stream-controls/parse-and-validate
+             {:realtime_tracks "qwen,faster"}
+             ["faster" "qwen"])))))
+
+  (testing "empty, duplicate, and unconfigured track selections are rejected"
+    (doseq [selection ["" "qwen,qwen" "unconfigured"]]
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo
+           #"subset of configured tracks"
+           (stream-controls/parse-and-validate
+            {:realtime_tracks selection}
+            ["faster" "qwen"]))))))
+
 (deftest parse-and-validate-clamps-test
   (testing "emit_every has a hard minimum 1s"
     (is (= 1.0

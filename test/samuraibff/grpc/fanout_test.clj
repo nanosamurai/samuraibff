@@ -68,3 +68,19 @@
           (is (.await faster-sent 2 TimeUnit/SECONDS))
           (is (= ["qwen"] @canceled))
           (fanout/cancel! running "test complete"))))))
+
+(deftest selected-track-starts-without-unselected-peers-test
+  (let [clients {:tracks [{:id "faster"} {:id "qwen"}]}
+        started (atom [])]
+    (with-redefs [grpc/get-capabilities (fn [client _] {:provider-profile-id (:id client)})
+                  grpc/start-stream! (fn [client _handlers]
+                                       (swap! started conj (:id client))
+                                       {:track-id (:id client)
+                                        :send! (fn [_] nil)
+                                        :complete! (fn [] nil)
+                                        :error! (fn [_] nil)})]
+      (let [running (fanout/start! clients {} {:track-ids ["qwen"]})]
+        (is (= ["qwen"] @started))
+        (is (= [{:id "qwen" :primary? true}]
+               (mapv #(select-keys % [:id :primary?]) (:tracks running))))
+        (fanout/cancel! running "test complete")))))

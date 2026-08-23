@@ -579,6 +579,7 @@
   [:map
    [:ok :boolean]
    [:authenticated :boolean]
+   [:realtime_tracks [:vector {:min 1 :max 4} NonEmptyString]]
    [:tenant_id {:optional true} Uuid]
    [:tenant_name {:optional true} :string]
    [:user {:optional true}

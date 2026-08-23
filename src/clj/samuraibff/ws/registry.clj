@@ -39,6 +39,7 @@
   - `:rt-partial-enable?` boolean? ; optional rtservice control
 
   - `:want-realtime?` boolean ; whether BFF starts rtservice gRPC
+  - `:realtime-track-ids` vector of selected operator-configured track IDs
   - `:want-refined?` boolean  ; whether BFF publishes to Kafka for refined pipeline
   - `:want-final?` boolean    ; whether BFF publishes to Kafka for final pipeline
   - `:store-recording?` boolean ; forwarded via Kafka header
@@ -427,6 +428,7 @@
                                        rt-window-sec rt-overlap-sec rt-emit-every-sec
                                        rt-partial-enable?
                                        want-realtime? want-refined? want-final?
+                                       realtime-track-ids
                                        store-recording?
                                        kafka-headers]
                                 :or {lang ""}}]
@@ -449,6 +451,7 @@
      :rt-partial-enable? (when (some? rt-partial-enable?) (boolean rt-partial-enable?))
 
      :want-realtime? (boolean (if (some? want-realtime?) want-realtime? true))
+     :realtime-track-ids (when (some? realtime-track-ids) (vec realtime-track-ids))
      :want-refined? (boolean (if (some? want-refined?) want-refined? true))
      :want-final? (boolean (if (some? want-final?) want-final? true))
      :store-recording? (boolean (if (some? store-recording?) store-recording? true))
@@ -536,9 +539,10 @@
   - the (possibly updated) session map, or nil if session not found."
   [{:keys [sessions]} tenant-id session-id {:keys [lang sample-rate
                                                    rt-window-sec rt-overlap-sec rt-emit-every-sec
-                                                   rt-partial-enable?
-                                                   want-realtime? want-refined? want-final?
-                                                   store-recording?
+                                                    rt-partial-enable?
+                                                    want-realtime? want-refined? want-final?
+                                                    realtime-track-ids
+                                                    store-recording?
                                                    kafka-headers]}]
   (let [updated* (atom nil)]
     (swap! sessions
@@ -555,9 +559,10 @@
                                   (some? rt-overlap-sec) (assoc :rt-overlap-sec (when (number? rt-overlap-sec) (double rt-overlap-sec)))
                                   (some? rt-emit-every-sec) (assoc :rt-emit-every-sec (when (number? rt-emit-every-sec) (double rt-emit-every-sec)))
 
-                                  (some? rt-partial-enable?) (assoc :rt-partial-enable? (boolean rt-partial-enable?))
-                                  (some? want-realtime?) (assoc :want-realtime? (boolean want-realtime?))
-                                  (some? want-refined?) (assoc :want-refined? (boolean want-refined?))
+                                   (some? rt-partial-enable?) (assoc :rt-partial-enable? (boolean rt-partial-enable?))
+                                   (some? want-realtime?) (assoc :want-realtime? (boolean want-realtime?))
+                                   (some? realtime-track-ids) (assoc :realtime-track-ids (vec realtime-track-ids))
+                                   (some? want-refined?) (assoc :want-refined? (boolean want-refined?))
                                   (some? want-final?) (assoc :want-final? (boolean want-final?))
                                   (some? store-recording?) (assoc :store-recording? (boolean store-recording?))
                                   (some? kafka-headers) (assoc :kafka-headers (ensure-bytes-header-map kafka-headers)))]
@@ -820,7 +825,7 @@
   nil)
 
 (defn start-rt!
-  "Start all realtime tracks and the shared audio dispatch loop for a session.
+  "Start the selected realtime tracks and the shared audio dispatch loop for a session.
 
   This is idempotent; calling it multiple times will only start once.
 
@@ -830,7 +835,7 @@
   - session      session map (from `ensure-session!`)
 
   Side effects:
-  - opens one independently buffered gRPC stream per registered track
+  - opens one independently buffered gRPC stream per selected registered track
   - publishes each AudioChunk to Kafka once and offers it to every active track
   - publishes track-labelled ASR events into :events-ch
 
@@ -860,7 +865,9 @@
             metadata (into {} (remove (fn [[_k v]] (nil? v)) metadata))
             fanout
             (when (:want-realtime? session)
-              (log/info "Starting realtime ASR tracks" {:session-id session-id :tenant-id tenant-id})
+              (log/info "Starting realtime ASR tracks" {:session-id session-id
+                                                         :tenant-id tenant-id
+                                                         :tracks (:realtime-track-ids session)})
               (try
                 (grpc.fanout/start!
                  grpc-client
@@ -886,7 +893,8 @@
                                      :track track)))}
                  {:buffer-size (or (get-in (:config registry) [:grpc :track-buffer-size])
                                    default-audio-buffer-size)
-                  :metadata metadata})
+                  :metadata metadata
+                  :track-ids (:realtime-track-ids session)})
                 (catch Throwable t
                   (reset! (:running?* session) false)
                   (log/error t "Failed to start realtime ASR tracks"

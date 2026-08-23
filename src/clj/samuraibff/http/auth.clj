@@ -465,6 +465,19 @@
       (-> {:status 204 :headers {} :body ""}
           (clear-cookie cookie-name)))))
 
+(defn- realtime-track-ids
+  "Return the ordered operator-configured realtime track IDs safe for UI use.
+
+  Inputs:
+  - config: SamuraiBFF configuration map
+
+  Returns a non-empty vector of strings without exposing service addresses."
+  [config]
+  (or (some->> (get-in config [:grpc :realtime-tracks])
+               seq
+               (mapv :id))
+      ["default"]))
+
 (defn me-handler
   "Handler for `GET /api/me`.
 
@@ -487,13 +500,15 @@
             tenant-name (when (and ds tenant-uuid)
                           (db.tenants/find-tenant-name ds tenant-uuid))]
         (json-response 200 {:ok true
-                            :authenticated true
-                            :tenant_id tenant-id-str
-                            :tenant_name tenant-name
-                            :features (features/feature-state config)
+                             :authenticated true
+                             :tenant_id tenant-id-str
+                             :tenant_name tenant-name
+                             :realtime_tracks (realtime-track-ids config)
+                             :features (features/feature-state config)
                             :user (select-keys user [:sub :preferred_username :email])}))
       (if (oidc/auth-required? config)
         (json-response 401 {:ok false :authenticated false :message "not-authenticated"})
-        (json-response 200 {:ok true
-                            :authenticated false
-                            :features (features/feature-state config)})))))
+         (json-response 200 {:ok true
+                             :authenticated false
+                             :realtime_tracks (realtime-track-ids config)
+                             :features (features/feature-state config)})))))

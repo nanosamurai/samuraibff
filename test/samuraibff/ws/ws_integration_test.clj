@@ -119,7 +119,7 @@
   (with-open [socket (java.net.ServerSocket. 0 0 (java.net.InetAddress/getLoopbackAddress))]
     (.getLocalPort socket)))
 
-(deftest ws-audio-close-flushes-terminal-asr-test
+(deftest ws-audio-selected-track-close-flushes-terminal-asr-test
   (let [port (free-port)
         session-id (str (UUID/randomUUID))
         completed* (atom #{})
@@ -170,14 +170,16 @@
 
           (reset! audio*
                   (connect-ws!
-                   (ws-url port "/ws/audio" (str "session_id=" session-id "&lang=en&sample_rate=16000"))
+                   (ws-url port "/ws/audio" (str "session_id=" session-id
+                                                  "&lang=en&sample_rate=16000&realtime_tracks=qwen"))
                    {:on-close (fn [_ _] nil)}))
 
           (let [ws-registry (get system :samuraibff/ws-registry)
                 session (reg/get-session ws-registry "00000000-0000-0000-0000-000000000000" session-id)]
             (is (= "en" (:lang session))
                 (str "Expected :lang to be updated, got "
-                     (pr-str (select-keys session [:lang :sample-rate])))))
+                     (pr-str (select-keys session [:lang :sample-rate]))))
+            (is (= ["qwen"] (:realtime-track-ids session))))
 
           (dotimes [_ 3]
             (.sendBinary ^WebSocket @audio* (byte-array 320)))
@@ -192,12 +194,11 @@
                                          (json/read-value message mapper)
                                          (catch Exception _
                                            nil))))))]
-            (is (= {"faster" 3 "qwen" 3} @sent-counts*)
-                "Accepted audio should reach both tracks before completion")
-            (is (= #{"faster" "qwen"} @completed*)
-                "Closing /ws/audio should half-close both requests")
-            (is (= #{["faster" "faster-profile" true]
-                     ["qwen" "qwen-profile" false]}
+            (is (= {"qwen" 3} @sent-counts*)
+                "Accepted audio should reach only the selected track")
+            (is (= #{"qwen"} @completed*)
+                "Closing /ws/audio should half-close the selected request")
+            (is (= #{["qwen" "qwen-profile" true]}
                    (->> decoded
                         (filter #(and (= "asr" (:type %)) (true? (:final %))))
                         (map (juxt :track :provider_profile_id :primary_track))

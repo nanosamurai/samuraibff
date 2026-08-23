@@ -57,3 +57,13 @@
                    {:auth {:required? false}}
                    {:uri "/api/recordings"})]
       (is (nil? (:auth/tenant-id request))))))
+
+(deftest me-handler-exposes-only-realtime-track-ids-test
+  (let [handler (auth/me-handler {:auth {:required? false}
+                                  :grpc {:realtime-tracks [{:id "faster" :address "rtservice:50052"}
+                                                           {:id "qwen" :address "qwen-rtservice:50052"}]}})
+        response (handler {})
+        body (:body response)]
+    (is (= 200 (:status response)))
+    (is (= ["faster" "qwen"] (:realtime_tracks body)))
+    (is (not (contains? body :grpc)))))
