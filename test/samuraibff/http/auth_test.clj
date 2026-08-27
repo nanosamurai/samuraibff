@@ -3,6 +3,7 @@
   (:require
    [clojure.test :refer [deftest is testing]]
    [samuraibff.auth.oidc :as oidc]
+   [samuraibff.grpc.client :as grpc.client]
    [samuraibff.http.auth :as auth]))
 
 (def ^:private guest-tenant-id
@@ -58,12 +59,52 @@
                    {:uri "/api/recordings"})]
       (is (nil? (:auth/tenant-id request))))))
 
-(deftest me-handler-exposes-only-realtime-track-ids-test
-  (let [handler (auth/me-handler {:auth {:required? false}
-                                  :grpc {:realtime-tracks [{:id "faster" :address "rtservice:50052"}
-                                                           {:id "qwen" :address "qwen-rtservice:50052"}]}})
-        response (handler {})
-        body (:body response)]
-    (is (= 200 (:status response)))
-    (is (= ["faster" "qwen"] (:realtime_tracks body)))
-    (is (not (contains? body :grpc)))))
+(deftest me-handler-exposes-sanitized-realtime-track-capabilities-test
+  (let [config {:auth {:required? false}
+                :grpc {:realtime-tracks [{:id "faster" :address "rtservice:50052"}
+                                         {:id "qwen" :address "qwen-rtservice:50052"}]}}
+        grpc {:tracks (get-in config [:grpc :realtime-tracks])}]
+    (with-redefs [grpc.client/get-capabilities
+                  (fn [{:keys [id]} _timeout-ms]
+                    {:provider-profile-id (str id "-profile")
+                     :windowed-realtime? (= id "faster")
+                     :native-streaming? (= id "qwen")
+                     :segment-timestamps? (= id "faster")
+                     :word-timestamps? false
+                     :language-detection? true
+                     :supported-languages ["en" "cs"]
+                     :preferred-sample-rate 16000
+                     :maximum-audio-seconds 0.0
+                     :maximum-concurrent-sessions (if (= id "qwen") 1 0)
+                     :runtime "secret-runtime"
+                     :model-digest "secret-digest"})]
+      (let [response ((auth/me-handler config grpc) {})
+            body (:body response)
+            qwen (second (:realtime_track_capabilities body))]
+        (is (= 200 (:status response)))
+        (is (= ["faster" "qwen"] (:realtime_tracks body)))
+        (is (= {:id "qwen"
+                :available true
+                :provider_profile_id "qwen-profile"
+                :windowed_realtime false
+                :native_streaming true
+                :segment_timestamps false
+                :word_timestamps false
+                :language_detection true
+                :supported_languages ["en" "cs"]
+                :preferred_sample_rate 16000
+                :maximum_audio_seconds 0.0
+                :maximum_concurrent_sessions 1}
+               qwen))
+        (is (not (contains? qwen :address)))
+        (is (not (contains? qwen :runtime)))
+        (is (not (contains? qwen :model_digest)))))
+    (testing "provider discovery failure remains visible without failing /api/me"
+      (with-redefs [grpc.client/get-capabilities
+                    (fn [_track _timeout-ms]
+                      (throw (ex-info "provider unavailable" {})))]
+        (let [response ((auth/me-handler config grpc) {})]
+          (is (= 200 (:status response)))
+          (is (= [{:id "faster" :available false}
+                  {:id "qwen" :available false}]
+                 (get-in response [:body :realtime_track_capabilities]))))))))

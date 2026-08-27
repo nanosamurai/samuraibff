@@ -337,7 +337,7 @@
                          :responses {200 {:body schemas/ApiMeResponse}
                                      401 {:body schemas/ApiErrorResponse}
                                      403 {:body schemas/ApiErrorResponse}}
-                         :handler (http.auth/me-handler config)}}]
+                         :handler (http.auth/me-handler config (:grpc deps))}}]
 
            ["/recordings" {:get {:summary "List recordings"
                                  :description "Returns the tenant-scoped list of recording sessions."

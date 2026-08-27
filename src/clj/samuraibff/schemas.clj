@@ -568,6 +568,22 @@
    [:tenant_id Uuid]
    [:webhook_ids [:sequential Uuid]]])
 
+(def RealtimeTrackCapability
+  "User-relevant capabilities for one operator-configured realtime track."
+  [:map
+   [:id NonEmptyString]
+   [:available :boolean]
+   [:provider_profile_id {:optional true} NonEmptyString]
+   [:windowed_realtime {:optional true} :boolean]
+   [:native_streaming {:optional true} :boolean]
+   [:segment_timestamps {:optional true} :boolean]
+   [:word_timestamps {:optional true} :boolean]
+   [:language_detection {:optional true} :boolean]
+   [:supported_languages {:optional true} [:vector NonEmptyString]]
+   [:preferred_sample_rate {:optional true} :int]
+   [:maximum_audio_seconds {:optional true} :double]
+   [:maximum_concurrent_sessions {:optional true} :int]])
+
 (def ApiMeResponse
   "Response body for GET /api/me.
 
@@ -580,6 +596,7 @@
    [:ok :boolean]
    [:authenticated :boolean]
    [:realtime_tracks [:vector {:min 1 :max 4} NonEmptyString]]
+   [:realtime_track_capabilities [:vector {:min 1 :max 4} RealtimeTrackCapability]]
    [:tenant_id {:optional true} Uuid]
    [:tenant_name {:optional true} :string]
    [:user {:optional true}

@@ -47,7 +47,8 @@
     [ring.util.response :as resp]
     [samuraibff.auth.oidc :as oidc]
     [samuraibff.db.tenants :as db.tenants]
-    [samuraibff.features :as features])
+    [samuraibff.features :as features]
+    [samuraibff.grpc.client :as grpc.client])
   (:import
     (java.net URI)
     (java.net.http HttpClient HttpClient$Redirect HttpRequest HttpRequest$BodyPublishers HttpResponse$BodyHandlers)
@@ -478,6 +479,37 @@
                (mapv :id))
       ["default"]))
 
+(defn- realtime-track-capabilities
+  "Return sanitized provider capabilities for the operator-configured tracks.
+
+  Capability discovery is best-effort. Provider network coordinates and model
+  provenance remain server-side; callers receive only user-relevant behavior."
+  [config grpc]
+  (let [configured (get-in config [:grpc :realtime-tracks])
+        tracks (or (seq (grpc.client/tracks grpc))
+                   (seq configured)
+                   [{:id "default"}])]
+    (mapv
+     (fn [{:keys [id] :as track}]
+       (try
+         (let [capabilities (grpc.client/get-capabilities track 500)]
+           {:id id
+            :available true
+            :provider_profile_id (:provider-profile-id capabilities)
+            :windowed_realtime (:windowed-realtime? capabilities)
+            :native_streaming (:native-streaming? capabilities)
+            :segment_timestamps (:segment-timestamps? capabilities)
+            :word_timestamps (:word-timestamps? capabilities)
+            :language_detection (:language-detection? capabilities)
+            :supported_languages (:supported-languages capabilities)
+            :preferred_sample_rate (:preferred-sample-rate capabilities)
+            :maximum_audio_seconds (:maximum-audio-seconds capabilities)
+            :maximum_concurrent_sessions (:maximum-concurrent-sessions capabilities)})
+         (catch Exception e
+           (log/warn e "Realtime ASR capability discovery failed" {:track id})
+           {:id id :available false})))
+     tracks)))
+
 (defn me-handler
   "Handler for `GET /api/me`.
 
@@ -489,7 +521,7 @@
   - if not authenticated and auth not required: {ok true, authenticated false}
 
   Returns: JSON response." 
-  [config]
+  [config grpc]
   (fn [req]
     (if-let [user (:auth/user req)]
       (let [tenant-id-str (:auth/tenant-id req)
@@ -504,6 +536,7 @@
                              :tenant_id tenant-id-str
                              :tenant_name tenant-name
                              :realtime_tracks (realtime-track-ids config)
+                             :realtime_track_capabilities (realtime-track-capabilities config grpc)
                              :features (features/feature-state config)
                             :user (select-keys user [:sub :preferred_username :email])}))
       (if (oidc/auth-required? config)
@@ -511,4 +544,5 @@
          (json-response 200 {:ok true
                              :authenticated false
                              :realtime_tracks (realtime-track-ids config)
+                             :realtime_track_capabilities (realtime-track-capabilities config grpc)
                              :features (features/feature-state config)})))))
