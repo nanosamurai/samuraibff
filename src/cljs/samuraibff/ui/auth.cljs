@@ -35,8 +35,10 @@
                                                             :tenant_id (aget body "tenant_id")
                                                             :tenant_name (aget body "tenant_name")
                                                             :realtime_tracks (vec (js->clj (aget body "realtime_tracks")))
+                                                            :realtime_track_capabilities (vec (js->clj (aget body "realtime_track_capabilities") :keywordize-keys true))
                                                             :features (js->clj (aget body "features") :keywordize-keys true)})
                     (store/set-auth-status! :anonymous {:realtime_tracks (vec (js->clj (aget body "realtime_tracks")))
+                                                        :realtime_track_capabilities (vec (js->clj (aget body "realtime_track_capabilities") :keywordize-keys true))
                                                         :features (js->clj (aget body "features") :keywordize-keys true)}))
                   body)))
       (.catch (fn [e]

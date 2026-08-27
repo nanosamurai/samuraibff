@@ -75,10 +75,14 @@ accepted frames and half-closes every selected realtime request while
 `/ws/events` stays open long enough to deliver their terminal events.
 
 Operators register one to four fixed realtime services with
-`SAMURAIBFF_GRPC_REALTIME_TRACKS`. The browser receives only their stable IDs,
-not service addresses, and can select any non-empty subset for a session. An
-omitted selection remains compatible and uses every configured track. The live
-UI labels each selected track and renders simultaneous results side by side.
+`SAMURAIBFF_GRPC_REALTIME_TRACKS`. The browser receives their stable IDs and a
+sanitized capability summary, never service addresses, runtime versions, model
+revisions, or model digests, and can select any non-empty subset for a session.
+Capability discovery is best-effort: an unavailable provider is marked
+unavailable without failing `GET /api/me`. An omitted selection remains
+compatible and uses every configured track. The live UI shows each provider's
+mode, duration policy, timestamp support, concurrency, and language count before
+recording, then labels each selected track and renders simultaneous results side by side.
 
 ## Related repositories / projects (nanosamur.ai)
 

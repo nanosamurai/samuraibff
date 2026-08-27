@@ -696,6 +696,8 @@
         auth-state (hooks/use-atom store/auth*)
         running? (hooks/use-atom store/running?*)
         available-realtime-tracks (vec (get-in auth-state [:detail :realtime_tracks] []))
+        realtime-track-capabilities (vec (get-in auth-state [:detail :realtime_track_capabilities] []))
+        capabilities-by-track (into {} (map (juxt :id identity) realtime-track-capabilities))
         requested-realtime-track-set (set (:realtime_tracks controls))
         selected-realtime-tracks (if (seq requested-realtime-track-set)
                                    (filterv requested-realtime-track-set available-realtime-tracks)
@@ -810,16 +812,50 @@
               (str/join ", " selected-realtime-tracks)]]
             [:div {:class "track-picker-options"}
              (for [track-id available-realtime-tracks]
-               (let [selected? (contains? selected-realtime-track-set track-id)]
+               (let [selected? (contains? selected-realtime-track-set track-id)
+                     capability (get capabilities-by-track track-id)
+                     mode (cond
+                            (:native_streaming capability) "Native streaming"
+                            (:windowed_realtime capability) "Windowed realtime"
+                            :else nil)
+                     maximum-seconds (:maximum_audio_seconds capability)
+                     duration (when (number? maximum-seconds)
+                                (cond
+                                  (zero? maximum-seconds) "No stream cutoff"
+                                  (:windowed_realtime capability) (str maximum-seconds " sec inference window")
+                                  :else (str "Up to " maximum-seconds " sec per stream")))
+                     timestamps (cond
+                                  (:word_timestamps capability) "Word timestamps"
+                                  (:segment_timestamps capability) "Segment timestamps"
+                                  (true? (:available capability)) "No timestamps"
+                                  :else nil)
+                     concurrency (:maximum_concurrent_sessions capability)
+                     capability-summary
+                     (if (false? (:available capability))
+                       "Capabilities temporarily unavailable"
+                       (->> [(:provider_profile_id capability)
+                             mode
+                             duration
+                             timestamps
+                             (when (and (number? concurrency) (pos? concurrency))
+                               (str concurrency " concurrent"))
+                             (when (seq (:supported_languages capability))
+                               (str (count (:supported_languages capability)) " languages"))]
+                            (remove nil?)
+                            (str/join " • ")))]
                  ^{:key (str "track-option-" track-id)}
-                 [checkbox-row {:id (str "sc-track-" track-id)
-                                :label track-id
-                                :checked selected?
-                                :disabled? (or track-selection-disabled?
-                                               (and selected?
-                                                    (= 1 (count selected-realtime-tracks))))
-                                :on-change (fn [checked?]
-                                             (set-track-selected! track-id checked?))}]))]]
+                 [:div
+                  [checkbox-row {:id (str "sc-track-" track-id)
+                                 :label track-id
+                                 :checked selected?
+                                 :disabled? (or track-selection-disabled?
+                                                (and selected?
+                                                     (= 1 (count selected-realtime-tracks))))
+                                 :on-change (fn [checked?]
+                                              (set-track-selected! track-id checked?))}]
+                  (when (seq capability-summary)
+                    [:div {:class "hint" :style {:marginLeft "26px"}}
+                     capability-summary])]))]]
            [:div {:class "hint"} "Track configuration is loading."])
          [:div {:class "hint"}
           (if (true? running?)

@@ -51,12 +51,20 @@ each peer's fixed capabilities, then gives every track an independent bounded
 queue and bidirectional stream. One slow, failed, or overloaded track is
 canceled without stopping its peers.
 
-`GET /api/me` exposes only the ordered stable track IDs to the UI. Each audio
-session may select a non-empty subset with the `/ws/audio` `realtime_tracks`
-control; omission selects every configured track for compatibility. The BFF
-validates selections against the operator allowlist and never accepts endpoints
-from a client. Selected clients retain operator order, and the first selected
-track is marked `primary_track=true` for compatibility consumers.
+`GET /api/me` exposes the ordered stable track IDs and a sanitized capability
+view to the UI. The capability view includes mode, timestamp and language
+support, sample rate, duration policy, and concurrency; it deliberately omits
+peer endpoints, runtime versions, model revisions, and digests. Discovery is
+best-effort, so an unavailable provider is reported as unavailable without
+failing the entire endpoint. The live track picker renders these limits before
+a session starts.
+
+Each audio session may select a non-empty subset with the `/ws/audio`
+`realtime_tracks` control; omission selects every configured track for
+compatibility. The BFF validates selections against the operator allowlist and
+never accepts endpoints from a client. Selected clients retain operator order,
+and the first selected track is marked `primary_track=true` for compatibility
+consumers.
 
 The BFF publishes each accepted audio chunk to `audio.raw` once before offering
 that same protobuf value to selected active realtime tracks. Adding a realtime model
