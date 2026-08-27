@@ -21,6 +21,10 @@ provider can replace only its own relevant window. Selected tracks are rendered
 in labelled side-by-side live panels; one provider's partial/final replacement
 or coalescing cannot overwrite another provider's result.
 
+The live page's right-side diagnostic log can be hidden or restored with the
+chevron beside the transcript tabs. Hiding it gives the selected transcript
+tracks the full available width without interrupting capture or event logging.
+
 ## Refined (Kafka)
 
 * BFF publishes `AudioChunk` protobuf messages to Kafka topic `audio.raw`.

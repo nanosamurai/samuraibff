@@ -1091,7 +1091,11 @@
 
         settings-open?* (react/useState false)
         settings-open? (aget settings-open?* 0)
-        set-settings-open! (aget settings-open?* 1)]
+        set-settings-open! (aget settings-open?* 1)
+
+        show-log?* (react/useState true)
+        show-log? (aget show-log?* 0)
+        set-show-log! (aget show-log?* 1)]
     [:div {:class "page"}
      [:div {:class "page-header"}
       [:div
@@ -1121,12 +1125,27 @@
       [:button {:class (str "tab " (when (= tab :refined) "active"))
                 :on-click (fn [_] (set-tab! :refined))}
        "Refined real-time"]
-      [:div {:class "spacer"}]]
+      [:div {:class "spacer"}]
+      [:button {:class "btn ghost icon"
+                :type "button"
+                :aria-label (if show-log?
+                              "Hide log panel"
+                              "Show log panel")
+                :title (if show-log?
+                         "Hide log panel"
+                         "Show log panel")
+                :on-click (fn [_]
+                            (set-show-log! (not show-log?)))}
+       (shared/icon (if show-log? "❯" "❮")
+                    {:title (if show-log?
+                              "Hide log panel"
+                              "Show log panel")})]]
 
      [:div {:class "split"}
       [:div {:class "split-main"}
        (case tab
          :refined [refined-live-transcript]
          [live-transcript realtime-track-ids])]
-      [:div {:class "split-side"}
-       [right-panel]]]]))
+      (when show-log?
+        [:div {:class "split-side"}
+         [right-panel]])]]))
