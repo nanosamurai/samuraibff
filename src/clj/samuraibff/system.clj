@@ -59,6 +59,37 @@
         (catch Exception _
           nil)))))
 
+(defn- parse-realtime-tracks
+  "Parse an operator-controlled comma-separated `track-id=host:port` allowlist.
+
+  Inputs:
+  - raw: string or nil
+
+  Returns a vector of `{:id string :address string}` maps, nil for blank input,
+  or throws ExceptionInfo for malformed, duplicate, or excessive entries."
+  [raw]
+  (let [value (some-> raw str str/trim not-empty)]
+    (when value
+      (let [entries (str/split value #",")]
+        (when (> (count entries) 4)
+          (throw (ex-info "At most four realtime tracks may be configured" {:track-count (count entries)})))
+        (let [tracks
+              (mapv
+               (fn [entry]
+                 (let [[track-id address] (mapv str/trim (str/split entry #"=" 2))
+                       address-match (when address (re-matches #"([A-Za-z0-9.-]+):([0-9]{1,5})" address))
+                       port (when address-match (Integer/parseInt (nth address-match 2)))]
+                   (when-not (and (re-matches #"[a-z][a-z0-9._-]{0,63}" (or track-id ""))
+                                  address-match
+                                  (<= 1 port 65535))
+                     (throw (ex-info "Invalid realtime track; expected track-id=host:port" {:entry entry})))
+                   {:id track-id :address address}))
+               entries)
+              track-ids (mapv :id tracks)]
+          (when-not (= (count track-ids) (count (distinct track-ids)))
+            (throw (ex-info "Realtime track IDs must be unique" {:track-ids track-ids})))
+          tracks)))))
+
 (defn- deep-merge
   "Deep merge nested maps.
 
@@ -165,7 +196,8 @@
                         :refined (s "SAMURAIBFF_KAFKA_TOPIC_REFINED")
                         :workflow-result (s "SAMURAIBFF_KAFKA_TOPIC_WORKFLOW_RESULT")}}
 
-      :grpc {:rtservice-addr (s "SAMURAIBFF_GRPC_RTSERVICE_ADDR")}
+      :grpc {:rtservice-addr (s "SAMURAIBFF_GRPC_RTSERVICE_ADDR")
+             :realtime-tracks (parse-realtime-tracks (getenv-fn "SAMURAIBFF_GRPC_REALTIME_TRACKS"))}
 
       ;; Recordings playback (audio).
       ;; - local-root: filesystem path allowed for file:// recording_url values

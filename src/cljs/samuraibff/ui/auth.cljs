@@ -28,15 +28,19 @@
                  ;; Preserve status for callers (auth guard) instead of collapsing
                  ;; everything into a generic error.
                  (js/Promise.reject (js/Error. (str "HTTP " (.-status res)))))))
-      (.then (fn [body]
-               (let [authed? (boolean (aget body "authenticated"))]
-                 (if authed?
-                   (store/set-auth-status! :authenticated {:user (js->clj (aget body "user") :keywordize-keys true)
-                                                           :tenant_id (aget body "tenant_id")
-                                                           :tenant_name (aget body "tenant_name")
-                                                           :features (js->clj (aget body "features") :keywordize-keys true)})
-                   (store/set-auth-status! :anonymous {:features (js->clj (aget body "features") :keywordize-keys true)}))
-                 body)))
+       (.then (fn [body]
+                (let [authed? (boolean (aget body "authenticated"))]
+                  (if authed?
+                    (store/set-auth-status! :authenticated {:user (js->clj (aget body "user") :keywordize-keys true)
+                                                            :tenant_id (aget body "tenant_id")
+                                                            :tenant_name (aget body "tenant_name")
+                                                            :realtime_tracks (vec (js->clj (aget body "realtime_tracks")))
+                                                            :realtime_track_capabilities (vec (js->clj (aget body "realtime_track_capabilities") :keywordize-keys true))
+                                                            :features (js->clj (aget body "features") :keywordize-keys true)})
+                    (store/set-auth-status! :anonymous {:realtime_tracks (vec (js->clj (aget body "realtime_tracks")))
+                                                        :realtime_track_capabilities (vec (js->clj (aget body "realtime_track_capabilities") :keywordize-keys true))
+                                                        :features (js->clj (aget body "features") :keywordize-keys true)}))
+                  body)))
       (.catch (fn [e]
                 ;; If /api/me is protected and returns 401/403, treat as anonymous,
                 ;; but flag that auth is required so UI can auto-redirect.

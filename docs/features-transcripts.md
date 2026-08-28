@@ -3,10 +3,12 @@
 This document explains how transcript data flows through the system and how the
 UI renders it.
 
-## Realtime (gRPC rtservice)
+## Realtime (peer gRPC services)
 
-* Audio is streamed from SamuraiBFF to **rtservice** over gRPC.
-* rtservice emits realtime ASR events back to the BFF.
+* Operators configure one to four allowlisted `RealtimeASR` tracks.
+* A session selects a non-empty subset, or all configured tracks when omitted.
+* Audio is streamed from SamuraiBFF to each selected peer over gRPC.
+* Each peer emits track-labelled realtime ASR events back to the BFF.
 * The BFF forwards realtime events to the UI over `/ws/events` as JSON.
 
 rtservice semantics:
@@ -14,8 +16,14 @@ rtservice semantics:
 * **PARTIAL** results are replaceable hypotheses.
 * **FINAL** results commit a completed window.
 
-The UI tracks partials per window (derived from `start_s`) so that PARTIAL
-updates replace only the relevant window.
+The UI tracks partials per track and window (derived from `start_s`) so that a
+provider can replace only its own relevant window. Selected tracks are rendered
+in labelled side-by-side live panels; one provider's partial/final replacement
+or coalescing cannot overwrite another provider's result.
+
+The live page's right-side diagnostic log can be hidden or restored with the
+chevron beside the transcript tabs. Hiding it gives the selected transcript
+tracks the full available width without interrupting capture or event logging.
 
 ## Refined (Kafka)
 

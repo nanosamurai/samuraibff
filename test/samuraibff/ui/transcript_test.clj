@@ -114,6 +114,28 @@
       (is (true? (:final (first msgs))))
       (is (= "SPEAKER_00" (:speaker (first msgs)))))))
 
+(deftest upsert-asr-does-not-clobber-across-tracks
+  (testing "overlapping provider hypotheses retain independent replacement state"
+    (let [msgs (transcript/upsert-asr [] {:seq 1
+                                          :ts_ms 1
+                                          :start_s 0.0
+                                          :end_s 2.0
+                                          :text "faster partial"
+                                          :track "faster"
+                                          :provider_profile_id "faster-profile"
+                                          :final false})
+          msgs (transcript/upsert-asr msgs {:seq 2
+                                            :ts_ms 2
+                                            :start_s 0.0
+                                            :end_s 2.0
+                                            :text "qwen partial"
+                                            :track "qwen"
+                                            :provider_profile_id "qwen-profile"
+                                            :final false})]
+      (is (= 2 (count msgs)))
+      (is (= #{["faster" "faster-profile"] ["qwen" "qwen-profile"]}
+             (set (map (juxt :track :provider_profile_id) msgs)))))))
+
 (deftest apply-refined-removes-contained-asr-only
   (testing "Refined removes ASR messages fully contained within refined window (inclusive)"
     (let [asr1 {:kind "asr" :seq 1 :ts_ms 1 :start_s 0.0 :end_s 2.0 :text "a" :final true}
@@ -166,4 +188,10 @@
                 {:kind "asr" :seq 4 :ts_ms 4 :start_s 6.10 :end_s 7.0 :text "D" :speaker "SPEAKER_00" :final true}]
           out (transcript/coalesce-asr-finals msgs {:max-gap-s 0.3})]
       ;; First two not merged (speaker differs), refined stays, last two merged.
-      (is (= ["A" "B" "R" "C D"] (mapv :text out))))))
+      (is (= ["A" "B" "R" "C D"] (mapv :text out)))))
+
+  (testing "Does not merge adjacent finals from different realtime tracks"
+    (let [msgs [{:kind "asr" :seq 1 :ts_ms 1 :start_s 0.0 :end_s 2.0 :text "faster" :speaker "S" :track "faster" :final true}
+                {:kind "asr" :seq 2 :ts_ms 2 :start_s 2.1 :end_s 4.0 :text "qwen" :speaker "S" :track "qwen" :final true}]
+          out (transcript/coalesce-asr-finals msgs {:max-gap-s 0.3})]
+      (is (= ["faster" "qwen"] (mapv :text out))))))

@@ -83,6 +83,7 @@
   Supported query params (all optional; defaults are backwards compatible):
   - outputs:
     - realtime=true|false
+    - realtime_tracks=track-a,track-b
     - refined=true|false
     - final=true|false
   - retention:
@@ -98,6 +99,8 @@
 
   Validation rules:
   - at least one output must be enabled
+  - explicit realtime track IDs must be a non-empty subset of the
+    operator-configured allowlist
   - if final=false then store_recording is forced false (no recording needed)
   - realtime knobs are clamped only when realtime=true
     - window in [1,30]
@@ -106,16 +109,23 @@
 
   Returns: map
   {:realtime boolean :refined boolean :final boolean
+   :realtime_tracks [string ...]?
    :store_recording boolean
    :refinement_window_sec double?
    :rt_partial_enable boolean
    :rt_window_sec double? :rt_overlap_sec double? :rt_emit_every_sec double?}
 
   Throws:
-  - ex-info {:type :samuraibff.stream-controls/invalid-controls ...} on invalid."
-  [params]
-  (let [realtime? (parse-bool (or (get params :realtime) (get params "realtime"))
-                              (:realtime default-controls))
+  - ex-info {:type :samuraibff.stream-controls/invalid-controls ...} on invalid.
+
+  The one-argument arity preserves legacy parsing without resolving a track
+  selection. The two-argument arity accepts the ordered vector of configured
+  track IDs and resolves an omitted selection to all of them."
+  ([params]
+   (parse-and-validate params nil))
+  ([params available-realtime-tracks]
+   (let [realtime? (parse-bool (or (get params :realtime) (get params "realtime"))
+                               (:realtime default-controls))
         refined? (parse-bool (or (get params :refined) (get params "refined"))
                              (:refined default-controls))
         final? (parse-bool (or (get params :final) (get params "final"))
@@ -126,6 +136,33 @@
         rt-partial-enable? (parse-bool (or (get params :rt_partial_enable) (get params "rt_partial_enable")
                                            (get params :rt-partial-enable) (get params "rt-partial-enable"))
                                        (:rt_partial_enable default-controls))
+        realtime-tracks-raw (or (get params :realtime_tracks) (get params "realtime_tracks")
+                                (get params :realtime-tracks) (get params "realtime-tracks"))
+        explicit-realtime-tracks? (some? realtime-tracks-raw)
+        requested-realtime-tracks (when explicit-realtime-tracks?
+                                    (mapv str/trim (str/split (str realtime-tracks-raw) #"," -1)))
+        available-realtime-tracks (when (some? available-realtime-tracks)
+                                    (mapv str available-realtime-tracks))
+        available-realtime-track-set (set available-realtime-tracks)
+        invalid-realtime-tracks? (or (and explicit-realtime-tracks?
+                                           (or (empty? requested-realtime-tracks)
+                                               (> (count requested-realtime-tracks) 4)
+                                               (some str/blank? requested-realtime-tracks)
+                                               (not= (count requested-realtime-tracks)
+                                                     (count (distinct requested-realtime-tracks)))))
+                                      (and explicit-realtime-tracks?
+                                           (or (nil? available-realtime-tracks)
+                                               (some #(not (contains? available-realtime-track-set %))
+                                                     requested-realtime-tracks))))
+        _ (when invalid-realtime-tracks?
+            (throw (ex-info "Realtime tracks must be a non-empty subset of configured tracks"
+                            {:type :samuraibff.stream-controls/invalid-controls
+                             :reason :invalid-realtime-tracks})))
+        realtime-tracks (when (seq available-realtime-tracks)
+                          (if explicit-realtime-tracks?
+                            (let [requested-set (set requested-realtime-tracks)]
+                              (filterv requested-set available-realtime-tracks))
+                            available-realtime-tracks))
         rt-window (parse-finite-double (or (get params :rt_window_sec) (get params "rt_window_sec")
                                            (get params :window_sec) (get params "window_sec")))
         rt-overlap (parse-finite-double (or (get params :rt_overlap_sec) (get params "rt_overlap_sec")
@@ -158,16 +195,17 @@
         rt-emit-every (when (and realtime? (some? rt-emit-every) rt-partial-enable?)
                         (let [w (or rt-window rt-window-max-sec)]
                           (clamp rt-emit-every rt-emit-every-min-sec w)))]
-    (cond-> {:realtime realtime?
-             :refined refined?
-             :final final?
-             :store_recording store-recording?
-             :rt_partial_enable rt-partial-enable?}
-      (some? rt-window) (assoc :rt_window_sec rt-window)
-      (some? rt-overlap) (assoc :rt_overlap_sec rt-overlap)
-      (some? rt-emit-every) (assoc :rt_emit_every_sec rt-emit-every)
+     (cond-> {:realtime realtime?
+              :refined refined?
+              :final final?
+              :store_recording store-recording?
+              :rt_partial_enable rt-partial-enable?}
+       (seq realtime-tracks) (assoc :realtime_tracks realtime-tracks)
+       (some? rt-window) (assoc :rt_window_sec rt-window)
+       (some? rt-overlap) (assoc :rt_overlap_sec rt-overlap)
+       (some? rt-emit-every) (assoc :rt_emit_every_sec rt-emit-every)
 
-      (some? refinement-window) (assoc :refinement_window_sec refinement-window))))
+       (some? refinement-window) (assoc :refinement_window_sec refinement-window)))))
 
 (defn outputs-header-value
   "Return the value for Kafka header `x-outputs` based on controls.

@@ -15,7 +15,7 @@ Current checks:
 
 * Postgres (`select 1`)
 * Kafka (TCP reachability to at least one bootstrap host:port)
-* rtservice (TCP reachability to `:grpc :rtservice-addr`)
+* every configured realtime track (successful `GetCapabilities` gRPC call)
 
 If any dependency is down, `/ready` returns **503** and includes per-dependency flags:
 

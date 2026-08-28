@@ -79,7 +79,8 @@
          :callback-path-workflow-result "/internal/workflow-result"}
 
   ;; --- gRPC ---
-  :grpc {:rtservice-addr "localhost:50052"}
+  :grpc {:realtime-tracks [{:id "faster-whisper"
+                            :address "localhost:50052"}]}
 
   ;; --- S3 / object storage (enrollments + recordings playback) ---
   ;;

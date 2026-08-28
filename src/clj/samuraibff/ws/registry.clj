@@ -39,6 +39,7 @@
   - `:rt-partial-enable?` boolean? ; optional rtservice control
 
   - `:want-realtime?` boolean ; whether BFF starts rtservice gRPC
+  - `:realtime-track-ids` vector of selected operator-configured track IDs
   - `:want-refined?` boolean  ; whether BFF publishes to Kafka for refined pipeline
   - `:want-final?` boolean    ; whether BFF publishes to Kafka for final pipeline
   - `:store-recording?` boolean ; forwarded via Kafka header
@@ -53,7 +54,7 @@
   - `:events-mult`  core.async mult of `:events-ch`
 
   - `:stop-ch`      core.async channel used as a stop signal
-  - `:grpc-stream*` (atom (or nil stream-map))
+  - `:realtime-fanout*` (atom (or nil fan-out-map))
   - `:running?*`    (atom boolean)
 
   - `:events-subs*` (atom int) number of connected `/ws/events` sockets
@@ -85,7 +86,7 @@
    [integrant.core :as ig]
    [org.corfield.logging4j2 :as log]
    [samuraibff.session-trace :as session-trace]
-   [samuraibff.grpc.client :as grpc]
+   [samuraibff.grpc.fanout :as grpc.fanout]
    [samuraibff.grpc.metadata :as grpc.metadata]
    [samuraibff.kafka.producer :as kafka.producer]
    [samuraibff.schemas :as schemas])
@@ -154,13 +155,21 @@
   "Convert a gRPC AsrEvent protobuf message into a WS event map.
 
   Inputs:
-  - seq*  atom int (monotonic WS event seq)
-  - event protobuf AsrEvent
+  - seq*                atom int (monotonic WS event seq)
+  - track               configured BFF track ID
+  - primary?            whether this is the compatibility/default track
+  - provider-profile-id capability-handshake fallback profile ID
+  - event               protobuf AsrEvent
 
   Output: map matching `samuraibff.schemas/AsrEvent`."
-  [seq* ^samuraibff.proto.AsrEvent event]
+  [seq* track primary? provider-profile-id ^samuraibff.proto.AsrEvent event]
   {:type "asr"
    :session_id (.getSessionId event)
+   :track track
+   :primary_track (boolean primary?)
+   :provider_profile_id (or (not-empty (.getProviderProfileId event))
+                            (not-empty provider-profile-id)
+                            track)
    :seq (next-seq! seq*)
    :ts_ms (now-ms)
    :start_s (.getStartS event)
@@ -419,6 +428,7 @@
                                        rt-window-sec rt-overlap-sec rt-emit-every-sec
                                        rt-partial-enable?
                                        want-realtime? want-refined? want-final?
+                                       realtime-track-ids
                                        store-recording?
                                        kafka-headers]
                                 :or {lang ""}}]
@@ -441,6 +451,7 @@
      :rt-partial-enable? (when (some? rt-partial-enable?) (boolean rt-partial-enable?))
 
      :want-realtime? (boolean (if (some? want-realtime?) want-realtime? true))
+     :realtime-track-ids (when (some? realtime-track-ids) (vec realtime-track-ids))
      :want-refined? (boolean (if (some? want-refined?) want-refined? true))
      :want-final? (boolean (if (some? want-final?) want-final? true))
      :store-recording? (boolean (if (some? store-recording?) store-recording? true))
@@ -457,7 +468,7 @@
      :events-mult nil
      :stop-ch (async/chan)
 
-     :grpc-stream* (atom nil)
+     :realtime-fanout* (atom nil)
      :running?* (atom false)
      :drops* (atom 0)}))
 
@@ -528,9 +539,10 @@
   - the (possibly updated) session map, or nil if session not found."
   [{:keys [sessions]} tenant-id session-id {:keys [lang sample-rate
                                                    rt-window-sec rt-overlap-sec rt-emit-every-sec
-                                                   rt-partial-enable?
-                                                   want-realtime? want-refined? want-final?
-                                                   store-recording?
+                                                    rt-partial-enable?
+                                                    want-realtime? want-refined? want-final?
+                                                    realtime-track-ids
+                                                    store-recording?
                                                    kafka-headers]}]
   (let [updated* (atom nil)]
     (swap! sessions
@@ -547,9 +559,10 @@
                                   (some? rt-overlap-sec) (assoc :rt-overlap-sec (when (number? rt-overlap-sec) (double rt-overlap-sec)))
                                   (some? rt-emit-every-sec) (assoc :rt-emit-every-sec (when (number? rt-emit-every-sec) (double rt-emit-every-sec)))
 
-                                  (some? rt-partial-enable?) (assoc :rt-partial-enable? (boolean rt-partial-enable?))
-                                  (some? want-realtime?) (assoc :want-realtime? (boolean want-realtime?))
-                                  (some? want-refined?) (assoc :want-refined? (boolean want-refined?))
+                                   (some? rt-partial-enable?) (assoc :rt-partial-enable? (boolean rt-partial-enable?))
+                                   (some? want-realtime?) (assoc :want-realtime? (boolean want-realtime?))
+                                   (some? realtime-track-ids) (assoc :realtime-track-ids (vec realtime-track-ids))
+                                   (some? want-refined?) (assoc :want-refined? (boolean want-refined?))
                                   (some? want-final?) (assoc :want-final? (boolean want-final?))
                                   (some? store-recording?) (assoc :store-recording? (boolean store-recording?))
                                   (some? kafka-headers) (assoc :kafka-headers (ensure-bytes-header-map kafka-headers)))]
@@ -747,7 +760,7 @@
 
   Side effects:
   - closes stop/audio/events channels
-  - completes gRPC stream (if running)
+  - cancels active realtime tracks (if running)
   - removes session from registry
 
   Returns: nil."
@@ -756,10 +769,10 @@
     (log/info "Closing ws session" {:session-id session-id :tenant-id tenant-id :reason reason})
     (swap! sessions update tenant-id dissoc session-id)
     (try
-      (when-let [stream @(:grpc-stream* session)]
-        (grpc/close! stream))
+      (when-let [fanout @(:realtime-fanout* session)]
+        (grpc.fanout/cancel! fanout "BFF session closed"))
       (catch Exception e
-        (log/warn e "Failed to close gRPC stream" {:session-id session-id :tenant-id tenant-id})))
+        (log/warn e "Failed to cancel realtime tracks" {:session-id session-id :tenant-id tenant-id})))
     (doseq [ch [(:stop-ch session) (:audio-ch session) (:events-ch session)]]
       (try (async/close! ch) (catch Exception _ nil))))
   nil)
@@ -778,9 +791,23 @@
   session)
 
 (defn mark-audio-disconnected!
-  "Decrement the count of connected `/ws/audio` sockets and close session if unused."
+  "Decrement connected `/ws/audio` sockets and finish input after the last one.
+
+  Closing `:audio-ch` drains its buffered frames before the forwarding loop
+  half-closes realtime gRPC. The events side remains open until its subscribers
+  disconnect, allowing rtservice to deliver a terminal ASR event.
+
+  Inputs:
+  - registry ws-registry component
+  - session  session map
+
+  Returns: nil."
   [registry session]
-  (swap! (:audio-socks* session) (fn [n] (max 0 (dec n))))
+  (let [remaining (swap! (:audio-socks* session) (fn [n] (max 0 (dec n))))]
+    (when (zero? remaining)
+      (log/info "Finishing audio input" {:session-id (:session-id session)
+                                          :tenant-id (:tenant-id session)})
+      (async/close! (:audio-ch session))))
   (maybe-close-if-unused! registry session)
   nil)
 
@@ -798,19 +825,19 @@
   nil)
 
 (defn start-rt!
-  "Start the realtime gRPC stream and audio->gRPC loop for the given session.
+  "Start the selected realtime tracks and the shared audio dispatch loop for a session.
 
   This is idempotent; calling it multiple times will only start once.
 
   Inputs:
   - registry     ws-registry component
-  - grpc-client  gRPC client component (`:samuraibff/grpc-client`)
+  - grpc-client  configured peer clients (`:samuraibff/grpc-client`)
   - session      session map (from `ensure-session!`)
 
   Side effects:
-  - opens gRPC bidirectional stream
-  - starts a go-loop sending AudioChunk for each byte-array read from :audio-ch
-  - publishes ASR events into :events-ch
+  - opens one independently buffered gRPC stream per selected registered track
+  - publishes each AudioChunk to Kafka once and offers it to every active track
+  - publishes track-labelled ASR events into :events-ch
 
   Returns: session map."
   [registry grpc-client session]
@@ -836,50 +863,61 @@
                        (some? (:rt-partial-enable? session))
                        (assoc "x-rt-partial-enable" (if (:rt-partial-enable? session) "true" "false")))
             metadata (into {} (remove (fn [[_k v]] (nil? v)) metadata))
-            stream (when (:want-realtime? session)
-                     (log/info "Starting realtime gRPC stream" {:session-id session-id :tenant-id tenant-id})
-                     (when (seq metadata)
-                       (log/info "Attaching rtservice gRPC metadata" {:session-id session-id
-                                                                      :tenant-id tenant-id
-                                                                      :metadata (keys metadata)}))
-                     (try
-                       (grpc/start-stream!
-                        grpc-client
-                        {:on-next (fn [event]
-                                    (publish! registry session (asr-event->map (:seq* session) event)))
-                         :on-error (fn [t]
-                                     (log/error t "gRPC stream error" {:session-id session-id :tenant-id tenant-id})
-                                     (publish! registry session
-                                               (error-event session-id (:seq* session) "grpc-error" (.getMessage t)))
-                                     (close-session! registry tenant-id session-id "grpc-error"))
-                         :on-complete (fn []
-                                        (log/info "gRPC stream completed" {:session-id session-id :tenant-id tenant-id})
-                                        (publish! registry session
-                                                  (status-event session-id (:seq* session)
-                                                                "stopped" "grpc-stream-completed")))
-                         :metadata metadata})
-                       (catch Throwable t
-                         ;; If startup fails, allow retry + make failure obvious.
-                         (reset! (:running?* session) false)
-                         (log/error t "Failed to start realtime gRPC stream" {:session-id session-id :tenant-id tenant-id})
-                         (publish! registry session
-                                   (error-event session-id (:seq* session) "grpc-start-failed" (.getMessage t)))
-                         (throw t))))]
-        (reset! (:grpc-stream* session) stream)
+            fanout
+            (when (:want-realtime? session)
+              (log/info "Starting realtime ASR tracks" {:session-id session-id
+                                                         :tenant-id tenant-id
+                                                         :tracks (:realtime-track-ids session)})
+              (try
+                (grpc.fanout/start!
+                 grpc-client
+                 {:on-next
+                  (fn [{:keys [track primary? provider-profile-id event]}]
+                    (publish! registry session
+                              (asr-event->map (:seq* session) track primary? provider-profile-id event)))
+                  :on-error
+                  (fn [track error]
+                    (log/error error "Realtime ASR track failed"
+                               {:session-id session-id :tenant-id tenant-id :track track})
+                    (publish! registry session
+                              (assoc (error-event session-id (:seq* session)
+                                                  "realtime-track-failed" (str "track=" track))
+                                     :track track)))
+                  :on-complete
+                  (fn [track]
+                    (log/info "Realtime ASR track completed"
+                              {:session-id session-id :tenant-id tenant-id :track track})
+                    (publish! registry session
+                              (assoc (status-event session-id (:seq* session)
+                                                   "stopped" "grpc-stream-completed")
+                                     :track track)))}
+                 {:buffer-size (or (get-in (:config registry) [:grpc :track-buffer-size])
+                                   default-audio-buffer-size)
+                  :metadata metadata
+                  :track-ids (:realtime-track-ids session)})
+                (catch Throwable t
+                  (reset! (:running?* session) false)
+                  (log/error t "Failed to start realtime ASR tracks"
+                             {:session-id session-id :tenant-id tenant-id})
+                  (publish! registry session
+                            (error-event session-id (:seq* session)
+                                         "grpc-start-failed" "realtime tracks could not start"))
+                  (throw t))))]
+        (reset! (:realtime-fanout* session) fanout)
         (async/go-loop []
           (let [[v ch] (async/alts! [(:stop-ch session) (:audio-ch session)] :priority true)]
             (cond
               (= ch (:stop-ch session))
               (do
                 (log/info "Stopping audio forward loop" {:session-id session-id :tenant-id tenant-id})
-                (when stream
-                  (grpc/close! stream)))
+                (when fanout
+                  (grpc.fanout/cancel! fanout "audio forward loop stopped")))
 
               (nil? v)
               (do
                 (log/info "Audio channel closed" {:session-id session-id :tenant-id tenant-id})
-                (when stream
-                  (grpc/close! stream)))
+                (when fanout
+                  (grpc.fanout/complete! fanout)))
 
               :else
               (let [chunk-id (next-seq! (:chunk-seq* session))
@@ -906,15 +944,14 @@
                      {:tenant-id tenant-id
                       :headers (:kafka-headers session)}))
 
-                  ;; Forward to realtime gRPC ASR service (when enabled).
-                  (when stream
-                    (try
-                      ((:send! stream) audio-chunk)
-                      (catch Exception e
-                        (log/error e "gRPC send failed" {:session-id session-id :tenant-id tenant-id})
-                        (publish! registry session
-                                  (error-event session-id (:seq* session) "grpc-send-failed" (.getMessage e)))
-                        (close-session! registry tenant-id session-id "grpc-send-failed")))))
+                  (when fanout
+                    (doseq [track (grpc.fanout/offer! fanout audio-chunk)]
+                      (log/warn "Realtime track dropped for backpressure"
+                                {:session-id session-id :tenant-id tenant-id :track track})
+                      (publish! registry session
+                                (assoc (error-event session-id (:seq* session)
+                                                    "realtime-track-overloaded" (str "track=" track))
+                                       :track track)))))
                 (recur)))))
         session))
     session))

@@ -270,6 +270,24 @@
     .checkbox-row input{min-width:auto}
     .checkbox-row label{cursor:pointer;color:var(--txt);font-size:13px}
 
+    .track-picker{position:relative;width:min(100%,640px)}
+    .track-picker-summary{
+      display:flex;align-items:center;justify-content:space-between;gap:12px;
+      padding:9px 11px;border:1px solid rgba(34,48,70,.8);border-radius:10px;
+      background:var(--panel2);cursor:pointer;list-style:none
+    }
+    .track-picker-summary::-webkit-details-marker{display:none}
+    .track-picker-summary::after{content:"▾";color:var(--muted)}
+    .track-picker[open] .track-picker-summary::after{content:"▴"}
+    .track-picker.disabled .track-picker-summary{cursor:not-allowed;opacity:.55}
+    .track-picker-selected{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}
+    .track-picker-options{
+      position:absolute;z-index:30;top:calc(100% + 6px);left:0;right:0;
+      display:flex;flex-direction:column;gap:6px;padding:8px;
+      border:1px solid rgba(34,48,70,.9);border-radius:10px;
+      background:rgba(15,22,32,.99);box-shadow:0 14px 35px rgba(0,0,0,.45)
+    }
+
     /* --- Searchable dropdown (language select) --- */
 
     .dropdown{position:relative;min-width:240px}
@@ -365,6 +383,19 @@
     .split{display:flex;gap:12px;min-height:0}
     .split-main{flex:1;min-width:0;min-height:0}
     .split-side{width:32vw;min-height:0}
+
+    .realtime-track-grid{display:grid;gap:12px;min-width:0;overflow-x:auto;padding-bottom:2px}
+    .realtime-track-panel{
+      min-width:280px;overflow:hidden;border:1px solid rgba(34,48,70,.7);
+      border-radius:14px;background:rgba(15,22,32,.42)
+    }
+    .realtime-track-panel-header{
+      display:flex;align-items:center;justify-content:space-between;gap:10px;
+      padding:9px 12px;border-bottom:1px solid rgba(34,48,70,.65);background:rgba(12,18,27,.5)
+    }
+    .realtime-track-label{font-weight:750;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace}
+    .realtime-track-profile{font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .realtime-track-panel .transcript{padding:0 8px 8px}
 
     .transcript{height:calc(100vh - 56px - 16px - 16px - 68px);min-height:340px}
     .transcript-feed{height:100%;overflow:auto;padding-right:6px}
@@ -545,6 +576,8 @@
       input{min-width:0;width:100%}
       .grid-2{grid-template-columns:1fr}
       .dropdown{min-width:0;width:100%}
+      .realtime-track-grid{grid-template-columns:1fr!important}
+      .realtime-track-panel{min-width:0}
 
       .topbar{flex-wrap:wrap;height:auto}
       .brand{min-width:0}

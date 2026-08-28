@@ -18,6 +18,7 @@
    [org.corfield.logging4j2 :as log]
    [org.httpkit.server :as http]
    [samuraibff.db.sessions :as db.sessions]
+   [samuraibff.grpc.client :as grpc.client]
    [samuraibff.stream-controls :as stream-controls]
    [samuraibff.ws.auth :as ws.auth]
    [samuraibff.ws.registry :as ws.registry]
@@ -85,6 +86,7 @@
 
   Output selection:
   - realtime=true|false
+  - realtime_tracks=track-a,track-b
   - refined=true|false
   - final=true|false
   - store_recording=true|false
@@ -120,7 +122,8 @@
           (if-not ok?
             response
             (try
-              (let [controls (stream-controls/parse-and-validate params)
+              (let [available-realtime-tracks (mapv :id (grpc.client/tracks grpc))
+                    controls (stream-controls/parse-and-validate params available-realtime-tracks)
                     rt-window-sec (parse-rt-double (or (:rt_window_sec controls)
                                                        (get params :rt_window_sec) (get params "rt_window_sec")
                                                        (get params :window_sec) (get params "window_sec")))
@@ -133,6 +136,7 @@
                     session-opts (cond-> {:lang lang
                                           :sample-rate sample-rate
                                           :want-realtime? (:realtime controls)
+                                          :realtime-track-ids (:realtime_tracks controls)
                                           :want-refined? (:refined controls)
                                           :want-final? (:final controls)
                                           :store-recording? (:store_recording controls)
