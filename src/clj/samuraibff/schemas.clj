@@ -578,6 +578,8 @@
    [:native_streaming {:optional true} :boolean]
    [:segment_timestamps {:optional true} :boolean]
    [:word_timestamps {:optional true} :boolean]
+   [:speaker_labels {:optional true} :boolean]
+   [:aligned_diarized_languages {:optional true} [:vector NonEmptyString]]
    [:language_detection {:optional true} :boolean]
    [:supported_languages {:optional true} [:vector NonEmptyString]]
    [:preferred_sample_rate {:optional true} :int]

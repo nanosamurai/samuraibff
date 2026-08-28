@@ -829,6 +829,14 @@
                                   (:segment_timestamps capability) "Segment timestamps"
                                   (true? (:available capability)) "No timestamps"
                                   :else nil)
+                     aligned-languages (:aligned_diarized_languages capability)
+                     speaker-labels
+                     (when (:speaker_labels capability)
+                       (if (seq aligned-languages)
+                         (str "Speaker labels ("
+                              (count aligned-languages)
+                              " aligned languages)")
+                         "Speaker labels"))
                      concurrency (:maximum_concurrent_sessions capability)
                      capability-summary
                      (if (false? (:available capability))
@@ -837,6 +845,7 @@
                              mode
                              duration
                              timestamps
+                             speaker-labels
                              (when (and (number? concurrency) (pos? concurrency))
                                (str concurrency " concurrent"))
                              (when (seq (:supported_languages capability))

@@ -88,7 +88,10 @@
    :runtime (.getRuntime capabilities)
    :model-revision (.getModelRevision capabilities)
    :model-digest (.getModelDigest capabilities)
-   :implementation-revision (.getImplementationRevision capabilities)})
+   :implementation-revision (.getImplementationRevision capabilities)
+   :speaker-labels? (.getSpeakerLabels capabilities)
+   :aligned-diarized-languages
+   (vec (.getAlignedDiarizedLanguagesList capabilities))})
 
 (defmethod ig/init-key :samuraibff/grpc-client [_ {:keys [config]}]
   "Initialize one independent gRPC client for each configured realtime track.
