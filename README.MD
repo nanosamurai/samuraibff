@@ -81,8 +81,10 @@ revisions, or model digests, and can select any non-empty subset for a session.
 Capability discovery is best-effort: an unavailable provider is marked
 unavailable without failing `GET /api/me`. An omitted selection remains
 compatible and uses every configured track. The live UI shows each provider's
-mode, duration policy, timestamp support, concurrency, and language count before
-recording, then labels each selected track and renders simultaneous results side by side.
+mode, duration policy, timestamp and speaker-label support, concurrency, and
+language count before recording, then labels each selected track and renders
+simultaneous results side by side. For enriched providers the summary also
+shows how many languages support aligned, diarized finals.
 
 ## Related repositories / projects (nanosamur.ai)
 
