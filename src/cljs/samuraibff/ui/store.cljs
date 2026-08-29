@@ -917,6 +917,9 @@
     (when (debug-asr-log-enabled?)
       (append-log!
        (str "[asr] "
+            "track=" (pr-str (:track ev'))
+            " profile=" (pr-str (:provider_profile_id ev'))
+            " "
             (if final? "FINAL" "PARTIAL")
             " sp=" (pr-str speaker)
             " t=" (util/fmt-sec start) "→" (util/fmt-sec end)

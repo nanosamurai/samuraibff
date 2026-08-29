@@ -85,6 +85,9 @@ mode, duration policy, timestamp and speaker-label support, concurrency, and
 language count before recording, then labels each selected track and renders
 simultaneous results side by side. For enriched providers the summary also
 shows how many languages support aligned, diarized finals.
+When the live UI's `Log ASR events` diagnostic is enabled, every compact ASR
+line includes both the selected track ID and sanitized provider profile ID so
+parallel provider events remain distinguishable.
 
 ## Related repositories / projects (nanosamur.ai)
 
