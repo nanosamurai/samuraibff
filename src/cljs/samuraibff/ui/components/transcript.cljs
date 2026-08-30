@@ -40,13 +40,17 @@
   Refined messages are visually marked (★ refined).
 
   Inputs:
-  - {:keys [messages empty-title empty-hint auto-scroll? initial-scroll]}
+  - {:keys [messages empty-title empty-hint auto-scroll? initial-scroll
+            highlight-revisions?]}
 
   Returns: hiccup."
-  [{:keys [messages empty-title empty-hint auto-scroll? initial-scroll message-actions]}]
+  [{:keys [messages empty-title empty-hint auto-scroll? initial-scroll message-actions
+           highlight-revisions?]}]
   (let [msgs (->> (or messages [])
                   transcript/coalesce-asr-finals
                   vec)
+        revision-keys (mapv message-key (range (count msgs)) msgs)
+        seen-revision-keys* (react/useRef (set revision-keys))
         container-ref (react/useRef nil)
         ;; Auto-scroll unless the user scrolled up.
         ;; NOTE: for some views (e.g. final transcript playback) we disable this.
@@ -54,6 +58,12 @@
         initial-scroll (or initial-scroll :bottom)
         auto-scroll?* (react/useRef true)
         initial-scrolled?* (react/useRef false)]
+
+    (react/useEffect
+     (fn []
+       (set! (.-current seen-revision-keys*) (set revision-keys))
+       js/undefined)
+     #js [msgs])
 
     (react/useEffect
      (fn []
@@ -88,12 +98,20 @@
                           (set! (.-current auto-scroll?*) (<= dist 48))))))
         (for [[idx msg] (map-indexed vector msgs)]
           (let [k (message-key idx msg)
+                highlight-revision? (and (true? highlight-revisions?)
+                                         (not (contains? (.-current seen-revision-keys*) k)))
                 speaker (:speaker msg)
                 who (transcript/speaker->display-name speaker)
                 avatar (transcript/speaker->avatar-text speaker)
                 start-ts (util/fmt-sec (:start_s msg))
                 end-ts (util/fmt-sec (:end_s msg))
-                bubble-class (str "bubble" (when (and (= "asr" (:kind msg)) (false? (:final msg))) " draft"))
+                partial? (and (= "asr" (:kind msg)) (false? (:final msg)))
+                bubble-class (str "bubble"
+                                  (when partial? " draft")
+                                  (when highlight-revision?
+                                    (if partial?
+                                      " revision-highlight revision-partial"
+                                      " revision-highlight revision-final")))
                 actions-node (when (fn? message-actions)
                                (message-actions {:idx idx :msg msg}))]
             [:div {:class "msg" :key k}

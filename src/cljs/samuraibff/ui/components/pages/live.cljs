@@ -1031,9 +1031,10 @@
 
   Inputs:
   - track-ids: ordered vector of operator-configured track ID strings
+  - highlight-revisions?: whether incoming partial/final revisions should flash
 
   Returns Hiccup containing one to four horizontally arranged panels."
-  [track-ids]
+  [track-ids highlight-revisions?]
   (let [messages (hooks/use-atom store/asr-segments*)
         track-ids (if (seq track-ids) (vec track-ids) ["default"])]
     [:div {:class "realtime-track-grid"
@@ -1049,10 +1050,11 @@
            [:span {:class "realtime-track-label"} track-id]
            (when (seq profile-id)
              [:span {:class "muted realtime-track-profile"} profile-id])]
-          [components.transcript/transcript-view
-           {:messages track-messages
-            :empty-title "Real-time transcript"
-            :empty-hint (str "Waiting for " track-id " events…")}]]))]))
+           [components.transcript/transcript-view
+            {:messages track-messages
+             :highlight-revisions? highlight-revisions?
+             :empty-title "Real-time transcript"
+             :empty-hint (str "Waiting for " track-id " events…")}]]))]))
 
 (defn- refined-live-transcript
   "Refined realtime transcript component bound to the live session store."
@@ -1068,6 +1070,10 @@
   (let [tab* (react/useState :realtime)
         tab (aget tab* 0)
         set-tab! (aget tab* 1)
+
+        highlight-revisions?* (react/useState false)
+        highlight-revisions? (aget highlight-revisions?* 0)
+        set-highlight-revisions! (aget highlight-revisions?* 1)
 
         session (hooks/use-atom store/session*)
         auth-state (hooks/use-atom store/auth*)
@@ -1134,8 +1140,17 @@
       [:button {:class (str "tab " (when (= tab :refined) "active"))
                 :on-click (fn [_] (set-tab! :refined))}
        "Refined real-time"]
-      [:div {:class "spacer"}]
-      [:button {:class "btn ghost icon"
+       [:div {:class "spacer"}]
+       (when (= tab :realtime)
+         [:label {:class "realtime-revision-toggle"
+                  :title "Flash partial and final transcript updates with distinct colors"}
+          [:input {:type "checkbox"
+                   :aria-label "Highlight realtime transcript updates"
+                   :checked (boolean highlight-revisions?)
+                   :on-change (fn [e]
+                                (set-highlight-revisions! (.. e -target -checked)))}]
+          [:span "Highlight updates"]])
+       [:button {:class "btn ghost icon"
                 :type "button"
                 :aria-label (if show-log?
                               "Hide log panel"
@@ -1154,7 +1169,7 @@
       [:div {:class "split-main"}
        (case tab
          :refined [refined-live-transcript]
-         [live-transcript realtime-track-ids])]
+         [live-transcript realtime-track-ids highlight-revisions?])]
       (when show-log?
         [:div {:class "split-side"}
          [right-panel]])]]))
