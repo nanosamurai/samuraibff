@@ -51,6 +51,7 @@
                   vec)
         revision-keys (mapv message-key (range (count msgs)) msgs)
         seen-revision-keys* (react/useRef (set revision-keys))
+        previous-msgs* (react/useRef msgs)
         container-ref (react/useRef nil)
         ;; Auto-scroll unless the user scrolled up.
         ;; NOTE: for some views (e.g. final transcript playback) we disable this.
@@ -62,6 +63,7 @@
     (react/useEffect
      (fn []
        (set! (.-current seen-revision-keys*) (set revision-keys))
+       (set! (.-current previous-msgs*) msgs)
        js/undefined)
      #js [msgs])
 
@@ -100,18 +102,29 @@
           (let [k (message-key idx msg)
                 highlight-revision? (and (true? highlight-revisions?)
                                          (not (contains? (.-current seen-revision-keys*) k)))
+                previous-msg (nth (.-current previous-msgs*) idx nil)
                 speaker (:speaker msg)
                 who (transcript/speaker->display-name speaker)
                 avatar (transcript/speaker->avatar-text speaker)
                 start-ts (util/fmt-sec (:start_s msg))
                 end-ts (util/fmt-sec (:end_s msg))
                 partial? (and (= "asr" (:kind msg)) (false? (:final msg)))
-                bubble-class (str "bubble"
-                                  (when partial? " draft")
-                                  (when highlight-revision?
-                                    (if partial?
-                                      " revision-highlight revision-partial"
-                                      " revision-highlight revision-final")))
+                bubble-class (str "bubble" (when partial? " draft"))
+                text-node (if (and highlight-revision? (string? (:text msg)))
+                            (let [{:keys [before changed after]}
+                                  (transcript/revision-text-parts
+                                   (when (string? (:text previous-msg)) (:text previous-msg))
+                                   (:text msg))]
+                              [:span
+                               before
+                               (when (seq changed)
+                                 [:span {:class (str "revision-text "
+                                                     (if partial?
+                                                       "revision-partial"
+                                                       "revision-final"))}
+                                  changed])
+                               after])
+                            (:text msg))
                 actions-node (when (fn? message-actions)
                                (message-actions {:idx idx :msg msg}))]
             [:div {:class "msg" :key k}
@@ -125,7 +138,7 @@
                ;; NOTE: message actions are rendered *inside* the bubble so they
                ;; follow the bubble on line breaks / narrow viewports.
                (when actions-node actions-node)
-               (:text msg)]]]))])]))
+               text-node]]]))])]))
 
 (defn final-transcript-karaoke
   "Render final transcript with word-level karaoke highlighting.

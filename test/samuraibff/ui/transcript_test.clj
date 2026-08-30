@@ -195,3 +195,26 @@
                 {:kind "asr" :seq 2 :ts_ms 2 :start_s 2.1 :end_s 4.0 :text "qwen" :speaker "S" :track "qwen" :final true}]
           out (transcript/coalesce-asr-finals msgs {:max-gap-s 0.3})]
       (is (= ["faster" "qwen"] (mapv :text out))))))
+
+(deftest revision-text-parts-highlights-readable-changes
+  (testing "a first message is entirely new"
+    (is (= {:before "" :changed "hello world" :after ""}
+           (transcript/revision-text-parts nil "hello world"))))
+
+  (testing "an appended final highlights only its addition"
+    (is (= {:before "hello world" :changed " again" :after ""}
+           (transcript/revision-text-parts "hello world" "hello world again"))))
+
+  (testing "a revised partial highlights only the replaced word"
+    (is (= {:before "the quick " :changed "blue" :after " fox"}
+           (transcript/revision-text-parts "the quick brown fox"
+                                           "the quick blue fox"))))
+
+  (testing "a deletion highlights the nearest surviving word"
+    (is (= {:before "the " :changed "brown" :after " fox"}
+           (transcript/revision-text-parts "the noisy brown fox"
+                                           "the brown fox"))))
+
+  (testing "unchanged text has no highlighted span"
+    (is (= {:before "same text" :changed "" :after ""}
+           (transcript/revision-text-parts "same text" "same text")))))

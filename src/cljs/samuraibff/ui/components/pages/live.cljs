@@ -981,8 +981,12 @@
 (defn right-panel
   "Right-side panel for Record.
 
-  Contains tabs (for now: Log only)."
-  []
+  Contains diagnostic controls plus log, webhook, and workflow tabs.
+
+  Inputs:
+  - highlight-revisions?: whether transcript revisions are highlighted
+  - set-highlight-revisions!: React state setter"
+  [{:keys [highlight-revisions? set-highlight-revisions!]}]
   (let [active* (react/useState :workflows)
         active (aget active* 0)
         set-active! (aget active* 1)
@@ -1005,16 +1009,21 @@
          "Workflows"])]
      [:div {:class "right-panel-body"}
       [ws-indicator]
-      [:label {:class "muted"
-               :style {:display "inline-flex"
-                       :gap "8px"
-                       :alignItems "center"
-                       :margin "8px 0"}}
-       [:input {:type "checkbox"
-                :checked (boolean debug-asr?)
-                :on-change (fn [e]
-                             (store/set-debug-asr-log! (.. e -target -checked)))}]
-       "Log ASR events"]
+      [:div {:class "asr-debug-controls"}
+       [:label {:class "asr-debug-toggle"
+                :title "Add compact realtime ASR events to the diagnostic log"}
+        [:input {:type "checkbox"
+                 :checked (boolean debug-asr?)
+                 :on-change (fn [e]
+                              (store/set-debug-asr-log! (.. e -target -checked)))}]
+        [:span "Log ASR events"]]
+       [:label {:class "asr-debug-toggle"
+                :title "Highlight new or revised partial and final transcript words"}
+        [:input {:type "checkbox"
+                 :checked (boolean highlight-revisions?)
+                 :on-change (fn [e]
+                              (set-highlight-revisions! (.. e -target -checked)))}]
+        [:span "Highlight updates"]]]
 
       (case active
         :webhooks [webhooks-view]
@@ -1141,15 +1150,6 @@
                 :on-click (fn [_] (set-tab! :refined))}
        "Refined real-time"]
        [:div {:class "spacer"}]
-       (when (= tab :realtime)
-         [:label {:class "realtime-revision-toggle"
-                  :title "Flash partial and final transcript updates with distinct colors"}
-          [:input {:type "checkbox"
-                   :aria-label "Highlight realtime transcript updates"
-                   :checked (boolean highlight-revisions?)
-                   :on-change (fn [e]
-                                (set-highlight-revisions! (.. e -target -checked)))}]
-          [:span "Highlight updates"]])
        [:button {:class "btn ghost icon"
                 :type "button"
                 :aria-label (if show-log?
@@ -1172,4 +1172,5 @@
          [live-transcript realtime-track-ids highlight-revisions?])]
       (when show-log?
         [:div {:class "split-side"}
-         [right-panel]])]]))
+         [right-panel {:highlight-revisions? highlight-revisions?
+                       :set-highlight-revisions! set-highlight-revisions!}]])]]))
