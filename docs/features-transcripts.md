@@ -25,6 +25,13 @@ The live page's right-side diagnostic log can be hidden or restored with the
 chevron beside the transcript tabs. Hiding it gives the selected transcript
 tracks the full available width without interrupting capture or event logging.
 
+The compact **Highlight updates** checkbox beside that chevron is a local,
+display-only comparison aid. Once enabled, newly arriving or revised partial
+hypotheses briefly flash blue/purple, while committed final revisions briefly
+flash the warm yellow used by karaoke highlighting. Enabling it does not alter
+ASR controls, provider requests, transcript data, or the diagnostic log, and
+existing messages do not flash merely because the checkbox was selected.
+
 ## Refined (Kafka)
 
 * BFF publishes `AudioChunk` protobuf messages to Kafka topic `audio.raw`.

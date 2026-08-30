@@ -88,6 +88,9 @@ shows how many languages support aligned, diarized finals.
 When the live UI's `Log ASR events` diagnostic is enabled, every compact ASR
 line includes both the selected track ID and sanitized provider profile ID so
 parallel provider events remain distinguishable.
+The adjacent `Highlight updates` display toggle makes new or revised realtime
+partials and finals flash with distinct colors, which helps compare concurrent
+provider tracks without changing their transcription settings or results.
 
 ## Related repositories / projects (nanosamur.ai)
 
