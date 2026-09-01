@@ -424,6 +424,54 @@
 
 ;; --- Cosmetic rendering helpers ---
 
+(defn revision-text-parts
+  "Split a transcript revision into unchanged and changed text.
+
+  The comparison is token-based while preserving the original whitespace. This
+  keeps the highlighted range aligned to readable words instead of individual
+  characters. When a revision only deletes text, the nearest surviving word is
+  returned as changed so the UI can still signal where the edit occurred.
+
+  Inputs:
+  - previous-text: string or nil
+  - current-text: string or nil
+
+  Returns:
+  - {:before string :changed string :after string}."
+  [previous-text current-text]
+  (let [tokens (fn [text]
+                 (vec (re-seq #"\s+|\S+" (str (or text "")))))
+        previous (tokens previous-text)
+        current (tokens current-text)
+        previous-count (count previous)
+        current-count (count current)
+        prefix-count (loop [idx 0]
+                       (if (and (< idx previous-count)
+                                (< idx current-count)
+                                (= (nth previous idx) (nth current idx)))
+                         (recur (inc idx))
+                         idx))
+        suffix-limit (- (min previous-count current-count) prefix-count)
+        suffix-count (loop [idx 0]
+                       (if (and (< idx suffix-limit)
+                                (= (nth previous (- previous-count idx 1))
+                                   (nth current (- current-count idx 1))))
+                         (recur (inc idx))
+                         idx))
+        changed-count (- current-count prefix-count suffix-count)
+        [prefix-count suffix-count]
+        (if (and (zero? changed-count)
+                 (not= previous current)
+                 (pos? current-count))
+          (if (pos? suffix-count)
+            [prefix-count (dec suffix-count)]
+            [(dec prefix-count) suffix-count])
+          [prefix-count suffix-count])
+        changed-end (- current-count suffix-count)]
+    {:before (apply str (subvec current 0 prefix-count))
+     :changed (apply str (subvec current prefix-count changed-end))
+     :after (apply str (subvec current changed-end current-count))}))
+
 (defn coalesce-asr-finals
   "Coalesce consecutive realtime ASR FINAL messages into larger bubbles.
 

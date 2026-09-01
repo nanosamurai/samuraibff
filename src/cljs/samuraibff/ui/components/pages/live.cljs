@@ -829,6 +829,14 @@
                                   (:segment_timestamps capability) "Segment timestamps"
                                   (true? (:available capability)) "No timestamps"
                                   :else nil)
+                     aligned-languages (:aligned_diarized_languages capability)
+                     speaker-labels
+                     (when (:speaker_labels capability)
+                       (if (seq aligned-languages)
+                         (str "Speaker labels ("
+                              (count aligned-languages)
+                              " aligned languages)")
+                         "Speaker labels"))
                      concurrency (:maximum_concurrent_sessions capability)
                      capability-summary
                      (if (false? (:available capability))
@@ -837,6 +845,7 @@
                              mode
                              duration
                              timestamps
+                             speaker-labels
                              (when (and (number? concurrency) (pos? concurrency))
                                (str concurrency " concurrent"))
                              (when (seq (:supported_languages capability))
@@ -972,8 +981,12 @@
 (defn right-panel
   "Right-side panel for Record.
 
-  Contains tabs (for now: Log only)."
-  []
+  Contains diagnostic controls plus log, webhook, and workflow tabs.
+
+  Inputs:
+  - highlight-revisions?: whether transcript revisions are highlighted
+  - set-highlight-revisions!: React state setter"
+  [{:keys [highlight-revisions? set-highlight-revisions!]}]
   (let [active* (react/useState :workflows)
         active (aget active* 0)
         set-active! (aget active* 1)
@@ -996,16 +1009,21 @@
          "Workflows"])]
      [:div {:class "right-panel-body"}
       [ws-indicator]
-      [:label {:class "muted"
-               :style {:display "inline-flex"
-                       :gap "8px"
-                       :alignItems "center"
-                       :margin "8px 0"}}
-       [:input {:type "checkbox"
-                :checked (boolean debug-asr?)
-                :on-change (fn [e]
-                             (store/set-debug-asr-log! (.. e -target -checked)))}]
-       "Log ASR events"]
+      [:div {:class "asr-debug-controls"}
+       [:label {:class "asr-debug-toggle"
+                :title "Add compact realtime ASR events to the diagnostic log"}
+        [:input {:type "checkbox"
+                 :checked (boolean debug-asr?)
+                 :on-change (fn [e]
+                              (store/set-debug-asr-log! (.. e -target -checked)))}]
+        [:span "Log ASR events"]]
+       [:label {:class "asr-debug-toggle"
+                :title "Highlight new or revised partial and final transcript words"}
+        [:input {:type "checkbox"
+                 :checked (boolean highlight-revisions?)
+                 :on-change (fn [e]
+                              (set-highlight-revisions! (.. e -target -checked)))}]
+        [:span "Highlight updates"]]]
 
       (case active
         :webhooks [webhooks-view]
@@ -1022,9 +1040,10 @@
 
   Inputs:
   - track-ids: ordered vector of operator-configured track ID strings
+  - highlight-revisions?: whether incoming partial/final revisions should flash
 
   Returns Hiccup containing one to four horizontally arranged panels."
-  [track-ids]
+  [track-ids highlight-revisions?]
   (let [messages (hooks/use-atom store/asr-segments*)
         track-ids (if (seq track-ids) (vec track-ids) ["default"])]
     [:div {:class "realtime-track-grid"
@@ -1040,10 +1059,11 @@
            [:span {:class "realtime-track-label"} track-id]
            (when (seq profile-id)
              [:span {:class "muted realtime-track-profile"} profile-id])]
-          [components.transcript/transcript-view
-           {:messages track-messages
-            :empty-title "Real-time transcript"
-            :empty-hint (str "Waiting for " track-id " events…")}]]))]))
+           [components.transcript/transcript-view
+            {:messages track-messages
+             :highlight-revisions? highlight-revisions?
+             :empty-title "Real-time transcript"
+             :empty-hint (str "Waiting for " track-id " events…")}]]))]))
 
 (defn- refined-live-transcript
   "Refined realtime transcript component bound to the live session store."
@@ -1059,6 +1079,10 @@
   (let [tab* (react/useState :realtime)
         tab (aget tab* 0)
         set-tab! (aget tab* 1)
+
+        highlight-revisions?* (react/useState false)
+        highlight-revisions? (aget highlight-revisions?* 0)
+        set-highlight-revisions! (aget highlight-revisions?* 1)
 
         session (hooks/use-atom store/session*)
         auth-state (hooks/use-atom store/auth*)
@@ -1125,8 +1149,8 @@
       [:button {:class (str "tab " (when (= tab :refined) "active"))
                 :on-click (fn [_] (set-tab! :refined))}
        "Refined real-time"]
-      [:div {:class "spacer"}]
-      [:button {:class "btn ghost icon"
+       [:div {:class "spacer"}]
+       [:button {:class "btn ghost icon"
                 :type "button"
                 :aria-label (if show-log?
                               "Hide log panel"
@@ -1145,7 +1169,8 @@
       [:div {:class "split-main"}
        (case tab
          :refined [refined-live-transcript]
-         [live-transcript realtime-track-ids])]
+         [live-transcript realtime-track-ids highlight-revisions?])]
       (when show-log?
         [:div {:class "split-side"}
-         [right-panel]])]]))
+         [right-panel {:highlight-revisions? highlight-revisions?
+                       :set-highlight-revisions! set-highlight-revisions!}]])]]))

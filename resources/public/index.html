@@ -396,6 +396,13 @@
     .realtime-track-label{font-weight:750;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace}
     .realtime-track-profile{font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .realtime-track-panel .transcript{padding:0 8px 8px}
+    .realtime-track-panel .bubble{white-space:normal}
+    .asr-debug-controls{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:8px 0}
+    .asr-debug-toggle{
+      display:inline-flex;align-items:center;gap:6px;align-self:center;
+      color:var(--muted);font-size:12px;cursor:pointer;white-space:nowrap
+    }
+    .asr-debug-toggle input{margin:0;min-width:auto;width:auto;accent-color:var(--accent)}
 
     .transcript{height:calc(100vh - 56px - 16px - 16px - 68px);min-height:340px}
     .transcript-feed{height:100%;overflow:auto;padding-right:6px}
@@ -466,6 +473,35 @@
     .bubble-action-btn:hover{color:var(--txt);border-color:rgba(168,139,255,.35)}
 
     .bubble.draft{border-style:dashed;opacity:.92}
+
+    .revision-text{
+      display:inline;padding:1px 2px;margin:-1px -2px;border-radius:6px;
+      -webkit-box-decoration-break:clone;box-decoration-break:clone
+    }
+
+    .revision-text.revision-partial{
+      animation:realtime-partial-revision 1.1s ease-out
+    }
+
+    .revision-text.revision-final{
+      animation:realtime-final-revision 1.35s ease-out
+    }
+
+    @keyframes realtime-partial-revision{
+      0%{background:rgba(107,203,255,.28);box-shadow:0 0 0 2px rgba(107,203,255,.34) inset;color:rgba(226,248,255,.98)}
+      45%{background:rgba(107,203,255,.14);box-shadow:0 0 0 1px rgba(107,203,255,.20) inset}
+      100%{background:transparent;box-shadow:none;color:inherit}
+    }
+
+    @keyframes realtime-final-revision{
+      0%{background:rgba(255,214,88,.28);box-shadow:0 0 0 2px rgba(255,214,88,.32) inset;color:rgba(255,244,214,.98)}
+      45%{background:rgba(255,214,88,.12);box-shadow:0 0 0 1px rgba(255,214,88,.18) inset}
+      100%{background:transparent;box-shadow:none;color:inherit}
+    }
+
+    @media (prefers-reduced-motion: reduce){
+      .revision-text{animation-duration:1ms}
+    }
 
     /* --- Karaoke word highlighting --- */
 

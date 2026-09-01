@@ -500,6 +500,8 @@
             :native_streaming (:native-streaming? capabilities)
             :segment_timestamps (:segment-timestamps? capabilities)
             :word_timestamps (:word-timestamps? capabilities)
+            :speaker_labels (:speaker-labels? capabilities)
+            :aligned_diarized_languages (:aligned-diarized-languages capabilities)
             :language_detection (:language-detection? capabilities)
             :supported_languages (:supported-languages capabilities)
             :preferred_sample_rate (:preferred-sample-rate capabilities)

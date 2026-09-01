@@ -52,8 +52,9 @@ queue and bidirectional stream. One slow, failed, or overloaded track is
 canceled without stopping its peers.
 
 `GET /api/me` exposes the ordered stable track IDs and a sanitized capability
-view to the UI. The capability view includes mode, timestamp and language
-support, sample rate, duration policy, and concurrency; it deliberately omits
+view to the UI. The capability view includes mode, timestamp, speaker-label and
+language support, aligned-and-diarized language codes, sample rate, duration
+policy, and concurrency; it deliberately omits
 peer endpoints, runtime versions, model revisions, and digests. Discovery is
 best-effort, so an unavailable provider is reported as unavailable without
 failing the entire endpoint. The live track picker renders these limits before

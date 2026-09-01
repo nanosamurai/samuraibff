@@ -40,13 +40,18 @@
   Refined messages are visually marked (★ refined).
 
   Inputs:
-  - {:keys [messages empty-title empty-hint auto-scroll? initial-scroll]}
+  - {:keys [messages empty-title empty-hint auto-scroll? initial-scroll
+            highlight-revisions?]}
 
   Returns: hiccup."
-  [{:keys [messages empty-title empty-hint auto-scroll? initial-scroll message-actions]}]
+  [{:keys [messages empty-title empty-hint auto-scroll? initial-scroll message-actions
+           highlight-revisions?]}]
   (let [msgs (->> (or messages [])
                   transcript/coalesce-asr-finals
                   vec)
+        revision-keys (mapv message-key (range (count msgs)) msgs)
+        seen-revision-keys* (react/useRef (set revision-keys))
+        previous-msgs* (react/useRef msgs)
         container-ref (react/useRef nil)
         ;; Auto-scroll unless the user scrolled up.
         ;; NOTE: for some views (e.g. final transcript playback) we disable this.
@@ -54,6 +59,13 @@
         initial-scroll (or initial-scroll :bottom)
         auto-scroll?* (react/useRef true)
         initial-scrolled?* (react/useRef false)]
+
+    (react/useEffect
+     (fn []
+       (set! (.-current seen-revision-keys*) (set revision-keys))
+       (set! (.-current previous-msgs*) msgs)
+       js/undefined)
+     #js [msgs])
 
     (react/useEffect
      (fn []
@@ -88,12 +100,31 @@
                           (set! (.-current auto-scroll?*) (<= dist 48))))))
         (for [[idx msg] (map-indexed vector msgs)]
           (let [k (message-key idx msg)
+                highlight-revision? (and (true? highlight-revisions?)
+                                         (not (contains? (.-current seen-revision-keys*) k)))
+                previous-msg (nth (.-current previous-msgs*) idx nil)
                 speaker (:speaker msg)
                 who (transcript/speaker->display-name speaker)
                 avatar (transcript/speaker->avatar-text speaker)
                 start-ts (util/fmt-sec (:start_s msg))
                 end-ts (util/fmt-sec (:end_s msg))
-                bubble-class (str "bubble" (when (and (= "asr" (:kind msg)) (false? (:final msg))) " draft"))
+                partial? (and (= "asr" (:kind msg)) (false? (:final msg)))
+                bubble-class (str "bubble" (when partial? " draft"))
+                text-node (if (and highlight-revision? (string? (:text msg)))
+                            (let [{:keys [before changed after]}
+                                  (transcript/revision-text-parts
+                                   (when (string? (:text previous-msg)) (:text previous-msg))
+                                   (:text msg))]
+                              [:span
+                               before
+                               (when (seq changed)
+                                 [:span {:class (str "revision-text "
+                                                     (if partial?
+                                                       "revision-partial"
+                                                       "revision-final"))}
+                                  changed])
+                               after])
+                            (:text msg))
                 actions-node (when (fn? message-actions)
                                (message-actions {:idx idx :msg msg}))]
             [:div {:class "msg" :key k}
@@ -107,7 +138,7 @@
                ;; NOTE: message actions are rendered *inside* the bubble so they
                ;; follow the bubble on line breaks / narrow viewports.
                (when actions-node actions-node)
-               (:text msg)]]]))])]))
+               text-node]]]))])]))
 
 (defn final-transcript-karaoke
   "Render final transcript with word-level karaoke highlighting.

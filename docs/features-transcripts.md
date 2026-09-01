@@ -25,6 +25,15 @@ The live page's right-side diagnostic log can be hidden or restored with the
 chevron beside the transcript tabs. Hiding it gives the selected transcript
 tracks the full available width without interrupting capture or event logging.
 
+The log panel groups two compact diagnostics: **Log ASR events** adds compact
+provider events to the log, while **Highlight updates** is a local, display-only
+comparison aid. Once highlighting is enabled, only newly added or replaced
+words flash: partial hypotheses use blue/cyan and committed finals use the warm
+yellow used by karaoke highlighting. The UI derives these spans from successive
+full-text revisions, including additions to coalesced final bubbles. Enabling it
+does not alter ASR controls, provider requests, transcript data, or event
+logging, and existing messages do not flash merely because it was selected.
+
 ## Refined (Kafka)
 
 * BFF publishes `AudioChunk` protobuf messages to Kafka topic `audio.raw`.

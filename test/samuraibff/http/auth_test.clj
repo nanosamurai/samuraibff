@@ -71,6 +71,8 @@
                      :native-streaming? (= id "qwen")
                      :segment-timestamps? (= id "faster")
                      :word-timestamps? false
+                     :speaker-labels? true
+                     :aligned-diarized-languages (if (= id "qwen") ["en"] [])
                      :language-detection? true
                      :supported-languages ["en" "cs"]
                      :preferred-sample-rate 16000
@@ -90,6 +92,8 @@
                 :native_streaming true
                 :segment_timestamps false
                 :word_timestamps false
+                :speaker_labels true
+                :aligned_diarized_languages ["en"]
                 :language_detection true
                 :supported_languages ["en" "cs"]
                 :preferred_sample_rate 16000
