@@ -25,11 +25,11 @@ flowchart LR
     end
 
     subgraph Xamurai["xamurai (Python services)"]
-        RTService["rtservice\n(Faster-Whisper RealtimeASR)"]
-        QwenRT["qwen-rtservice\n(Qwen RealtimeASR)"]
-        WhisperXWorker["whisperx_worker\n(slice refinement)"]
+        RTService["rtservice\n(Faster-Whisper + pyannote)"]
+        QwenRT["qwen-rtservice\n(Qwen3-ASR + ForcedAligner + pyannote)"]
+        WhisperXWorker["whisperx_worker\n(WhisperX + pyannote refinement)"]
         RecorderWorker["recorder_worker\n(session WAV)"]
-        FinalizerWorker["finalizer_worker\n(final transcript)"]
+        FinalizerWorker["finalizer_worker\n(WhisperX + pyannote final transcript)"]
     end
 
     Browser -->|HTTP /api + /auth| HTTP
@@ -85,13 +85,6 @@ mode, duration policy, timestamp and speaker-label support, concurrency, and
 language count before recording, then labels each selected track and renders
 simultaneous results side by side. For enriched providers the summary also
 shows how many languages support aligned, diarized finals.
-When the live UI's `Log ASR events` diagnostic is enabled, every compact ASR
-line includes both the selected track ID and sanitized provider profile ID so
-parallel provider events remain distinguishable.
-The log panel's adjacent `Highlight updates` display toggle flashes only the
-newly added or replaced words in realtime partials and finals, using distinct
-colors to compare concurrent providers without changing their settings or
-results.
 
 ## Related repositories / projects (nanosamur.ai)
 
