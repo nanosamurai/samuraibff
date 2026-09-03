@@ -9,7 +9,7 @@
   },
   "devDependencies": {
     "concurrently": "9.2.4",
-    "electron": "43.4.0",
+    "electron": "44.0.0",
     "electron-builder": "26.15.3",
     "shadow-cljs": "3.3.4",
     "wait-on": "8.0.5"
