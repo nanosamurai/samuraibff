@@ -197,7 +197,9 @@
                         :workflow-result (s "SAMURAIBFF_KAFKA_TOPIC_WORKFLOW_RESULT")}}
 
       :grpc {:rtservice-addr (s "SAMURAIBFF_GRPC_RTSERVICE_ADDR")
-             :realtime-tracks (parse-realtime-tracks (getenv-fn "SAMURAIBFF_GRPC_REALTIME_TRACKS"))}
+             :realtime-tracks (parse-realtime-tracks (getenv-fn "SAMURAIBFF_GRPC_REALTIME_TRACKS"))
+             :admission-timeout-ms (i "SAMURAIBFF_GRPC_ADMISSION_TIMEOUT_MS")
+             :admission-max-attempts (i "SAMURAIBFF_GRPC_ADMISSION_MAX_ATTEMPTS")}
 
       ;; Recordings playback (audio).
       ;; - local-root: filesystem path allowed for file:// recording_url values

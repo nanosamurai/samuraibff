@@ -10,13 +10,17 @@
   key. Each configured track owns an independent channel and RealtimeASR stub.
   Channels use plaintext transport inside the workload network for now."
   (:require
+   [clojure.string :as str]
    [integrant.core :as ig]
    [org.corfield.logging4j2 :as log])
   (:import
    (io.grpc ClientInterceptor ManagedChannel ManagedChannelBuilder Metadata Metadata$Key Status)
    (io.grpc.stub MetadataUtils StreamObserver)
    (java.util.concurrent TimeUnit)
-   (samuraibff.proto RealtimeASRGrpc RealtimeCapabilitiesRequest)))
+   (samuraibff.proto AsrType RealtimeASRGrpc RealtimeCapabilitiesRequest)))
+
+(def ^:private default-admission-timeout-ms 3000)
+(def ^:private default-admission-max-attempts 8)
 
 (defn- map->metadata
   "Convert a Clojure map of header-name -> string into gRPC Metadata.
@@ -34,15 +38,17 @@
     md))
 
 (defn- build-channel
-  "Create a ManagedChannel for the configured rtservice address.
+  "Create a DNS-resolving, round-robin channel for an rtservice address.
 
   addr - host:port string.
 
   Returns an open ManagedChannel instance."
   [addr]
-  (-> (ManagedChannelBuilder/forTarget addr)
+  (let [target (if (str/includes? addr ":///") addr (str "dns:///" addr))]
+    (-> (ManagedChannelBuilder/forTarget target)
+      (.defaultLoadBalancingPolicy "round_robin")
       (.usePlaintext)
-      (.build)))
+      (.build))))
 
 (defn- configured-tracks
   "Return validated realtime track definitions from global configuration.
@@ -153,6 +159,91 @@
       (.getCapabilities (RealtimeCapabilitiesRequest/getDefaultInstance))
       capabilities->map))
 
+(defn- replica-full?
+  "Return true only for the pod admission rejection that is safe to retry."
+  [throwable]
+  (let [status (Status/fromThrowable throwable)]
+    (and (= io.grpc.Status$Code/RESOURCE_EXHAUSTED (.getCode status))
+         (= "REPLICA_FULL" (.getDescription status)))))
+
+(defn- open-stream-once!
+  "Open one RPC and wait until a specific serving replica admits it."
+  [{:keys [id stub]} {:keys [on-next on-error on-complete metadata admission-timeout-ms]}]
+  (let [closed?* (atom false)
+        admitted?* (atom false)
+        admission (promise)
+        ^Metadata md (map->metadata metadata)
+        ^ClientInterceptor interceptor (MetadataUtils/newAttachHeadersInterceptor md)
+        stub' (.withInterceptors stub (into-array ClientInterceptor [interceptor]))
+        response-observer
+        (reify StreamObserver
+          (onNext [_ msg]
+            (if (= AsrType/SESSION_ACCEPTED (.getType msg))
+              (when (compare-and-set! admitted?* false true)
+                (deliver admission {:accepted msg}))
+              (when (and @admitted?* on-next)
+                (try
+                  (on-next msg)
+                  (catch Exception e
+                    (log/error e "RealtimeASR onNext handler failed"))))))
+          (onError [_ throwable]
+            (reset! closed?* true)
+            (if @admitted?*
+              (if on-error
+                (try
+                  (on-error throwable)
+                  (catch Exception e
+                    (log/error e "RealtimeASR onError handler failed")))
+                (log/error throwable "RealtimeASR stream failed"))
+              (deliver admission {:error throwable})))
+          (onCompleted [_]
+            (reset! closed?* true)
+            (if @admitted?*
+              (if on-complete
+                (try
+                  (on-complete)
+                  (catch Exception e
+                    (log/error e "RealtimeASR onComplete handler failed")))
+                (log/info "RealtimeASR stream completed"))
+              (deliver admission
+                       {:error (ex-info "RealtimeASR closed before admission" {:track id})}))))
+        request-observer (.stream stub' response-observer)
+        timeout-ms (long (max 1 (or admission-timeout-ms default-admission-timeout-ms)))
+        result (deref admission timeout-ms ::timeout)]
+    (when (= ::timeout result)
+      (reset! closed?* true)
+      (.onError request-observer
+                (-> Status/DEADLINE_EXCEEDED
+                    (.withDescription "realtime admission timed out")
+                    (.asRuntimeException))))
+    (cond
+      (= ::timeout result)
+      (throw (ex-info "Timed out waiting for realtime admission"
+                      {:track id :timeout-ms timeout-ms}))
+
+      (:error result)
+      (throw (:error result))
+
+      :else
+      (let [accepted (:accepted result)]
+        {:track-id id
+         :serving-instance-id (.getServingInstanceId accepted)
+         :send! (fn [audio-chunk]
+                  (when-not @closed?*
+                    (.onNext request-observer audio-chunk)))
+         :complete! (fn []
+                      (when (compare-and-set! closed?* false true)
+                        (try
+                          (.onCompleted request-observer)
+                          (catch Exception e
+                            (log/warn e "Attempted to complete already closed stream")))))
+         :error! (fn [throwable]
+                   (when (compare-and-set! closed?* false true)
+                     (try
+                       (.onError request-observer throwable)
+                       (catch Exception e
+                         (log/warn e "Attempted to error already closed stream")))))}))))
+
 (defn start-stream!
   "Open a bidirectional gRPC stream using the provided client component.
 
@@ -162,7 +253,9 @@
       :on-next     (fn [asr-event])        invoked for every incoming AsrEvent
       :on-error    (fn [Throwable])        invoked on error
       :on-complete (fn [])                invoked when server closes stream
-      :metadata    {header-name header-value ...} optional gRPC metadata to attach
+      :metadata    must contain the session-specific `x-session-id`
+      :admission-timeout-ms  optional wait for one pod to accept
+      :admission-max-attempts optional bounded `REPLICA_FULL` attempts
 
   Returns a map with operations:
   - :send!     (fn [audio-chunk])         push AudioChunk to rtservice
@@ -173,56 +266,28 @@
   - The returned operations are safe to call multiple times. In particular,
     `:complete!` is idempotent to avoid noisy `call already half-closed`
     exceptions during cleanup." 
-  [{:keys [id stub]} {:keys [on-next on-error on-complete metadata]}]
+  [{:keys [id stub] :as client}
+   {:keys [metadata admission-max-attempts] :as handlers}]
   (when-not stub
     (throw (ex-info "gRPC stub missing" {})))
-  (let [closed?* (atom false)
-        stub' (if (seq metadata)
-                (let [^Metadata md (map->metadata metadata)
-                      ^ClientInterceptor interceptor (MetadataUtils/newAttachHeadersInterceptor md)]
-                  (.withInterceptors stub (into-array ClientInterceptor [interceptor])))
-                stub)
-        response-observer
-        (reify StreamObserver
-          (onNext [_ msg]
-            (when on-next
-              (try
-                (on-next msg)
-                (catch Exception e
-                  (log/error e "RealtimeASR onNext handler failed")))))
-          (onError [_ t]
-            (reset! closed?* true)
-            (if on-error
-              (try
-                (on-error t)
-                (catch Exception e
-                  (log/error e "RealtimeASR onError handler failed")))
-              (log/error t "RealtimeASR stream failed")))
-          (onCompleted [_]
-            (reset! closed?* true)
-            (if on-complete
-              (try
-                (on-complete)
-                (catch Exception e
-                  (log/error e "RealtimeASR onComplete handler failed")))
-              (log/info "RealtimeASR stream completed"))))
-        request-observer (.stream stub' response-observer)]
-    {:track-id id
-     :send! (fn [audio-chunk]
-              (when-not @closed?*
-                (.onNext request-observer audio-chunk)))
-     :complete! (fn []
-                  (when (compare-and-set! closed?* false true)
-                    (try
-                      (.onCompleted request-observer)
-                      (catch Exception e
-                        (log/warn e "Attempted to complete already closed stream")))))
-     :error! (fn [throwable]
-               (when (compare-and-set! closed?* false true)
-                 (try
-                   (.onError request-observer throwable)
-                   (catch Exception e
-                     (log/warn e "Attempted to error already closed stream")))))}))
+  (when (str/blank? (get metadata "x-session-id"))
+    (throw (ex-info "x-session-id metadata is required" {:track id})))
+  (let [maximum (max 1 (int (or admission-max-attempts
+                                default-admission-max-attempts)))]
+    (loop [attempt 1]
+      (let [result (try
+                     {:stream (open-stream-once! client handlers)}
+                     (catch Throwable throwable
+                       {:error throwable}))]
+        (if-let [stream (:stream result)]
+          (assoc stream :admission-attempts attempt)
+          (let [throwable (:error result)]
+            (if (and (< attempt maximum) (replica-full? throwable))
+              (do
+                (log/info "Realtime replica full; trying next resolved endpoint"
+                          {:track id :attempt attempt})
+                (recur (inc attempt)))
+              (throw throwable))))))))
 
 (defn close!
   "Helper to close a previously opened realtime stream map returned by

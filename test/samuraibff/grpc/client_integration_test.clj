@@ -36,7 +36,8 @@
                   capabilities (grpc/get-capabilities track 2000)
                   stream (grpc/start-stream!
                            track
-                           {:on-complete #(deliver completed? true)
+                           {:metadata {"x-session-id" "integration-session"}
+                            :on-complete #(deliver completed? true)
                             :on-error #(deliver errors %)
                             :on-next (fn [_] nil)})
                   audio (-> (AudioChunk/newBuilder)

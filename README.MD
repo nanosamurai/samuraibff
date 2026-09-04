@@ -86,6 +86,14 @@ language count before recording, then labels each selected track and renders
 simultaneous results side by side. For enriched providers the summary also
 shows how many languages support aligned, diarized finals.
 
+Each configured address is resolved through gRPC DNS with `round_robin`.
+Before the BFF forwards audio it waits for the selected replica's
+`SESSION_ACCEPTED` response. An unadmitted `REPLICA_FULL` call is retried on a
+new RPC, bounded by `SAMURAIBFF_GRPC_ADMISSION_MAX_ATTEMPTS` (default `8`) and
+`SAMURAIBFF_GRPC_ADMISSION_TIMEOUT_MS` (default `3000`). Kubernetes should
+provide a headless Service and Compose should provide multi-address service
+DNS; the BFF never registers pod IPs itself.
+
 ## Related repositories / projects (nanosamur.ai)
 
 The Community Edition consists of:

@@ -850,7 +850,7 @@
         (log/info "Realtime output disabled; not starting gRPC" {:session-id session-id
                                                                  :tenant-id tenant-id}))
 
-      (let [metadata (cond-> {}
+      (let [metadata (cond-> {"x-session-id" (str session-id)}
                        (some? (:rt-window-sec session))
                        (assoc "x-rt-window-sec" (grpc.metadata/header-double (:rt-window-sec session)))
 
@@ -893,6 +893,8 @@
                                      :track track)))}
                  {:buffer-size (or (get-in (:config registry) [:grpc :track-buffer-size])
                                    default-audio-buffer-size)
+                  :admission-timeout-ms (get-in (:config registry) [:grpc :admission-timeout-ms])
+                  :admission-max-attempts (get-in (:config registry) [:grpc :admission-max-attempts])
                   :metadata metadata
                   :track-ids (:realtime-track-ids session)})
                 (catch Throwable t

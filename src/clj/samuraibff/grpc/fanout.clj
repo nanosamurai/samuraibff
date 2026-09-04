@@ -16,7 +16,7 @@
 
 (defn- start-track!
   "Start one realtime stream and its independent bounded forwarding thread."
-  [track-client primary? buffer-size metadata handlers]
+  [track-client primary? buffer-size metadata admission-options handlers]
   (let [track-id (:id track-client)
         capabilities (discover-capabilities track-client)
         provider-profile-id (:provider-profile-id capabilities)
@@ -29,7 +29,9 @@
         stream
         (grpc/start-stream!
          track-client
-         {:metadata metadata
+         (merge
+          admission-options
+          {:metadata metadata
           :on-next (fn [event]
                      (when on-next
                        (on-next {:track track-id
@@ -45,7 +47,7 @@
                          (reset! active? false)
                          (async/close! input)
                          (when on-complete
-                           (on-complete track-id)))})]
+                           (on-complete track-id)))}))]
     (reset! stream* stream)
     (async/thread
       (loop []
@@ -80,7 +82,8 @@
     optional `:track-ids`. Omission selects every configured track.
 
   Returns a fan-out map accepted by `offer!`, `complete!`, and `cancel!`."
-  [grpc-component handlers {:keys [buffer-size metadata track-ids]}]
+  [grpc-component handlers
+   {:keys [buffer-size metadata track-ids admission-timeout-ms admission-max-attempts]}]
   (let [configured-track-clients (grpc/tracks grpc-component)
         requested-track-ids (when (some? track-ids) (set track-ids))
         configured-track-ids (set (map :id configured-track-clients))
@@ -91,13 +94,15 @@
         track-clients (if (some? requested-track-ids)
                         (filterv #(contains? requested-track-ids (:id %)) configured-track-clients)
                         configured-track-clients)
-        size (max 1 (int (or buffer-size 8)))]
+        size (max 1 (int (or buffer-size 8)))
+        admission-options {:admission-timeout-ms admission-timeout-ms
+                           :admission-max-attempts admission-max-attempts}]
     (when-not (seq track-clients)
       (throw (ex-info "No realtime ASR tracks are selected" {})))
     {:tracks
      (mapv
       (fn [index track-client]
-        (start-track! track-client (zero? index) size metadata handlers))
+        (start-track! track-client (zero? index) size metadata admission-options handlers))
       (range)
       track-clients)}))
 

@@ -51,6 +51,27 @@ each peer's fixed capabilities, then gives every track an independent bounded
 queue and bidirectional stream. One slow, failed, or overloaded track is
 canceled without stopping its peers.
 
+Track addresses are normalized to `dns:///host:port`. Each track owns one
+long-lived gRPC channel configured with the built-in `round_robin` policy, not
+a channel or endpoint registry per pod. A Kubernetes headless Service or
+Docker Compose DNS returns the ready replica addresses; gRPC maintains the
+subchannels and selects one when each new stream RPC starts.
+
+Opening a stream is an explicit pre-audio operation. The BFF sends
+`x-session-id`, waits for `SESSION_ACCEPTED`, and only then returns the stream
+to the audio forwarder. If a pod responds with the precise admission signal
+`RESOURCE_EXHAUSTED: REPLICA_FULL`, the BFF starts a fresh RPC on the same
+round-robin channel. This is safe because the rejected pod has not consumed
+audio. The admitted RPC stays pinned to its selected pod until completion;
+active streams are never moved. Other failures and any failure after admission
+are not retried.
+
+`SAMURAIBFF_GRPC_ADMISSION_TIMEOUT_MS` bounds one handshake (default `3000`)
+and `SAMURAIBFF_GRPC_ADMISSION_MAX_ATTEMPTS` bounds full-replica retries
+(default `8`). Set the latter at least as high as the largest expected replica
+count. These bounds are per BFF process; no capacity or tenant state is shared
+between BFF replicas.
+
 `GET /api/me` exposes the ordered stable track IDs and a sanitized capability
 view to the UI. The capability view includes mode, timestamp, speaker-label and
 language support, aligned-and-diarized language codes, sample rate, duration
