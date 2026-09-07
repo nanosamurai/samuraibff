@@ -17,6 +17,16 @@
       (is (= (transcript/refined-dedupe-key m1)
              (transcript/refined-dedupe-key m2))))))
 
+(deftest compact-text-preview-shows-changing-tail
+  (testing "short text remains intact"
+    (is (= "hello" (transcript/compact-text-preview "hello"))))
+  (testing "long cumulative text retains its beginning and changing tail"
+    (let [text (str "This shared beginning is deliberately stable. "
+                    "Only the latest words at the end are changing now.")
+          preview (transcript/compact-text-preview text)]
+      (is (= (str (subs text 0 24) " … " (subs text (- (count text) 32)))
+             preview)))))
+
 (deftest refined-dedupe-key-quantizes-to-centiseconds
   (testing "Refined dedupe key quantizes timing to centiseconds to match UI rendering"
     ;; UI shows centiseconds via util/fmt-sec (floored). We therefore de-dupe

@@ -105,6 +105,18 @@
    :provider_profile_id (some-> (:provider_profile_id ev) str)
    :final (boolean (:final ev))})
 
+(defn compact-text-preview
+  "Return a compact debug preview that preserves both stable and changing text.
+
+  Long cumulative ASR hypotheses often share the same beginning. Showing only
+  their prefix makes distinct updates look duplicated, so retain the tail too."
+  [text]
+  (let [text (str (or text ""))
+        length (count text)]
+    (if (<= length 64)
+      text
+      (str (subs text 0 24) " … " (subs text (- length 32))))))
+
 (defn normalize-refined
   "Normalize an incoming WS `refined` event map into a transcript message.
 

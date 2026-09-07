@@ -924,7 +924,8 @@
             " sp=" (pr-str speaker)
             " t=" (util/fmt-sec start) "→" (util/fmt-sec end)
             " len=" (count text)
-            (when (seq text) (str " text=" (pr-str (subs text 0 (min 32 (count text)))))))))
+            (when (seq text)
+              (str " text=" (pr-str (transcript/compact-text-preview text)))))))
 
     ;; legacy merged
     (swap! segments*
