@@ -72,7 +72,8 @@ Read more:
 
 Closing `/ws/audio` finishes the session's audio input: SamuraiBFF drains the
 accepted frames and half-closes every selected realtime request while
-`/ws/events` stays open long enough to deliver their terminal events.
+`/ws/events` stays open until each selected track reports completion, allowing
+its terminal ASR event to arrive before the browser disconnects.
 
 Operators register one to four fixed realtime services with
 `SAMURAIBFF_GRPC_REALTIME_TRACKS`. The browser receives their stable IDs and a

@@ -63,7 +63,9 @@ Semantics:
 * Normal `/ws/audio` closure finishes that session's audio input. The BFF drains
   accepted frames and half-closes every active realtime gRPC request while
   keeping `/ws/events` active so terminal events can be delivered. Clients
-  should create a new session before starting another audio stream.
+  should keep `/ws/events` connected until each selected track emits its
+  `status=stopped` event, and should create a new session before starting
+  another audio stream.
 
 Example (tune realtime only):
 

@@ -53,12 +53,13 @@
       - Device selection should be visible (not hidden behind settings).
 
       Inputs:
-      - {:keys [settings-open? set-settings-open!]} where:
+      - {:keys [settings-open? set-settings-open! realtime-track-ids]} where:
         - settings-open?: boolean
         - set-settings-open!: (fn [boolean])
+        - realtime-track-ids: selected operator track IDs
 
       Returns: hiccup."
-  [{:keys [settings-open? set-settings-open!]}]
+  [{:keys [settings-open? set-settings-open! realtime-track-ids]}]
   (let [session (hooks/use-atom store/session*)
         {:keys [id lang]} session
         controls (or (:controls session) {})
@@ -153,8 +154,18 @@
                 (store/set-running! false)
                 (store/set-recording-status! id :stopped)
                 (store/set-session-status! :finished)
-                (audio/stop-audio!)
-                (ws/close-events!)
+                (let [active-tracks (if (false? (:realtime controls))
+                                      []
+                                      realtime-track-ids)]
+                  ;; Arm the terminal wait before audio EOF can race back from
+                  ;; a fast provider. Non-realtime sessions close immediately.
+                  (if (seq active-tracks)
+                    (do
+                      (ws/close-events-after-tracks! active-tracks)
+                      (audio/stop-audio!))
+                    (do
+                      (audio/stop-audio!)
+                      (ws/close-events!))))
                            ;; Persist state machine transition best-effort.
                            ;; This ensures Sessions table reflects Finished after refresh.
                 (when (seq (str id))
@@ -1137,7 +1148,8 @@
         "Sessions"]]]
 
      [controls {:settings-open? settings-open?
-                :set-settings-open! set-settings-open!}]
+                :set-settings-open! set-settings-open!
+                :realtime-track-ids realtime-track-ids}]
 
      [session-settings-panel {:open? settings-open?
                               :set-open! set-settings-open!}]
