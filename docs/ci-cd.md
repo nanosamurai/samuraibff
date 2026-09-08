@@ -10,6 +10,11 @@ Pull requests targeting `master` run:
 - `scan`, which runs the pinned open-source Gitleaks CLI against the complete
   repository history without injecting a repository secret
 
+The UI job audits the locked dependencies before compilation. Its lockfile
+uses `fast-uri` 3.1.7 and `@xmldom/xmldom` 0.8.15 to clear the dependency
+advisories encountered while validating the realtime routing PR; the audit
+remains enabled.
+
 The repository ruleset for `master` must require all four checks before merge,
 require the branch to be up to date, and prevent routine bypass. Workflow
 triggers make checks run; the repository ruleset makes them merge
