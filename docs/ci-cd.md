@@ -10,6 +10,9 @@ Pull requests targeting `master` run:
 - `scan`, which runs the pinned open-source Gitleaks CLI against the complete
   repository history without injecting a repository secret
 
+The Docker build uses `npm ci` with the committed lockfile, matching the UI
+dependency graph checked by CI.
+
 The UI job audits the locked dependencies before compilation. Its lockfile
 uses `fast-uri` 3.1.7 and `@xmldom/xmldom` 0.8.15 to clear the dependency
 advisories encountered while validating the realtime routing PR; the audit
