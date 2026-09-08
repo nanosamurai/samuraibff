@@ -90,6 +90,8 @@ shows how many languages support aligned, diarized finals.
 While following the live transcript, the feed scrolls before painting each
 message revision, including partials that grow inside an existing bubble.
 Scrolling up pauses following until the reader returns near the bottom.
+**Highlight updates** flashes changed words without adding inline padding or
+negative margins, so enabling it preserves the text's natural line wrapping.
 
 Each configured address is resolved through gRPC DNS with `round_robin`.
 Before the BFF forwards audio it waits for the selected replica's

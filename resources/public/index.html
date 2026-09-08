@@ -475,7 +475,8 @@
     .bubble.draft{border-style:dashed;opacity:.92}
 
     .revision-text{
-      display:inline;padding:1px 2px;margin:-1px -2px;border-radius:6px;
+      /* Keep highlights out of sizing: negative inline margins can force a wrap. */
+      display:inline;border-radius:6px;
       -webkit-box-decoration-break:clone;box-decoration-break:clone
     }
 
