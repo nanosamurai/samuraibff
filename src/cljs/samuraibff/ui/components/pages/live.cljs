@@ -1022,7 +1022,7 @@
       [ws-indicator]
       [:div {:class "asr-debug-controls"}
        [:label {:class "asr-debug-toggle"
-                :title "Add compact realtime ASR events to the diagnostic log"}
+                :title "Add sampled compact realtime ASR events to the diagnostic log"}
         [:input {:type "checkbox"
                  :checked (boolean debug-asr?)
                  :on-change (fn [e]
