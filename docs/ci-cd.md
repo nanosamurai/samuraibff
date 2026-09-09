@@ -15,6 +15,14 @@ uses `fast-uri` 3.1.7 and `@xmldom/xmldom` 0.8.15 to clear the dependency
 advisories encountered while validating the realtime routing PR; the audit
 remains enabled.
 
+The 2026-09-09 lockfile refresh also resolves `joi` to 18.2.8 and `js-yaml`
+to 4.3.2 for the newly reported
+[Joi custom-message](https://github.com/advisories/GHSA-6w3j-5fw6-r9vr),
+[Joi rename](https://github.com/advisories/GHSA-gg4h-3hg2-grpc), and
+[YAML merge CPU-use](https://github.com/advisories/GHSA-2883-xcg3-v3hh)
+advisories. These are compatible transitive build-tool updates; direct
+dependency versions and the audit threshold are unchanged.
+
 The repository ruleset for `master` must require all four checks before merge,
 require the branch to be up to date, and prevent routine bypass. Workflow
 triggers make checks run; the repository ruleset makes them merge
