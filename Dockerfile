@@ -17,11 +17,11 @@ RUN curl -sSL "https://github.com/bufbuild/buf/releases/download/v1.57.2/buf-Lin
   && chmod +x /usr/local/bin/buf
 
 # Cache deps before copying whole repo
-COPY deps.edn build.clj buf.yaml buf.gen.yaml package.json ./
+COPY deps.edn build.clj buf.yaml buf.gen.yaml package.json package-lock.json ./
 
 RUN clojure -P
 
-RUN npm install
+RUN npm ci
 
 # Now bring in the full source tree
 COPY . .

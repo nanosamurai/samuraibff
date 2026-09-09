@@ -72,7 +72,8 @@ Read more:
 
 Closing `/ws/audio` finishes the session's audio input: SamuraiBFF drains the
 accepted frames and half-closes every selected realtime request while
-`/ws/events` stays open long enough to deliver their terminal events.
+`/ws/events` stays open until each selected track reports completion, allowing
+its terminal ASR event to arrive before the browser disconnects.
 
 Operators register one to four fixed realtime services with
 `SAMURAIBFF_GRPC_REALTIME_TRACKS`. The browser receives their stable IDs and a
@@ -85,6 +86,12 @@ mode, duration policy, timestamp and speaker-label support, concurrency, and
 language count before recording, then labels each selected track and renders
 simultaneous results side by side. For enriched providers the summary also
 shows how many languages support aligned, diarized finals.
+
+While following the live transcript, the feed scrolls before painting each
+message revision, including partials that grow inside an existing bubble.
+Scrolling up pauses following until the reader returns near the bottom.
+**Highlight updates** flashes changed words without adding inline padding or
+negative margins, so enabling it preserves the text's natural line wrapping.
 
 Each configured address is resolved through gRPC DNS with `round_robin`.
 Before the BFF forwards audio it waits for the selected replica's

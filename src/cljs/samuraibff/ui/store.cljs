@@ -317,6 +317,11 @@
 (defonce debug-asr-log?*
   (atom false))
 
+(defonce ^:private asr-partial-log-buckets*
+  (atom {}))
+
+(def ^:private asr-partial-log-interval-s 1.0)
+
 (defn set-debug-asr-log!
   "Enable/disable compact per-ASR-event logging in the UI debug log.
 
@@ -326,6 +331,7 @@
   Returns: nil."
   [enabled?]
   (reset! debug-asr-log?* (boolean enabled?))
+  (reset! asr-partial-log-buckets* {})
   nil)
 
 (defn debug-asr-log-enabled?
@@ -571,6 +577,7 @@
     (reset! refined-segments* [])
     (reset! workflow-results* [])
     (reset! transcript-zero-s* nil)
+    (reset! asr-partial-log-buckets* {})
     (reset! log* [])
     nil))
 
@@ -700,6 +707,7 @@
   "Clear debug log."
   []
   (reset! log* [])
+  (reset! asr-partial-log-buckets* {})
   (let [sid (or (get @session* :id) "")]
     (when (seq sid)
       (swap! log-by-session* assoc sid [])))
@@ -713,6 +721,7 @@
   (reset! refined-segments* [])
   (reset! workflow-results* [])
   (reset! transcript-zero-s* nil)
+  (reset! asr-partial-log-buckets* {})
   (let [sid (or (get @session* :id) "")]
     (when (seq sid)
       (swap! segments-by-session* assoc sid [])
@@ -894,6 +903,24 @@
         end' (max start' (- end zero))]
     (assoc ev :start_s start' :end_s end')))
 
+(defn- log-asr-event?
+  "Return true for every final and at most one partial per track/audio second.
+
+  Native streaming providers can revise a hypothesis every audio chunk. Sampling
+  only the diagnostic log keeps slower tracks visible; transcript state still
+  consumes every event."
+  [track end final?]
+  (let [track (str (or track ""))]
+    (if final?
+      (do
+        (swap! asr-partial-log-buckets* dissoc track)
+        true)
+      (let [bucket (js/Math.floor (/ (max 0.0 end) asr-partial-log-interval-s))
+            previous (get @asr-partial-log-buckets* track)]
+        (when (not= bucket previous)
+          (swap! asr-partial-log-buckets* assoc track bucket)
+          true)))))
+
 (defn upsert-asr!
   "Insert or update a realtime ASR message.
 
@@ -914,17 +941,20 @@
         end (double (or (:end_s ev') 0.0))
         final? (true? (:final ev'))
         text (str (or (:text ev') ""))]
-    (when (debug-asr-log-enabled?)
+    (when (and (debug-asr-log-enabled?)
+               (log-asr-event? (:track ev') end final?))
       (append-log!
        (str "[asr] "
             "track=" (pr-str (:track ev'))
             " profile=" (pr-str (:provider_profile_id ev'))
             " "
             (if final? "FINAL" "PARTIAL")
+            (when-not final? " replace=current-utterance")
             " sp=" (pr-str speaker)
             " t=" (util/fmt-sec start) "→" (util/fmt-sec end)
             " len=" (count text)
-            (when (seq text) (str " text=" (pr-str (subs text 0 (min 32 (count text)))))))))
+            (when (seq text)
+              (str " text=" (pr-str (transcript/compact-text-preview text)))))))
 
     ;; legacy merged
     (swap! segments*

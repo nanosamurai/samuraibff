@@ -18,24 +18,82 @@
 (defonce ^:private events-ws*
   (atom nil))
 
+(defonce ^:private terminal-tracks*
+  (atom #{}))
+
+(defonce ^:private graceful-close*
+  (atom nil))
+
+(def ^:private graceful-close-timeout-ms 10000)
+
+(defn- clear-graceful-close!
+  []
+  (when-let [timer (:timer @graceful-close*)]
+    (js/clearTimeout timer))
+  (reset! graceful-close* nil))
+
 (defn close-events!
   "Close the events websocket if open.
 
   Returns: nil."
   []
+  (clear-graceful-close!)
   (when-let [ws @events-ws*]
     (try (.close ws) (catch :default _ nil)))
   (reset! events-ws* nil)
+  (reset! terminal-tracks* #{})
   (store/set-ws-status! :events :disconnected nil)
+  nil)
+
+(defn- note-terminal-track!
+  [track]
+  (when (seq (str track))
+    (let [track (str track)]
+      (swap! terminal-tracks* conj track)
+      (when-let [{:keys [pending]} @graceful-close*]
+        (let [remaining (disj pending track)]
+          (if (empty? remaining)
+            (do
+              (store/append-log! "[events] all realtime tracks stopped")
+              (close-events!))
+            (swap! graceful-close* assoc :pending remaining)))))))
+
+(defn close-events-after-tracks!
+  "Keep receiving events until every selected realtime track has terminated.
+
+  This must be armed before closing `/ws/audio`; otherwise the BFF can lose its
+  last subscriber and cancel the gRPC streams before their EOF finals arrive."
+  [track-ids]
+  (clear-graceful-close!)
+  (let [expected (set (keep #(let [track (str %)] (when (seq track) track)) track-ids))
+        remaining (reduce disj expected @terminal-tracks*)]
+    (if (empty? remaining)
+      (close-events!)
+      (let [timer (js/setTimeout
+                   (fn []
+                     (when-let [{:keys [pending]} @graceful-close*]
+                       (store/append-log!
+                        (str "[events] terminal wait timed out tracks=" (pr-str (sort pending))))
+                       (close-events!)))
+                   graceful-close-timeout-ms)]
+        (reset! graceful-close* {:pending remaining :timer timer})
+        (store/append-log!
+         (str "[events] waiting for terminal tracks=" (pr-str (sort remaining)))))))
   nil)
 
 (defn- handle-event!
   [ev]
   (case (:type ev)
-    "status" (store/append-log!
-               (str "[events] status " (:status ev)
-                    (when-let [d (:detail ev)] (str " (" d ")"))))
-    "error" (store/append-log! (str "[events] error " (:message ev)))
+    "status" (do
+               (store/append-log!
+                (str "[events] status " (:status ev)
+                     (when-let [track (:track ev)] (str " track=" track))
+                     (when-let [d (:detail ev)] (str " (" d ")"))))
+               (when (= "stopped" (:status ev))
+                 (note-terminal-track! (:track ev))))
+    "error" (do
+              (store/append-log! (str "[events] error " (:message ev)))
+              (note-terminal-track! (:track ev)))
     "asr" (store/upsert-asr! ev)
     "refined" (do
                 ;; Helpful debugging: refined timing must be present and sane.
@@ -63,6 +121,7 @@
   Returns: nil."
   [session-id]
   (close-events!)
+  (reset! terminal-tracks* #{})
   (if (empty? (str session-id))
     (store/append-log! "[events] cannot connect: empty session id")
     (let [url (util/ws-url "/ws/events" {:session_id session-id}
@@ -78,6 +137,8 @@
 
       (set! (.-onclose ws)
             (fn [e]
+              (clear-graceful-close!)
+              (reset! terminal-tracks* #{})
               (store/set-ws-status! :events :disconnected (str "code=" (.-code e)))
               (store/append-log! (str "[events] closed code=" (.-code e)
                                       " reason=" (.-reason e)))

@@ -67,13 +67,12 @@
        js/undefined)
      #js [msgs])
 
-    (react/useEffect
+    (react/useLayoutEffect
      (fn []
        (when-let [el (.-current container-ref)]
          (when (and auto-scroll? (true? (.-current auto-scroll?*)))
            (set! (.-scrollTop el) (.-scrollHeight el)))
 
-         ;; One-time initial positioning for non-auto-scrolling views.
          (when (and (not auto-scroll?) (false? (.-current initial-scrolled?*)))
            (case initial-scroll
              :top (set! (.-scrollTop el) 0)
@@ -81,7 +80,7 @@
              nil)
            (set! (.-current initial-scrolled?*) true)))
        js/undefined)
-     #js [(count msgs) auto-scroll? initial-scroll])
+     #js [msgs auto-scroll? initial-scroll])
 
     [:div {:class "transcript"}
      (if (empty? msgs)
