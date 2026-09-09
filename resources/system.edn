@@ -80,7 +80,9 @@
 
   ;; --- gRPC ---
   :grpc {:realtime-tracks [{:id "faster-whisper"
-                            :address "localhost:50052"}]}
+                            :address "localhost:50052"}]
+         :admission-timeout-ms 3000
+         :admission-max-attempts 8}
 
   ;; --- S3 / object storage (enrollments + recordings playback) ---
   ;;
