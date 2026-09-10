@@ -10,7 +10,7 @@
 
   Avoids hard-coded ports which are often in use on developer machines / CI."
   []
-  (with-open [s (java.net.ServerSocket. 0)]
+  (with-open [s (java.net.ServerSocket. 0 50 (java.net.InetAddress/getLoopbackAddress))]
     (.getLocalPort s)))
 
 ;; --- Test Helpers ---
@@ -26,7 +26,7 @@
 (deftest start-server-test
   "Test that the start-server function creates a server instance."
   (testing "start-server creates a server instance"
-    (let [config {:port (free-port)}
+    (let [config {:ip "127.0.0.1" :port (free-port)}
           handler mock-handler
           server-instance (server/start-server config handler)]
       (is server-instance "Server instance should be created")
@@ -37,7 +37,7 @@
 (deftest stop-server-test
   "Test that the stop-server function stops the server gracefully."
   (testing "stop-server stops the server"
-    (let [config {:port (free-port)}
+    (let [config {:ip "127.0.0.1" :port (free-port)}
           handler mock-handler
           server-instance (server/start-server config handler)]
       (is server-instance "Server should be running")
@@ -48,7 +48,7 @@
 (deftest integrant-lifecycle-test
   "Test the Integrant lifecycle methods."
   (testing "init-key and halt-key! work correctly"
-    (let [config {:port (free-port)}
+    (let [config {:ip "127.0.0.1" :port (free-port)}
           handler mock-handler
           component {:config config :handler handler}]
       ;; Init the component
