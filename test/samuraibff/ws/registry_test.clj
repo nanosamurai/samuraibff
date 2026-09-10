@@ -1,9 +1,10 @@
 (ns samuraibff.ws.registry-test
   "Unit tests for `samuraibff.ws.registry`."
   (:require
-    [clojure.core.async :as async]
-    [clojure.test :refer :all]
-    [samuraibff.ws.registry :as reg]))
+   [clojure.core.async :as async]
+   [clojure.test :refer :all]
+   [samuraibff.kafka.producer :as producer]
+   [samuraibff.ws.registry :as reg]))
 
 (deftest ensure-session-idempotent-test
   (testing "ensure-session! creates once and returns the same session on subsequent calls"
@@ -80,3 +81,26 @@
           session (reg/ensure-session! registry "t-1" "s-4" {})]
       (reg/close-session! registry "t-1" "s-4" "test")
       (is (nil? (reg/get-session registry "t-1" "s-4"))))))
+
+(deftest planned-refinement-drains-audio-before-eof
+  (doseq [events-connected? [false true]]
+    (let [registry {:config {:env :test} :sessions (atom {}) :kafka-producer :fixture}
+          session (reg/ensure-session! registry "t-1" "s-eof"
+                                       {:want-realtime? false :want-refined? true
+                                        :kafka-headers {"x-refinement-track-ids" (.getBytes "whisperx" "UTF-8")}})
+          sent (atom [])
+          finished (promise)]
+      (with-redefs [producer/send-audio-chunk!
+                    (fn [_ _ chunk options]
+                      (swap! sent conj [(.getSeq chunk) (.size (.getPcm16Le chunk))
+                                        (some? (get-in options [:headers "x-audio-eof"]))])
+                      (when (get-in options [:headers "x-audio-eof"])
+                        (deliver finished true)))]
+        (when events-connected? (reg/mark-events-connected! registry session))
+        (reg/mark-audio-connected! registry session)
+        (doseq [size [2 4 6]] (is (reg/offer-audio! registry session (byte-array size))))
+        (reg/mark-audio-disconnected! registry session)
+        (reg/start-rt! registry nil session)
+        (is (= true (deref finished 3000 :timeout)))
+        (is (= [[1 2 false] [2 4 false] [3 6 false] [4 0 true]] @sent))
+        (reg/close-session! registry "t-1" "s-eof" "test")))))

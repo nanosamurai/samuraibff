@@ -162,6 +162,9 @@
       :final-tracks {:enabled? (b "SAMURAIBFF_FINAL_TRACKS_ENABLED")
                      :selections-json (s "SAMURAIBFF_FINAL_TRACKS_JSON")
                      :test-profile-enabled? (b "SAMURAIBFF_FINAL_TRACK_TEST_PROFILE_ENABLED")}
+      :refinement-tracks {:enabled? (b "SAMURAIBFF_REFINEMENT_TRACKS_ENABLED")
+                          :selections-json (s "SAMURAIBFF_REFINEMENT_TRACKS_JSON")
+                          :test-profile-enabled? (b "SAMURAIBFF_REFINEMENT_TRACK_TEST_PROFILE_ENABLED")}
 
       :http {:host (s "SAMURAIBFF_HTTP_HOST")
              :port (i "SAMURAIBFF_HTTP_PORT")}

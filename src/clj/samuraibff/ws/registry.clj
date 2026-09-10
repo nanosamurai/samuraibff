@@ -92,7 +92,7 @@
    [samuraibff.schemas :as schemas])
   (:import
    (com.google.protobuf ByteString)
-    (samuraibff.proto AsrType AudioChunk RefinedEvent SessionTranscriptSegment)))
+   (samuraibff.proto AsrType AudioChunk RefinedEvent SessionTranscriptSegment)))
 
 (defn- ensure-bytes-header-map
   "Ensure a kafka header map has string keys and byte[] values.
@@ -345,10 +345,10 @@
         (when (and (seq (str (.getText ev)))
                    (seq segments))
           (log/info "RefinedEvent contains segments; legacy scalar fields will be ignored" {:session-id session-id
-                                                                                           :segments (count segments)
-                                                                                           :slice_index (.getSliceIndex ev)
-                                                                                           :window_sec (.getWindowSec ev)
-                                                                                           :flush_reason (.getFlushReason ev)}))
+                                                                                            :segments (count segments)
+                                                                                            :slice_index (.getSliceIndex ev)
+                                                                                            :window_sec (.getWindowSec ev)
+                                                                                            :flush_reason (.getFlushReason ev)}))
         (mapv (fn [seg]
                 (segment->ws-event seq* ts-ms session-id (.getLang ev) supersedes seg))
               segments))
@@ -539,10 +539,10 @@
   - the (possibly updated) session map, or nil if session not found."
   [{:keys [sessions]} tenant-id session-id {:keys [lang sample-rate
                                                    rt-window-sec rt-overlap-sec rt-emit-every-sec
-                                                    rt-partial-enable?
-                                                    want-realtime? want-refined? want-final?
-                                                    realtime-track-ids
-                                                    store-recording?
+                                                   rt-partial-enable?
+                                                   want-realtime? want-refined? want-final?
+                                                   realtime-track-ids
+                                                   store-recording?
                                                    kafka-headers]}]
   (let [updated* (atom nil)]
     (swap! sessions
@@ -559,10 +559,10 @@
                                   (some? rt-overlap-sec) (assoc :rt-overlap-sec (when (number? rt-overlap-sec) (double rt-overlap-sec)))
                                   (some? rt-emit-every-sec) (assoc :rt-emit-every-sec (when (number? rt-emit-every-sec) (double rt-emit-every-sec)))
 
-                                   (some? rt-partial-enable?) (assoc :rt-partial-enable? (boolean rt-partial-enable?))
-                                   (some? want-realtime?) (assoc :want-realtime? (boolean want-realtime?))
-                                   (some? realtime-track-ids) (assoc :realtime-track-ids (vec realtime-track-ids))
-                                   (some? want-refined?) (assoc :want-refined? (boolean want-refined?))
+                                  (some? rt-partial-enable?) (assoc :rt-partial-enable? (boolean rt-partial-enable?))
+                                  (some? want-realtime?) (assoc :want-realtime? (boolean want-realtime?))
+                                  (some? realtime-track-ids) (assoc :realtime-track-ids (vec realtime-track-ids))
+                                  (some? want-refined?) (assoc :want-refined? (boolean want-refined?))
                                   (some? want-final?) (assoc :want-final? (boolean want-final?))
                                   (some? store-recording?) (assoc :store-recording? (boolean store-recording?))
                                   (some? kafka-headers) (assoc :kafka-headers (ensure-bytes-header-map kafka-headers)))]
@@ -627,7 +627,7 @@
 
   Notes:
   - We keep this relatively small; the full result is always persisted and can be
-    fetched from DB in the recordings detail page." 
+    fetched from DB in the recordings detail page."
   8000)
 
 (defn- truncate-markdown
@@ -637,7 +637,7 @@
   - s: string?
 
   Returns:
-  - string? (possibly truncated)" 
+  - string? (possibly truncated)"
   [s]
   (let [s (when (some? s) (str s))]
     (when (seq (str s))
@@ -669,7 +669,7 @@
 
   Returns: boolean.
   - true if the session exists locally (even if event is dropped due to backpressure)
-  - false if the session is not present locally or tenant_id is missing." 
+  - false if the session is not present locally or tenant_id is missing."
   [{:keys [sessions] :as ws-registry} {:keys [tenant_id tenant-id session_id session-id workflow_id workflow-id] :as payload}]
   (let [tenant-id (or tenant-id tenant_id)
         tenant-id (when (and tenant-id (not (str/blank? (str tenant-id)))) (str tenant-id))
@@ -806,7 +806,7 @@
   (let [remaining (swap! (:audio-socks* session) (fn [n] (max 0 (dec n))))]
     (when (zero? remaining)
       (log/info "Finishing audio input" {:session-id (:session-id session)
-                                          :tenant-id (:tenant-id session)})
+                                         :tenant-id (:tenant-id session)})
       (async/close! (:audio-ch session))))
   (maybe-close-if-unused! registry session)
   nil)
@@ -866,8 +866,8 @@
             fanout
             (when (:want-realtime? session)
               (log/info "Starting realtime ASR tracks" {:session-id session-id
-                                                         :tenant-id tenant-id
-                                                         :tracks (:realtime-track-ids session)})
+                                                        :tenant-id tenant-id
+                                                        :tracks (:realtime-track-ids session)})
               (try
                 (grpc.fanout/start!
                  grpc-client
@@ -907,7 +907,10 @@
                   (throw t))))]
         (reset! (:realtime-fanout* session) fanout)
         (async/go-loop []
-          (let [[v ch] (async/alts! [(:stop-ch session) (:audio-ch session)] :priority true)]
+          (let [channels (if (get (:kafka-headers session) "x-refinement-track-ids")
+                           [(:audio-ch session)]
+                           [(:stop-ch session) (:audio-ch session)])
+                [v ch] (async/alts! channels :priority true)]
             (cond
               (= ch (:stop-ch session))
               (do
@@ -918,6 +921,14 @@
               (nil? v)
               (do
                 (log/info "Audio channel closed" {:session-id session-id :tenant-id tenant-id})
+                (when (get (:kafka-headers session) "x-refinement-track-ids")
+                  (kafka.producer/send-audio-chunk!
+                   (:kafka-producer registry) session-id
+                   (build-chunk session-id tenant-id (:lang session) (:sample-rate session)
+                                (next-seq! (:chunk-seq* session)) (byte-array 0)
+                                (resolve-bff-origin-uri (:config registry)))
+                   {:tenant-id tenant-id
+                    :headers (assoc (:kafka-headers session) "x-audio-eof" (.getBytes "true" "UTF-8"))}))
                 (when fanout
                   (grpc.fanout/complete! fanout)))
 
