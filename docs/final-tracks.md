@@ -53,3 +53,7 @@ authentication paths. Test HTTP and Testcontainers services bind to loopback;
 set `TESTCONTAINERS_RYUK_DISABLED=true` when running the suite locally so the
 automatic cleanup sidecar does not publish a wildcard port. Fixtures still stop
 their own containers in `finally`.
+
+Publication scans recognize only the known synthetic UUID tails in the shared
+final-track vector, scoped to that file and rule; other values remain scanned.
+
