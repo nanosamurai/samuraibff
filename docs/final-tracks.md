@@ -25,6 +25,8 @@ the existing routing, workflow, and refinement sections. Its Kafka publication
 is acknowledged before audio is accepted. Reconnects reuse the frozen plan and
 controls. A session already started without a plan cannot be upgraded in place.
 A frozen session cannot switch back to legacy admission or change retention.
+Legacy asynchronous control writes also refuse to overwrite an existing plan,
+including when they complete after plan admission.
 
 Every audio event carries canonical `x-asr-plan` JSON, `x-asr-plan-id`, and
 `x-final-track-ids`. Recorder copies that plan into `RecordingFinished` and emits

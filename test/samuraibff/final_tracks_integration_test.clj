@@ -3,6 +3,7 @@
             [clojure.java.io :as io]
             [cheshire.core :as json]
             [next.jdbc :as jdbc]
+            [samuraibff.db.sessions :as sessions]
             [samuraibff.final-tracks :as tracks]
             [samuraibff.kafka.producer :as producer]
             [samuraibff.sessions.meta :as meta]
@@ -32,6 +33,10 @@
           (is (= plan (:asr_plan mirror)))
           (is (= (json/parse-string (json/generate-string (dissoc initial :event_id)))
                  (json/parse-string (json/generate-string (dissoc mirror :event_id :asr_plan)))))
+          (is (= plan (tracks/freeze! ds :fixture config (str tenant) (str session) controls 16000)))
+          (is (= {:updated? false} (sessions/update-session-stream-controls! ds tenant session {:final false})))
+          (is (= {:updated? false} (sessions/activate-session-on-audio-start-with-controls!
+                                    ds tenant session {:final false})))
           (is (= plan (tracks/freeze! ds :fixture config (str tenant) (str session) controls 16000)))
           (is (thrown? clojure.lang.ExceptionInfo
                        (tracks/freeze! ds :fixture config (str tenant) (str session)

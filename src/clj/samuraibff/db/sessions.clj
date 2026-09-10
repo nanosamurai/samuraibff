@@ -38,7 +38,7 @@
   - x: any JSON-serializable value
 
   Returns:
-  - PGobject with type jsonb" 
+  - PGobject with type jsonb"
   ^PGobject
   [x]
   (doto (PGobject.)
@@ -204,7 +204,7 @@
   "Persist stream-level controls for a tenant-scoped session.
 
   This stores the controls as JSON in `sessions.stream_controls` for later UI
-  session detail replay.
+  session detail replay. Returns {:updated? false} if an ASR plan is frozen.
 
   Inputs:
   - ds: DataSource
@@ -227,7 +227,7 @@
         ;; Use SQL cast to jsonb (Postgres). next.jdbc uses prepared statements.
         res (jdbc/execute-one!
              ds
-             ["UPDATE sessions\n     SET stream_controls = (?::jsonb)\n   WHERE tenant_id=? AND id=?"
+             ["UPDATE sessions\n     SET stream_controls = (?::jsonb)\n   WHERE tenant_id=? AND id=? AND stream_controls->'asr_plan' IS NULL"
               json tenant-id session-id])]
     {:updated? (pos? (long (or (:next.jdbc/update-count res) 0)))}))
 
@@ -239,7 +239,7 @@
   Semantics:
   - status is set to \"active\"
   - started_at is set to `now()` if not already set
-  - stream_controls is stored as jsonb (replaces previous value)
+  - stream_controls is stored as jsonb unless an ASR plan is already frozen
 
   Inputs:
   - ds: DataSource
@@ -260,7 +260,7 @@
   (let [json (cheshire/generate-string (or controls {}))
         res (jdbc/execute-one!
              ds
-             ["UPDATE sessions\n     SET status='active',\n         started_at=COALESCE(started_at, now()),\n         stream_controls=(?::jsonb)\n   WHERE tenant_id=? AND id=?"
+             ["UPDATE sessions\n     SET status='active',\n         started_at=COALESCE(started_at, now()),\n         stream_controls=(?::jsonb)\n   WHERE tenant_id=? AND id=? AND stream_controls->'asr_plan' IS NULL"
               json tenant-id session-id])]
     {:updated? (pos? (long (or (:next.jdbc/update-count res) 0)))}))
 
