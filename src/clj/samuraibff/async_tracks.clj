@@ -71,19 +71,20 @@
                  (permitted config config-key tenant-id)))) stages)))
 
 (defn resolve-selection
-  "Resolve nil to defaults or a bounded explicit set, requiring the primary.
-  Return only the unchanged worker selection contract, in catalog order."
+  "Resolve permitted IDs in catalog order and choose one compatibility output.
+  Prefer the operator primary when selected, otherwise the first selected entry.
+  The frozen worker contract still contains exactly one primary per stage."
   [config config-key tenant-id requested]
   (let [entries (permitted config config-key tenant-id)
         ids (if (nil? requested) (mapv :track_id (filter :default_selected entries)) requested)
         available (set (map :track_id entries))
-        primary (:track_id (first (filter :primary entries)))]
+        selected (filterv #(contains? (set ids) (:track_id %)) entries)
+        primary (:track_id (or (first (filter :primary selected)) (first selected)))]
     (when-not (and (vector? ids) (<= 1 (count ids) 4)
                    (= (count ids) (count (distinct ids)))
-                   (every? available ids) (some #{primary} ids))
+                   (every? available ids))
       (reject! :invalid-track-selection))
-    (mapv #(select-keys % [:track_id :profile_id :primary])
-          (filter #(contains? (set ids) (:track_id %)) entries))))
+    (mapv #(assoc (select-keys % [:track_id :profile_id]) :primary (= primary (:track_id %))) selected)))
 
 (defn requested-controls
   "Read optional stage ID lists from audio query parameters without retargeting

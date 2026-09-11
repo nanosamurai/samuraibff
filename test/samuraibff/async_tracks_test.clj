@@ -25,8 +25,8 @@
          (tracks/resolve-selection config :final-tracks tenant ["shadow" "whisperx"])))
   (is (= [] (tracks/public-catalog {} tenant))))
 
-(deftest reject-forbidden-unknown-duplicate-empty-and-missing-primary
-  (doseq [[owner ids] [[tenant []] [tenant ["shadow"]] [tenant ["whisperx" "unknown"]]
+(deftest reject-forbidden-unknown-duplicate-and-empty
+  (doseq [[owner ids] [[tenant []] [tenant ["whisperx" "unknown"]]
                        [tenant ["whisperx" "whisperx"]] [other-tenant ["whisperx" "shadow"]]
                        [tenant ["whisperx" "a" "b" "c" "d"]]]]
     (is (thrown? clojure.lang.ExceptionInfo (tracks/resolve-selection config :final-tracks owner ids))))
@@ -36,6 +36,14 @@
                  (assoc primary :display_name "")]]
     (is (thrown? clojure.lang.ExceptionInfo
                  (tracks/catalog {:final-tracks {:selections-json (json/generate-string [entry])}} :final-tracks)))))
+
+(deftest selected-provider-becomes-compatibility-output
+  (is (= [{:track_id "shadow" :profile_id "test-final-r1" :primary true}]
+         (tracks/resolve-selection config :final-tracks tenant ["shadow"])))
+  (is (thrown? clojure.lang.ExceptionInfo
+               (tracks/resolve-selection config :final-tracks other-tenant ["shadow"])))
+  (let [plan (plans/new-plan config tenant other-tenant {:final true :final_tracks ["shadow"]})]
+    (is (= [{:track_id "shadow" :profile_id "test-final-r1" :primary true}] (:final_tracks plan)))))
 
 (deftest independent-stage-selection-preserves-worker-contract
   (let [params {"final_tracks" "whisperx,shadow" "refinement_tracks" "whisperx"}
