@@ -7,6 +7,7 @@
    [clojure.string :as str]
    [samuraibff.ui.api :as api]
    [samuraibff.ui.components.shared :as shared]
+   [samuraibff.ui.components.async-tracks :as async-tracks]
    [samuraibff.ui.components.transcript :as components.transcript]
    [samuraibff.ui.recording-detail :as recording-detail]
    [samuraibff.ui.router :as router]
@@ -329,6 +330,7 @@
 
         db-refined (get-in detail [:transcripts :refined])
         db-final (get-in detail [:transcripts :final])
+        plan (get-in detail [:session :stream_controls :asr_plan])
         refined-events (recording-detail/db-refined-records->events db-refined)
 
         current-title (get-in detail [:session :title])
@@ -394,10 +396,11 @@
           final-msgs (final-segments->messages (vec (or (:segments final-record) [])))
 
           available-tabs
-          (recording-detail/available-transcript-tabs
-           {:realtime-msgs realtime-msgs
-            :refined-msgs refined-msgs
-            :final-msgs final-msgs})
+          (vec (distinct
+                (cond-> (recording-detail/available-transcript-tabs
+                         {:realtime-msgs realtime-msgs :refined-msgs refined-msgs :final-msgs final-msgs})
+                  (seq (:refinement_tracks plan)) (conj :refined)
+                  (seq (:final_tracks plan)) (conj :final))))
 
           default-tab (recording-detail/default-transcript-tab available-tabs)
 
@@ -420,7 +423,7 @@
           on-audio-time (fn [e]
                           (set-current-time! (on-time->current-time-s e)))
 
-          final-body
+          legacy-final-body
           [:div {:style {:display "flex" :flexDirection "column" :gap "12px"}}
            [final-audio-player {:session-id session-id
                                 :enabled? playback-enabled?
@@ -466,7 +469,15 @@
                  :initial-scroll :top
                  :empty-title "Final transcript"
                  :empty-hint (if final-record "(no segments)" "No final transcript stored")
-                 :message-actions enroll-action}]))]]
+                 :message-actions enroll-action}]))]
+          final-body (if (seq (:final_tracks plan))
+                       [async-tracks/results-panel {:session-id session-id :stage "final"}]
+                       legacy-final-body)
+          refined-body (if (seq (:refinement_tracks plan))
+                         [async-tracks/results-panel {:session-id session-id :stage "refined"}]
+                         [components.transcript/transcript-view
+                          {:messages refined-msgs :empty-title "Refined real-time"
+                           :empty-hint "No refined transcript available"}])]
 
       (react/useEffect
        (fn []
@@ -543,19 +554,19 @@
         [:div {:class "spacer"}]
         (when runtime-enabled?
           [:button {:class "btn ghost icon"
-                  :type "button"
-                  :aria-label (if show-workflows?
-                                "Hide workflows panel"
-                                "Show workflows panel")
-                  :title (if show-workflows?
-                           "Hide workflows panel"
-                           "Show workflows panel")
-                  :on-click (fn [_]
-                              (set-show-workflows! (not show-workflows?)))}
-         (shared/icon (if show-workflows? "❯" "❮")
-                      {:title (if show-workflows?
-                                "Hide workflows panel"
-                                "Show workflows panel")})])]
+                    :type "button"
+                    :aria-label (if show-workflows?
+                                  "Hide workflows panel"
+                                  "Show workflows panel")
+                    :title (if show-workflows?
+                             "Hide workflows panel"
+                             "Show workflows panel")
+                    :on-click (fn [_]
+                                (set-show-workflows! (not show-workflows?)))}
+           (shared/icon (if show-workflows? "❯" "❮")
+                        {:title (if show-workflows?
+                                  "Hide workflows panel"
+                                  "Show workflows panel")})])]
 
        (if show-workflows?
          [:div {:class "split"}
@@ -572,10 +583,7 @@
                   "Real-time")]
                (case selected-tab
                  :final final-body
-                 :refined [components.transcript/transcript-view
-                           {:messages refined-msgs
-                            :empty-title "Refined real-time"
-                            :empty-hint "No refined transcript available"}]
+                 :refined refined-body
                  [components.transcript/transcript-view
                   {:messages realtime-msgs
                    :empty-title "Real-time transcript"
@@ -619,10 +627,7 @@
                "Real-time")
              (case selected-tab
                :final final-body
-               :refined [components.transcript/transcript-view
-                         {:messages refined-msgs
-                          :empty-title "Refined real-time"
-                          :empty-hint "No refined transcript available"}]
+               :refined refined-body
                [components.transcript/transcript-view
                 {:messages realtime-msgs
                  :empty-title "Real-time transcript"

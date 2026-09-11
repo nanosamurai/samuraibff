@@ -3,6 +3,11 @@
 This document describes the recordings API contract and the UI playback/karaoke
 behavior.
 
+Opt-in [refined/final track tabs](track-selection.md) reuse this audio endpoint
+and karaoke component with each viewed track's own timings. Saved session
+responses preserve the frozen controls; absent word timings retain ordinary
+transcript/playback behavior.
+
 For the original implementation plan, see:
 
 * `docs/playback-karaoke-plan.md`

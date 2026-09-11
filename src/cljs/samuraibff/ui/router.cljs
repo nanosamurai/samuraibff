@@ -23,9 +23,9 @@
   - route->href   : build a path for a route map
   - link          : small <a> component that uses navigate!"
   (:require
-    [io.factorhouse.hsx.core :as hsx]
-    [clojure.string :as str]
-    [samuraibff.ui.store :as store]))
+   [io.factorhouse.hsx.core :as hsx]
+   [clojure.string :as str]
+   [samuraibff.ui.store :as store]))
 
 (def ^:private known-pages
   #{:recordings :recording :live :speakers :api-credentials
@@ -46,7 +46,7 @@
   - Unknown paths fall back to {:page :recordings}."
   [path]
   (let [path (or path "/")
-        path (first (str/split path #"\\?"))
+        path (first (str/split path #"[?]"))
         segs (->> (str/split path #"/")
                   (remove str/blank?)
                   vec)]
@@ -155,18 +155,18 @@
     - :on-click (optional) fn(event) called after navigate!
   - children: hiccup nodes
 
-  Returns: HSX element." 
+  Returns: HSX element."
   [{:keys [route class title on-click]} & children]
   (let [href (route->href route)]
     (into
-      [:a {:href href
-           :class class
-           :title title
-           :on-click (fn [e]
-                       (.preventDefault e)
-                       (navigate! route)
-                       (when on-click (on-click e)))}]
-      children)))
+     [:a {:href href
+          :class class
+          :title title
+          :on-click (fn [e]
+                      (.preventDefault e)
+                      (navigate! route)
+                      (when on-click (on-click e)))}]
+     children)))
 
 (defn memo-clear!
   "Clear HSX memoization cache (used by core reload hook)."

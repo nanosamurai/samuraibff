@@ -61,6 +61,21 @@
     (throw (js/Error. (str "HTTP error " (.-status res)))))
   res)
 
+(defn get-track-index!
+  "Get frozen track selections and current outcome metadata for a session."
+  [session-id]
+  (-> (js/fetch (api-url (str "/api/sessions/" (js/encodeURIComponent session-id) "/tracks")))
+      (.then ensure-ok!) (.then #(.json %))
+      (.then #(js->clj % :keywordize-keys true))))
+
+(defn get-track-result!
+  "Get a selected result's normalized transcript through the authorized BFF."
+  [session-id result-id]
+  (-> (js/fetch (api-url (str "/api/sessions/" (js/encodeURIComponent session-id)
+                              "/track-results/" (js/encodeURIComponent result-id))))
+      (.then ensure-ok!) (.then #(.json %))
+      (.then #(js->clj % :keywordize-keys true))))
+
 (defn list-webhook-delivery-outcomes!
   "List latest webhook delivery outcomes for a session.
 
