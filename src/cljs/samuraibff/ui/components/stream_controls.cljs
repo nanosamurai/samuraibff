@@ -58,7 +58,7 @@
                              (:windowed_realtime capability) "Windowed realtime")
                        (when-let [seconds (:maximum_audio_seconds capability)]
                          (cond (zero? seconds) "No stream cutoff"
-                               (:windowed_realtime capability) (str seconds " sec inference window")
+                               (:windowed_realtime capability) (str "Maximum inference input: " seconds " sec (including overlap)")
                                :else (str "Up to " seconds " sec per stream")))
                        (cond (:word_timestamps capability) "Word timestamps"
                              (:segment_timestamps capability) "Segment timestamps")
@@ -145,7 +145,8 @@
             "Show partial text while speaking"]
            [:div {:class "stage-number-grid"}
             [number-field {:control :rt_emit_every_sec :label "Update interval (sec)" :disabled? (not enabled?) :min 1 :step 0.1 :hint "Minimum 1 second."}]
-            [number-field {:control :rt_window_sec :label "Window (sec)" :disabled? (not enabled?) :min 1 :max 30 :step 0.1}]
+            [number-field {:control :rt_window_sec :label "Window (sec)" :disabled? (not enabled?) :min 1 :max 30 :step 0.1
+                           :hint "Default uses the service configuration. Set a value to override it for this session; overlap adds context on both sides."}]
             [number-field {:control :rt_overlap_sec :label "Overlap (sec)" :disabled? (not enabled?) :min 0 :step 0.1}]]]
           :refined [number-field {:control :refinement_window_sec :label "Refinement window (sec)" :disabled? (not enabled?) :min 10 :max 600 :step 1}]
           nil)

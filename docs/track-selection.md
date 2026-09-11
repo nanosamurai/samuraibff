@@ -55,6 +55,17 @@ at audio admission. Track preferences are kept in memory, not browser storage.
 Controls lock when recording starts; **New session** keeps preferences but creates
 a new identity.
 
+Realtime track cards describe provider limits from rtservice `GetCapabilities`,
+forwarded by `/api/me`. `maximum_audio_seconds` is the maximum audio input for a
+single inference, including overlap for a windowed provider; it is not the
+configured window or a default. The **Window (sec)** field overrides the service's
+`RT_WINDOW_SEC` for that session through `rt_window_sec` / `x-rt-window-sec`.
+Leaving it at **Default** uses the service configuration. The capability response
+does not currently advertise that configured default. The local image checked on
+2026-09-11 uses a 5-second default with 0.5 seconds of context on each side; these
+defaults can differ between deployments. Window plus twice the overlap must fit
+within the provider's maximum inference input.
+
 `GET /ws/audio` accepts optional comma-separated ID parameters:
 
 ```text

@@ -15,6 +15,9 @@ restore its previous track selection. Every track is optional; clearing the last
 one disables that stage. Session details opens each result directly in a tab such
 as **Final Transcript (WhisperX)**. The compatibility output for existing APIs,
 workflows and webhooks is chosen automatically from the selected tracks.
+Realtime capability cards show provider limits; the maximum inference input is
+separate from the configurable **Window (sec)**, whose **Default** uses the
+rtservice configuration.
 
 This repo contains:
 
