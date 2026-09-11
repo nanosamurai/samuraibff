@@ -6,6 +6,9 @@ The opt-in [final-track spike](docs/final-tracks.md) adds frozen operator plans
 for completed recordings while preserving the primary transcript API.
 Opt-in [refinement tracks](docs/refinement-tracks.md) extend that plan to fixed
 live windows with an ordered EOF and the existing primary WebSocket/API view.
+The [track selection UI and read API](docs/track-selection.md) expose permitted
+catalog choices, freeze independent stage selections, and show per-track results
+and playback in live and historical tabs.
 
 This repo contains:
 

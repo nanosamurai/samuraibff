@@ -22,7 +22,8 @@ This terminal marker is specific to planned refinement and is not sent to ASR.
 
 Only successful primary windows appear on the existing `transcripts.refined`,
 WebSocket and recordings API paths. All tracks publish canonical outcomes on
-`transcripts.refined-tracks`; there is no new UI selector or track query API.
+`transcripts.refined-tracks`. The [track selection UI and read API](track-selection.md)
+add independent session choices and per-track live/history tabs on top of this contract.
 The existing BFF refinement merger uses absolute session times. Persistor
 deduplicates primary rows by stable result identity; WebSocket delivery remains
 at least once. Use consented local fixtures until shared source and derived

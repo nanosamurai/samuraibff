@@ -23,6 +23,11 @@ It intentionally excludes:
 
 ## High-level REST surface
 
+Opt-in [refinement/final tracks](track-selection.md) add authorized catalog
+entries to `GET /api/me`, metadata at `GET /api/sessions/:session_id/tracks`,
+and bounded transcript reads at `GET /api/sessions/:session_id/track-results/:result_id`.
+The existing recording audio endpoint supplies playback for all timed tracks.
+
 This is a navigational overview. For detailed semantics, see the linked docs.
 
 ### Sessions

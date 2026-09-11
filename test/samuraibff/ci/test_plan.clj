@@ -24,6 +24,9 @@
   reachable). Those are acceptable here as long as they are Docker-free."
   '[samuraibff.auth.oidc-audience-test
     samuraibff.final-tracks-test
+    samuraibff.async-tracks-test
+    samuraibff.http.track-results-test
+    samuraibff.ui.track-results-test
     samuraibff.auth.oidc-jwks-fetch-test
     samuraibff.auth.oidc-test
     samuraibff.http.auth-test

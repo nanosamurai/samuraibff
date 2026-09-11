@@ -19,6 +19,7 @@
    [org.httpkit.server :as http]
    [samuraibff.db.sessions :as db.sessions]
    [samuraibff.final-tracks :as final-tracks]
+   [samuraibff.async-tracks :as async-tracks]
    [samuraibff.grpc.client :as grpc.client]
    [samuraibff.stream-controls :as stream-controls]
    [samuraibff.ws.auth :as ws.auth]
@@ -124,7 +125,10 @@
             response
             (try
               (let [available-realtime-tracks (mapv :id (grpc.client/tracks grpc))
-                    controls (stream-controls/parse-and-validate params available-realtime-tracks)
+                    controls (async-tracks/requested-controls
+                              config params (stream-controls/parse-and-validate
+                                             params available-realtime-tracks
+                                             (true? (get-in config [:refinement-tracks :enabled?]))))
                     final-plan (final-tracks/freeze! (:ds db) kafka-producer config tenant-id session-id
                                                      controls sample-rate)
                     rt-window-sec (parse-rt-double (or (:rt_window_sec controls)

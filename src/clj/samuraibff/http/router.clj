@@ -25,6 +25,7 @@
    [samuraibff.ws.events :as ws.events]
    [samuraibff.http.auth :as http.auth]
    [samuraibff.http.recordings :as http.recordings]
+   [samuraibff.http.track-results :as http.tracks]
    [samuraibff.http.webhook-delivery-outcomes :as http.wh.outcomes]
    [samuraibff.http.api-credentials :as http.api-creds]
    [samuraibff.http.internal :as http.internal]
@@ -36,6 +37,7 @@
    [samuraibff.http.middleware.observability :as http.obs]
    [samuraibff.observability.metrics :as metrics]
    [samuraibff.schemas :as schemas]
+   [samuraibff.track-schemas :as track-schemas]
    [reitit.ring.coercion :as rrc]
    [reitit.coercion.malli]
    [reitit.openapi :as openapi]
@@ -529,6 +531,26 @@
                                  500 {:body schemas/ApiErrorResponse}}
                      :handler (http.ui/rename-session-handler deps)}}]
 
+           ["/sessions/:session_id/tracks"
+            {:get {:summary "List selected asynchronous tracks"
+                   :description "Frozen selections and independent result metadata, including pending tracks. Catalog presence does not indicate worker health."
+                   :parameters {:path [:map [:session_id schemas/Uuid]]}
+                   :responses {200 {:body track-schemas/TrackIndexResponse}
+                               400 {:body schemas/ApiErrorResponse}
+                               403 {:body schemas/ApiErrorResponse}
+                               404 {:body schemas/ApiErrorResponse}
+                               503 {:body schemas/ApiErrorResponse}}
+                   :handler (http.tracks/index-handler deps)}}]
+           ["/sessions/:session_id/track-results/:result_id"
+            {:get {:summary "Read a selected track result"
+                   :description "Returns a bounded transcript with actual timings, capabilities and degradations. Internal object locations and runtime provenance are omitted."
+                   :parameters {:path [:map [:session_id schemas/Uuid] [:result_id schemas/Uuid]]}
+                   :responses {200 {:body track-schemas/TrackResultResponse}
+                               400 {:body schemas/ApiErrorResponse}
+                               403 {:body schemas/ApiErrorResponse}
+                               404 {:body schemas/ApiErrorResponse}
+                               503 {:body schemas/ApiErrorResponse}}
+                   :handler (http.tracks/result-handler deps)}}]
            ["/sessions/:session_id/finish"
             {:post {:summary "Finish session"
                     :description "Marks the session as finished (explicit state-machine transition)."

@@ -16,7 +16,8 @@ deployment migration needed by Persistor.
 That is also the default. The catalog allows at most four unique logical track
 IDs, exactly one primary, and fixed allowlisted profiles. The synthetic
 `test-final-r1` profile requires `SAMURAIBFF_FINAL_TRACK_TEST_PROFILE_ENABLED=true`.
-There is no public track picker, model URL, or runtime-argument API.
+The [track catalog and session picker](track-selection.md) add optional labels,
+defaults and tenant restrictions. Clients select track IDs only.
 
 The transaction locks the tenant-owned session and stores the plan in
 `sessions.stream_controls.asr_plan`. The complete session inception metadata is
@@ -41,8 +42,9 @@ secondary-track UI or query API is added by this spike.
 
 The feature defaults off. The opt-in mode requires `store_recording=true`, S3
 source storage, and completed recordings bounded to 600 seconds in the recorder.
-Shared artifact retention/deletion and live refinement execution remain later
-work. Use the isolated `docker-compose.final-tracks.yml` in `nanosamurai` for
+Shared artifact retention/deletion remains later work. Live execution is covered
+by [refinement tracks](refinement-tracks.md). Use the isolated
+`docker-compose.final-tracks.yml` in `nanosamurai` for
 qualification; do not enable this on general user recordings yet.
 
 Focused tests cover catalog validation, canonical cross-language headers,

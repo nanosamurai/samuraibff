@@ -10,6 +10,7 @@
    - Times in segments are seconds (double) unless explicitly *_ms"
   (:require
    [malli.core :as m]
+   [samuraibff.track-schemas :as track-schemas]
    [malli.error :as me]
    [malli.util :as mu]
    [malli.transform :as mt]))
@@ -597,6 +598,7 @@
   [:map
    [:ok :boolean]
    [:authenticated :boolean]
+   [:async_tracks {:optional true} [:vector {:max 8} track-schemas/AsyncTrackChoice]]
    [:realtime_tracks [:vector {:min 1 :max 4} NonEmptyString]]
    [:realtime_track_capabilities [:vector {:min 1 :max 4} RealtimeTrackCapability]]
    [:tenant_id {:optional true} Uuid]
@@ -657,7 +659,7 @@
    [:created_at [:maybe :string]]
    ;; Stream controls snapshot (outputs + retention + realtime knobs).
    ;; Stored as JSONB on sessions and returned as a JSON object.
-   [:stream_controls {:optional true} [:maybe :map]]
+   [:stream_controls {:optional true} [:maybe [:map-of :keyword :any]]]
    ;; Flags for UI convenience (used for audio playback gating).
    [:has_recording :boolean]
    [:has_final_transcript :boolean]])

@@ -6,6 +6,7 @@
             [next.jdbc :as jdbc]
             [next.jdbc.result-set :as rs]
             [org.corfield.logging4j2 :as log]
+            [samuraibff.async-tracks :as async-tracks]
             [samuraibff.kafka.producer :as producer])
   (:import (java.util UUID)
            (org.postgresql.util PGobject)))
@@ -37,30 +38,10 @@
     (catch IllegalArgumentException _ (reject! :invalid-identity))))
 
 (defn selections
-  "Validate the operator JSON catalog; the public API cannot choose profiles."
+  "Resolve compatible operator defaults to the unchanged worker plan shape."
   ([config] (selections config :final-tracks))
   ([config stage]
-   (let [refined? (= stage :refinement-tracks)
-         profile (if refined? "whisperx-medium-refined-r1" "whisperx-medium-final-r1")
-         test-profile (if refined? "test-refined-r1" "test-final-r1")
-         raw (get-in config [stage :selections-json])
-         tracks (if (seq raw)
-                  (try (json/parse-string-strict raw true)
-                       (catch Exception _ (reject! :invalid-catalog)))
-                  [{:track_id "whisperx" :profile_id profile :primary true}])
-         allowed (cond-> #{profile}
-                   (true? (get-in config [stage :test-profile-enabled?])) (conj test-profile))]
-     (when-not (and (vector? tracks) (<= 1 (count tracks) 4)
-                    (= (count tracks) (count (distinct (map :track_id tracks))))
-                    (= 1 (count (filter :primary tracks)))
-                    (every? (fn [track]
-                              (and (= #{:track_id :profile_id :primary} (set (keys track)))
-                                   (boolean? (:primary track))
-                                   (string? (:track_id track))
-                                   (re-matches #"[a-z0-9][a-z0-9._-]{0,95}" (:track_id track))
-                                   (contains? allowed (:profile_id track)))) tracks))
-       (reject! :invalid-catalog))
-     tracks)))
+   (async-tracks/resolve-selection config stage nil nil)))
 
 (defn new-plan
   "Build a bounded plan carrying the authenticated tenant/session identity."
@@ -75,8 +56,8 @@
      (cond-> {:schema_version 1 :plan_id (str (UUID/randomUUID))
               :tenant_id (str tenant-id) :session_id (str session-id)
               :final_tracks (if (and (get-in config [:final-tracks :enabled?]) (:final controls))
-                              (selections config) [])}
-       refined? (assoc :refinement_tracks (selections config :refinement-tracks)
+                              (async-tracks/resolve-selection config :final-tracks tenant-id (:final_tracks controls)) [])}
+       refined? (assoc :refinement_tracks (async-tracks/resolve-selection config :refinement-tracks tenant-id (:refinement_tracks controls))
                        :refinement_window_samples samples)))))
 
 (defn kafka-headers
@@ -141,7 +122,9 @@
                 (reject! :frozen-controls-changed))
               (let [plan (or existing (new-plan config tenant-id session-id controls))
                     snapshot (if existing meta-snapshot
-                                 (assoc meta-snapshot :asr_plan plan :event_id (str (UUID/randomUUID))))]
+                                 (assoc meta-snapshot :asr_plan plan
+                                        :asr_track_catalog (async-tracks/public-catalog config tenant-id)
+                                        :event_id (str (UUID/randomUUID))))]
                 (jdbc/execute-one! tx
                                    ["UPDATE sessions SET status='active', started_at=COALESCE(started_at,now()), stream_controls=?::jsonb, asr_meta_snapshot=?::jsonb WHERE tenant_id=? AND id=?"
                                     (json/generate-string (assoc controls :asr_plan plan))
