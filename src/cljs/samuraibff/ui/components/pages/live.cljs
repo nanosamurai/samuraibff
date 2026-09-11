@@ -281,67 +281,35 @@
 (declare webhook-routing-panel workflow-routing-panel audio-controls-panel)
 
 (defn- session-settings-panel
-  "Single settings panel shown from the gear button.
-
-   It contains tabs:
-   - Stream settings
-   - Audio settings
-   - Webhooks
-   - Workflows
-
-  Inputs:
-  - {:keys [open? set-open!]} where:
-    - open?: boolean
-    - set-open!: (fn [boolean])
-
-  Returns: hiccup (or nil when closed)."
+  "Render independent output tabs with direct toggles alongside the existing session tools."
   [{:keys [open? set-open!]}]
-  (let [tab* (react/useState :stream)
-        tab (aget tab* 0)
-        set-tab! (aget tab* 1)
+  (let [[requested-tab set-tab!] (react/useState :realtime)
         runtime-enabled? (store/workflow-webhook-runtime-enabled?)
-        set-open! (when (fn? set-open!) set-open!)]
-    (when (true? open?)
-      [:div {:class "controls stream-controls"}
+        tab (if (and (not runtime-enabled?) (#{:webhooks :workflows} requested-tab)) :realtime requested-tab)]
+    (when open?
+      [:section {:class "controls stream-controls session-settings" :aria-label "Session settings"}
        [:div {:class "stream-controls-header"}
         [:div {:class "stream-controls-title"}
          [:div {:class "stream-controls-title-text"} "Session settings"]
-         [:div {:class "muted" :style {:fontSize "12px"}}
-          "Applies to newly created sessions."]]
-        [:button {:class "btn ghost"
-                  :type "button"
-                  :title "Close"
-                  :on-click (fn [_]
-                              (when set-open!
-                                (set-open! false)))}
-         "Close"]]
-
-       [:div {:class "tabs" :style {:marginBottom "0"}}
-        [:button {:class (str "tab " (when (= tab :stream) "active"))
-                  :type "button"
-                  :on-click (fn [_] (set-tab! :stream))}
-         "Stream"]
-        [:button {:class (str "tab " (when (= tab :audio) "active"))
-                  :type "button"
-                  :on-click (fn [_] (set-tab! :audio))}
-         "Audio"]
-        (when runtime-enabled?
-          [:button {:class (str "tab " (when (= tab :webhooks) "active"))
-                    :type "button"
-                    :on-click (fn [_] (set-tab! :webhooks))}
-           "Webhooks"])
-        (when runtime-enabled?
-          [:button {:class (str "tab " (when (= tab :workflows) "active"))
-                    :type "button"
-                    :on-click (fn [_] (set-tab! :workflows))}
-           "Workflows"])
-        [:div {:class "spacer"}]]
-
-       (case (if runtime-enabled? tab (if (contains? #{:webhooks :workflows} tab) :stream tab))
-         :audio [audio-controls-panel]
-         :webhooks [webhook-routing-panel]
-         :workflows [workflow-routing-panel]
-         [stream-controls/panel])])))
+         [:div {:class "muted"} "Choose outputs and adjust how this session is recorded."]]
+        [:button {:class "btn ghost" :type "button" :on-click #(when set-open! (set-open! false))} "Close"]]
+       [:div {:class "settings-tabs" :role "tablist" :aria-label "Session settings"}
+        (for [[stage label] [[:realtime "Real-time"] [:refined "Refined"] [:final "Final"]]]
+          [stream-controls/tab-header {:key stage :stage stage :label label :active? (= tab stage)
+                                       :on-select #(set-tab! stage)}])
+        (for [[id label] (cond-> [[:recording "Recording"] [:audio "Audio"]]
+                           runtime-enabled? (into [[:webhooks "Webhooks"] [:workflows "Workflows"]]))]
+          [:button {:key id :class (str "settings-tab " (when (= tab id) "active"))
+                    :type "button" :role "tab" :id (str "settings-tab-" (name id))
+                    :aria-controls "session-settings-content" :aria-selected (= tab id)
+                    :on-click #(set-tab! id)} label])]
+       [:div {:class "settings-content" :role "tabpanel" :id "session-settings-content"
+              :aria-labelledby (str "settings-tab-" (name tab))}
+        (case tab
+          :audio [audio-controls-panel]
+          :webhooks [webhook-routing-panel]
+          :workflows [workflow-routing-panel]
+          [stream-controls/panel {:stage tab}])]])))
 
 (defn- audio-controls-panel
   "Audio capture settings.

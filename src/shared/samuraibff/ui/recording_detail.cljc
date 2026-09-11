@@ -66,6 +66,27 @@
             (when (contains? available? tab-id) tab-id))
           transcript-tab-default-order)))
 
+(defn track-transcript-tabs
+  "Build one level of transcript tabs from frozen selections, including pending tracks.
+  Indexed labels/results take precedence over plan ID fallbacks. Legacy messages
+  get a stage tab only when that stage has no planned tracks. IDs include stage."
+  [messages plan indexed-tracks]
+  (let [legacy (set (available-transcript-tabs messages))]
+    (vec
+     (mapcat
+      (fn [[stage plan-key title]]
+        (if-let [selected (seq (get plan plan-key))]
+          (mapv (fn [selection]
+                  (let [id (:track_id selection)
+                        indexed (some #(when (and (= (name stage) (:stage %)) (= id (:track_id %))) %) indexed-tracks)
+                        track (merge (assoc selection :stage (name stage) :display_name id) indexed)]
+                    {:id [stage id] :stage stage :track track
+                     :label (str title " (" (:display_name track) ")")})) selected)
+          (when (contains? legacy stage) [{:id stage :stage stage :label title}])))
+      [[:realtime nil "Real-time Transcript"]
+       [:refined :refinement_tracks "Refined Transcript"]
+       [:final :final_tracks "Final Transcript"]]))))
+
 (defn db-refined-records->events
   "Convert DB refined transcript records into refined events.
 

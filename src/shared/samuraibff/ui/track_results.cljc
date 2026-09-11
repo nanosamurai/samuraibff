@@ -6,7 +6,7 @@
   "Resolve the form's optional ID list against visible catalog defaults."
   [entries requested]
   (let [ids (if (nil? requested) (set (map :track_id (filter :default_selected entries))) (set requested))]
-    (mapv :track_id (filter #(or (:primary %) (contains? ids (:track_id %))) entries))))
+    (mapv :track_id (filter #(contains? ids (:track_id %)) entries))))
 
 (defn latest-results
   "Keep only the newest revision of a unit within its run, then order windows."

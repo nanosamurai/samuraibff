@@ -1,42 +1,11 @@
 (ns samuraibff.ui.components.async-tracks
   "Shared asynchronous selectors and full-width result tabs for live/history."
   (:require [samuraibff.ui.api :as api]
-            [samuraibff.ui.hooks :as hooks]
-            [samuraibff.ui.store :as store]
             [samuraibff.ui.track-results :as tracks]
             [samuraibff.ui.components.transcript :as transcript]
             ["react" :as react]))
 
-(defn selectors
-  "Render enabled stage choices from the caller's catalog; freeze after start."
-  []
-  (let [session (hooks/use-atom store/session*)
-        catalog (get-in (hooks/use-atom store/auth*) [:detail :async_tracks])
-        locked? (or (hooks/use-atom store/running?*) (#{:active :finished :finalized :failed} (:status session)))]
-    [:div {:class "sc-grid"}
-     (for [[stage control-key label] [["refined" :refinement_tracks "Refined tracks"] ["final" :final_tracks "Final tracks"]]
-           :let [entries (filterv #(= stage (:stage %)) catalog)]
-           :when (seq entries)]
-       (let [selected (set (tracks/selected-ids entries (get-in session [:controls control-key])))
-             enabled? (get-in session [:controls (keyword stage)])]
-         [:fieldset {:key stage :class "sc-cell sc-span-2" :disabled (boolean (or locked? (not enabled?)))
-                     :data-testid (str stage "-track-picker")}
-          [:legend {:class "label"} label]
-          (for [{:keys [track_id display_name primary]} entries]
-            [:label {:key track_id :class "checkbox-row"}
-             [:input {:type "checkbox" :checked (contains? selected track_id) :disabled (boolean primary)
-                      :aria-label (str label ": " display_name)
-                      :on-change (fn [event]
-                                   (let [ids ((if (.. event -target -checked) conj disj) selected track_id)]
-                                     (store/set-session-control! control-key
-                                                                 (mapv :track_id (filter #(contains? ids (:track_id %)) entries)))))}]
-             [:span display_name (when primary " (primary)")]])
-          [:div {:class "hint"} "Primary output is required. Other tracks are optional comparisons."]]))
-     (when (seq catalog)
-       [:div {:class "hint sc-span-2"}
-        "Selections apply before recording starts. Configured choices do not indicate worker availability. These tracks require retained audio; sessions are limited to 10 minutes."])]))
-
-(defn- use-index
+(defn use-index
   "Poll metadata while mounted, serially and without caching tenant data on disk."
   [session-id]
   (let [[state set-state!] (react/useState nil)]
@@ -59,7 +28,7 @@
      #js [session-id])
     (when (= session-id (:owner state)) state)))
 
-(defn- track-body
+(defn track-body
   "Render one track using its own artifact text/timings and the session audio."
   [{:keys [session-id track has-recording?]}]
   (let [[artifacts set-artifacts!] (react/useState {})
@@ -95,8 +64,7 @@
     [:div {:class "async-track-body" :data-testid "track-result-panel" :data-track-id (:track_id track)}
      [:div {:class "row"}
       [:strong (:display_name track)]
-      [:span {:class "badge" :role "status"} (tracks/status-label track)]
-      (when (:primary track) [:span {:class "muted"} "Primary"])]
+      [:span {:class "badge" :role "status"} (tracks/status-label track)]]
      (for [result errors]
        [:div {:key (:result_id result) :class "badge bad" :role "alert"}
         (if (= "failed" (:status result))

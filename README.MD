@@ -9,6 +9,12 @@ live windows with an ordered EOF and the existing primary WebSocket/API view.
 The [track selection UI and read API](docs/track-selection.md) expose permitted
 catalog choices, freeze independent stage selections, and show per-track results
 and playback in live and historical tabs.
+Record's Session settings separates **Real-time**, **Refined**, **Final**, and
+**Recording**. Output tab checkboxes toggle the stage without opening it and
+restore its previous track selection. Every track is optional; clearing the last
+one disables that stage. Session details opens each result directly in a tab such
+as **Final Transcript (WhisperX)**. The compatibility output for existing APIs,
+workflows and webhooks is chosen automatically from the selected tracks.
 
 This repo contains:
 

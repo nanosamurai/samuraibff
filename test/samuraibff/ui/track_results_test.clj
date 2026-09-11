@@ -18,10 +18,10 @@
     (is (= "1 failed · 2 succeeded" (tracks/status-label {:stage "refined" :results results})))
     (is (= 2 (count (tracks/latest-results [first-window (assoc first-window :run_id "two")]))))))
 
-(deftest defaults-and-primary-are-visible-before-audio
+(deftest explicit-selection-does-not-force-primary
   (let [entries [{:track_id "primary" :primary true :default_selected true}
                  {:track_id "comparison" :primary false :default_selected false}]]
     (is (= ["primary"] (tracks/selected-ids entries nil)))
-    (is (= ["primary" "comparison"] (tracks/selected-ids entries ["comparison"])))
+    (is (= ["comparison"] (tracks/selected-ids entries ["comparison"])))
     (is (= "Waiting for results" (tracks/status-label {:stage "final" :results []})))
     (is (= "Succeeded" (tracks/status-label {:stage "final" :results [{:unit_id "recording" :revision 1 :status "succeeded"}]})))))

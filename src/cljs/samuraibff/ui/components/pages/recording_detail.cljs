@@ -331,6 +331,7 @@
         db-refined (get-in detail [:transcripts :refined])
         db-final (get-in detail [:transcripts :final])
         plan (get-in detail [:session :stream_controls :asr_plan])
+        track-index (async-tracks/use-index (when plan session-id))
         refined-events (recording-detail/db-refined-records->events db-refined)
 
         current-title (get-in detail [:session :title])
@@ -395,20 +396,15 @@
           final-record (last (vec (or db-final [])))
           final-msgs (final-segments->messages (vec (or (:segments final-record) [])))
 
-          available-tabs
-          (vec (distinct
-                (cond-> (recording-detail/available-transcript-tabs
-                         {:realtime-msgs realtime-msgs :refined-msgs refined-msgs :final-msgs final-msgs})
-                  (seq (:refinement_tracks plan)) (conj :refined)
-                  (seq (:final_tracks plan)) (conj :final))))
-
-          default-tab (recording-detail/default-transcript-tab available-tabs)
-
-          selected-tab (let [allowed? (contains? (set (or available-tabs [])) tab)]
-                         (cond
-                           allowed? tab
-                           (some? default-tab) default-tab
-                           :else nil))
+          transcript-tabs (recording-detail/track-transcript-tabs
+                           {:realtime-msgs realtime-msgs :refined-msgs refined-msgs :final-msgs final-msgs}
+                           plan (:tracks track-index))
+          available-tabs (mapv :id transcript-tabs)
+          default-tab (:id (or (first (filter #(= :final (:stage %)) transcript-tabs))
+                               (first (filter #(= :refined (:stage %)) transcript-tabs))
+                               (first transcript-tabs)))
+          selected-tab (if (some #{tab} available-tabs) tab default-tab)
+          selected-entry (first (filter #(= selected-tab (:id %)) transcript-tabs))
 
           ;; Playback is only shown when we have both:
           ;; - a recording stored
@@ -470,14 +466,22 @@
                  :empty-title "Final transcript"
                  :empty-hint (if final-record "(no segments)" "No final transcript stored")
                  :message-actions enroll-action}]))]
-          final-body (if (seq (:final_tracks plan))
-                       [async-tracks/results-panel {:session-id session-id :stage "final"}]
-                       legacy-final-body)
-          refined-body (if (seq (:refinement_tracks plan))
-                         [async-tracks/results-panel {:session-id session-id :stage "refined"}]
-                         [components.transcript/transcript-view
-                          {:messages refined-msgs :empty-title "Refined real-time"
-                           :empty-hint "No refined transcript available"}])]
+          selected-body
+          (if-let [track (:track selected-entry)]
+            [:div
+             (when (:read-error track-index)
+               [:div {:class "badge bad" :role "alert"} "Track status could not be refreshed. Retrying…"])
+             [async-tracks/track-body {:key (str session-id "/" (:stage track) "/" (:track_id track))
+                                       :session-id session-id :track track
+                                       :has-recording? (true? (get-in detail [:session :has_recording]))}]]
+            (case (:stage selected-entry)
+              :final legacy-final-body
+              :refined [components.transcript/transcript-view
+                        {:messages refined-msgs :empty-title "Refined real-time"
+                         :empty-hint "No refined transcript available"}]
+              [components.transcript/transcript-view
+               {:messages realtime-msgs :empty-title "Real-time transcript"
+                :empty-hint "No realtime transcript available"}]))]
 
       (react/useEffect
        (fn []
@@ -539,18 +543,11 @@
                    :on-click (fn [_] (refresh!))}
           "Refresh"]]]
 
-       [:div {:class "tabs"}
-        (when (seq available-tabs)
-          (for [tab-id available-tabs]
-            ^{:key (str "tab-" (name tab-id))}
-            [:button {:class (str "tab " (when (= tab tab-id) "active"))
-                      :type "button"
-                      :on-click (fn [_] (set-tab! tab-id))}
-             (case tab-id
-               :realtime "Real-time transcript"
-               :refined "Refined real-time"
-               :final "Final transcript"
-               (name tab-id))]))
+       [:div {:class "tabs transcript-tabs" :role "tablist" :aria-label "Session transcripts"}
+        (for [{:keys [id label]} transcript-tabs]
+          [:button {:key (pr-str id) :class (str "tab " (when (= selected-tab id) "active"))
+                    :type "button" :role "tab" :aria-selected (= selected-tab id)
+                    :on-click #(set-tab! id)} label])
         [:div {:class "spacer"}]
         (when runtime-enabled?
           [:button {:class "btn ghost icon"
@@ -575,19 +572,7 @@
             (if (empty? available-tabs)
               [:div {:class "muted"}
                "No transcripts available for this recording."]
-              [:div
-               [:div {:class "card-title"}
-                (case selected-tab
-                  :refined "Refined real-time"
-                  :final "Final"
-                  "Real-time")]
-               (case selected-tab
-                 :final final-body
-                 :refined refined-body
-                 [components.transcript/transcript-view
-                  {:messages realtime-msgs
-                   :empty-title "Real-time transcript"
-                   :empty-hint "No realtime transcript available"}])])]]
+              [:div {:role "tabpanel" :aria-label (:label selected-entry)} selected-body])]]
 
           [:div {:class "split-side"}
            [:div {:class "right-panel"}
@@ -619,16 +604,4 @@
           (if (empty? available-tabs)
             [:div {:class "muted"}
              "No transcripts available for this recording."]
-            [:div
-             [:div {:class "card-title"}]
-             (case selected-tab
-               :refined "Refined real-time"
-               :final "Final"
-               "Real-time")
-             (case selected-tab
-               :final final-body
-               :refined refined-body
-               [components.transcript/transcript-view
-                {:messages realtime-msgs
-                 :empty-title "Real-time transcript"
-                 :empty-hint "No realtime transcript available"}])])])])))
+            [:div {:role "tabpanel" :aria-label (:label selected-entry)} selected-body])])])))

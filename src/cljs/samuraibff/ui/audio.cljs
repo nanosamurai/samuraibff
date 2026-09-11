@@ -11,6 +11,7 @@
    [clojure.string :as str]
    [samuraibff.ui.env :as env]
    [samuraibff.ui.store :as store]
+   [samuraibff.ui.output-settings :as output-settings]
    [samuraibff.ui.util :as util]))
 
 (def ^:private target-sample-rate
@@ -281,7 +282,7 @@
   - Promise resolving truthy when capture started."
   [session-id lang]
   (stop-audio!)
-  (let [controls (get-in @store/session* [:controls])
+  (let [controls (output-settings/effective-controls (:controls @store/session*) (:detail @store/auth*))
         qp (cond-> {:session_id session-id
                     :lang (or lang "")
                     :sample_rate target-sample-rate

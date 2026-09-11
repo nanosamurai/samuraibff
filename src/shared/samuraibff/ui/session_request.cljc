@@ -13,7 +13,8 @@
   - JSON-friendly maps compatible with `schemas/CreateSessionRequest`.
   "
   (:require
-   [clojure.string :as str]))
+   [clojure.string :as str]
+   [samuraibff.ui.output-settings :as output-settings]))
 
 (defn resolved-webhook-overrides
   "Compute the `webhook_overrides` request body for `POST /api/sessions`.
@@ -73,7 +74,7 @@
 
   Returns: boolean."
   [session]
-  (true? (get-in session [:controls :refined])))
+  (output-settings/enabled? (:controls session) :refined []))
 
 (defn resolved-session-settings
   "Compute the `session_settings` request body for `POST /api/sessions`.
