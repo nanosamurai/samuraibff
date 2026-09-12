@@ -4,6 +4,8 @@ Clojure BFF (backend-for-frontend) for the **nanosamur.ai** solution.
 
 The opt-in [final-track spike](docs/final-tracks.md) adds frozen operator plans
 for completed recordings while preserving the primary transcript API.
+Opt-in [refinement tracks](docs/refinement-tracks.md) extend that plan to fixed
+live windows with an ordered EOF and the existing primary WebSocket/API view.
 
 This repo contains:
 

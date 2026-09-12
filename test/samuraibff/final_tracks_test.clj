@@ -40,3 +40,21 @@
     (is (thrown? clojure.lang.ExceptionInfo
                  (tracks/freeze! nil nil {:final-tracks {:enabled? true}} nil nil
                                  {:final true :store_recording false} 16000)))))
+
+(deftest refinement-selection-is-frozen-with-its-window-policy
+  (let [tenant "00000000-0000-0000-0000-000000000001"
+        session "00000000-0000-0000-0000-000000000002"
+        config {:refinement-tracks {:enabled? true}}
+        plan (tracks/new-plan config tenant session {:refined true :refinement_window_sec 10.0})]
+    (is (tracks/enabled? config))
+    (is (tracks/selected? config {:refined true}))
+    (is (not (tracks/selected? config {:final true})))
+    (is (= [] (:final_tracks plan)))
+    (is (= 160000 (:refinement_window_samples plan)))
+    (is (= "whisperx-medium-refined-r1" (get-in plan [:refinement_tracks 0 :profile_id])))
+    (is (= "whisperx" (String. ^bytes (get (tracks/kafka-headers plan) "x-refinement-track-ids") "UTF-8")))
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (tracks/selections {:refinement-tracks {:selections-json "[{\"track_id\":\"x\",\"profile_id\":\"test-refined-r1\",\"primary\":true}]"}}
+                                    :refinement-tracks)))
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (tracks/freeze! nil nil config nil nil {:refined true :store_recording false} 16000)))))

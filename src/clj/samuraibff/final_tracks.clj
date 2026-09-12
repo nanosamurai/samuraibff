@@ -13,7 +13,14 @@
 (defn enabled?
   "Return whether the operator enabled final-track plan creation."
   [config]
-  (true? (get-in config [:final-tracks :enabled?])))
+  (or (true? (get-in config [:final-tracks :enabled?]))
+      (true? (get-in config [:refinement-tracks :enabled?]))))
+
+(defn selected?
+  "Return whether an enabled asynchronous stage was requested for this session."
+  [config controls]
+  (or (and (get-in config [:final-tracks :enabled?]) (:final controls))
+      (and (get-in config [:refinement-tracks :enabled?]) (:refined controls))))
 
 (defn- reject!
   "Throw a sanitized validation error, without echoing user or operator data."
@@ -31,34 +38,46 @@
 
 (defn selections
   "Validate the operator JSON catalog; the public API cannot choose profiles."
-  [config]
-  (let [raw (get-in config [:final-tracks :selections-json])
-        tracks (if (seq raw)
-                 (try (json/parse-string-strict raw true)
-                      (catch Exception _ (reject! :invalid-catalog)))
-                 [{:track_id "whisperx" :profile_id "whisperx-medium-final-r1" :primary true}])
-        allowed (cond-> #{"whisperx-medium-final-r1"}
-                  (true? (get-in config [:final-tracks :test-profile-enabled?])) (conj "test-final-r1"))]
-    (when-not (and (vector? tracks) (<= 1 (count tracks) 4)
-                   (= (count tracks) (count (distinct (map :track_id tracks))))
-                   (= 1 (count (filter :primary tracks)))
-                   (every? (fn [track]
-                             (and (= #{:track_id :profile_id :primary} (set (keys track)))
-                                  (boolean? (:primary track))
-                                  (string? (:track_id track))
-                                  (re-matches #"[a-z0-9][a-z0-9._-]{0,95}" (:track_id track))
-                                  (contains? allowed (:profile_id track)))) tracks))
-      (reject! :invalid-catalog))
-    tracks))
+  ([config] (selections config :final-tracks))
+  ([config stage]
+   (let [refined? (= stage :refinement-tracks)
+         profile (if refined? "whisperx-medium-refined-r1" "whisperx-medium-final-r1")
+         test-profile (if refined? "test-refined-r1" "test-final-r1")
+         raw (get-in config [stage :selections-json])
+         tracks (if (seq raw)
+                  (try (json/parse-string-strict raw true)
+                       (catch Exception _ (reject! :invalid-catalog)))
+                  [{:track_id "whisperx" :profile_id profile :primary true}])
+         allowed (cond-> #{profile}
+                   (true? (get-in config [stage :test-profile-enabled?])) (conj test-profile))]
+     (when-not (and (vector? tracks) (<= 1 (count tracks) 4)
+                    (= (count tracks) (count (distinct (map :track_id tracks))))
+                    (= 1 (count (filter :primary tracks)))
+                    (every? (fn [track]
+                              (and (= #{:track_id :profile_id :primary} (set (keys track)))
+                                   (boolean? (:primary track))
+                                   (string? (:track_id track))
+                                   (re-matches #"[a-z0-9][a-z0-9._-]{0,95}" (:track_id track))
+                                   (contains? allowed (:profile_id track)))) tracks))
+       (reject! :invalid-catalog))
+     tracks)))
 
 (defn new-plan
   "Build a bounded plan carrying the authenticated tenant/session identity."
-  [config tenant-id session-id]
-  (canonical-uuid tenant-id)
-  (canonical-uuid session-id)
-  {:schema_version 1 :plan_id (str (UUID/randomUUID))
-   :tenant_id (str tenant-id) :session_id (str session-id)
-   :final_tracks (selections config)})
+  ([config tenant-id session-id]
+   (new-plan (assoc-in config [:final-tracks :enabled?] true) tenant-id session-id {:final true}))
+  ([config tenant-id session-id controls]
+   (canonical-uuid tenant-id)
+   (canonical-uuid session-id)
+   (let [refined? (and (get-in config [:refinement-tracks :enabled?]) (:refined controls))
+         samples (long (* 16000 (or (:refinement_window_sec controls) 60)))]
+     (when (and refined? (not (<= 160000 samples 9600000))) (reject! :invalid-window-policy))
+     (cond-> {:schema_version 1 :plan_id (str (UUID/randomUUID))
+              :tenant_id (str tenant-id) :session_id (str session-id)
+              :final_tracks (if (and (get-in config [:final-tracks :enabled?]) (:final controls))
+                              (selections config) [])}
+       refined? (assoc :refinement_tracks (selections config :refinement-tracks)
+                       :refinement_window_samples samples)))))
 
 (defn kafka-headers
   "Encode the frozen plan canonically, matching the Python contract byte for byte."
@@ -66,9 +85,12 @@
   (let [sorted-plan (walk/postwalk #(if (map? %) (into (sorted-map) %) %) plan)
         encoded (.getBytes ^String (json/generate-string sorted-plan) "UTF-8")]
     (when (> (alength encoded) 8192) (reject! :plan-too-large))
-    {"x-asr-plan" encoded
-     "x-asr-plan-id" (.getBytes ^String (:plan_id plan) "UTF-8")
-     "x-final-track-ids" (.getBytes ^String (str/join "," (map :track_id (:final_tracks plan))) "UTF-8")}))
+    (cond-> {"x-asr-plan" encoded
+             "x-asr-plan-id" (.getBytes ^String (:plan_id plan) "UTF-8")
+             "x-final-track-ids" (.getBytes ^String (str/join "," (map :track_id (:final_tracks plan))) "UTF-8")}
+      (:refinement_tracks plan)
+      (assoc "x-refinement-track-ids"
+             (.getBytes ^String (str/join "," (map :track_id (:refinement_tracks plan))) "UTF-8")))))
 
 (defn- decode-json
   "Decode a JDBC JSONB value into keyword-keyed Clojure data."
@@ -93,13 +115,13 @@
   Returns the plan or nil when disabled/final output was not selected. Publication
   must be acknowledged before callers accept audio; retries reuse the same plan."
   [ds kafka-producer config tenant-id session-id controls sample-rate]
-  (when (and ds tenant-id session-id (not (and (enabled? config) (:final controls))))
+  (when (and ds tenant-id session-id (not (selected? config controls)))
     (let [row (jdbc/execute-one! ds
                                  ["SELECT stream_controls->'asr_plan' AS plan FROM sessions WHERE tenant_id=? AND id=?"
                                   (canonical-uuid tenant-id) (canonical-uuid session-id)]
                                  {:builder-fn rs/as-unqualified-lower-maps})]
       (when (:plan row) (reject! :frozen-plan-disabled))))
-  (when (and (enabled? config) (:final controls))
+  (when (selected? config controls)
     (when-not (and ds kafka-producer (:store_recording controls) (= 16000 sample-rate))
       (reject! :unsupported-retention-or-storage))
     (let [tenant (canonical-uuid tenant-id)
@@ -117,7 +139,7 @@
               (when (and (:started_at row) (nil? existing)) (reject! :session-already-started))
               (when (and existing (not= controls (dissoc previous :asr_plan)))
                 (reject! :frozen-controls-changed))
-              (let [plan (or existing (new-plan config tenant-id session-id))
+              (let [plan (or existing (new-plan config tenant-id session-id controls))
                     snapshot (if existing meta-snapshot
                                  (assoc meta-snapshot :asr_plan plan :event_id (str (UUID/randomUUID))))]
                 (jdbc/execute-one! tx
