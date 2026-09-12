@@ -124,27 +124,29 @@
   ([params]
    (parse-and-validate params nil))
   ([params available-realtime-tracks]
+   (parse-and-validate params available-realtime-tracks false))
+  ([params available-realtime-tracks retained-refinement?]
    (let [realtime? (parse-bool (or (get params :realtime) (get params "realtime"))
                                (:realtime default-controls))
-        refined? (parse-bool (or (get params :refined) (get params "refined"))
-                             (:refined default-controls))
-        final? (parse-bool (or (get params :final) (get params "final"))
-                           (:final default-controls))
-        store-recording? (parse-bool (or (get params :store_recording) (get params "store_recording")
-                                         (get params :store-recording) (get params "store-recording"))
-                                     (:store_recording default-controls))
-        rt-partial-enable? (parse-bool (or (get params :rt_partial_enable) (get params "rt_partial_enable")
-                                           (get params :rt-partial-enable) (get params "rt-partial-enable"))
-                                       (:rt_partial_enable default-controls))
-        realtime-tracks-raw (or (get params :realtime_tracks) (get params "realtime_tracks")
-                                (get params :realtime-tracks) (get params "realtime-tracks"))
-        explicit-realtime-tracks? (some? realtime-tracks-raw)
-        requested-realtime-tracks (when explicit-realtime-tracks?
-                                    (mapv str/trim (str/split (str realtime-tracks-raw) #"," -1)))
-        available-realtime-tracks (when (some? available-realtime-tracks)
-                                    (mapv str available-realtime-tracks))
-        available-realtime-track-set (set available-realtime-tracks)
-        invalid-realtime-tracks? (or (and explicit-realtime-tracks?
+         refined? (parse-bool (or (get params :refined) (get params "refined"))
+                              (:refined default-controls))
+         final? (parse-bool (or (get params :final) (get params "final"))
+                            (:final default-controls))
+         store-recording? (parse-bool (or (get params :store_recording) (get params "store_recording")
+                                          (get params :store-recording) (get params "store-recording"))
+                                      (:store_recording default-controls))
+         rt-partial-enable? (parse-bool (or (get params :rt_partial_enable) (get params "rt_partial_enable")
+                                            (get params :rt-partial-enable) (get params "rt-partial-enable"))
+                                        (:rt_partial_enable default-controls))
+         realtime-tracks-raw (or (get params :realtime_tracks) (get params "realtime_tracks")
+                                 (get params :realtime-tracks) (get params "realtime-tracks"))
+         explicit-realtime-tracks? (some? realtime-tracks-raw)
+         requested-realtime-tracks (when explicit-realtime-tracks?
+                                     (mapv str/trim (str/split (str realtime-tracks-raw) #"," -1)))
+         available-realtime-tracks (when (some? available-realtime-tracks)
+                                     (mapv str available-realtime-tracks))
+         available-realtime-track-set (set available-realtime-tracks)
+         invalid-realtime-tracks? (or (and explicit-realtime-tracks?
                                            (or (empty? requested-realtime-tracks)
                                                (> (count requested-realtime-tracks) 4)
                                                (some str/blank? requested-realtime-tracks)
@@ -154,47 +156,47 @@
                                            (or (nil? available-realtime-tracks)
                                                (some #(not (contains? available-realtime-track-set %))
                                                      requested-realtime-tracks))))
-        _ (when invalid-realtime-tracks?
-            (throw (ex-info "Realtime tracks must be a non-empty subset of configured tracks"
-                            {:type :samuraibff.stream-controls/invalid-controls
-                             :reason :invalid-realtime-tracks})))
-        realtime-tracks (when (seq available-realtime-tracks)
-                          (if explicit-realtime-tracks?
-                            (let [requested-set (set requested-realtime-tracks)]
-                              (filterv requested-set available-realtime-tracks))
-                            available-realtime-tracks))
-        rt-window (parse-finite-double (or (get params :rt_window_sec) (get params "rt_window_sec")
-                                           (get params :window_sec) (get params "window_sec")))
-        rt-overlap (parse-finite-double (or (get params :rt_overlap_sec) (get params "rt_overlap_sec")
-                                            (get params :overlap_sec) (get params "overlap_sec")))
-        rt-emit-every (parse-finite-double (or (get params :rt_emit_every_sec) (get params "rt_emit_every_sec")
-                                               (get params :emit_every_sec) (get params "emit_every_sec")))
+         _ (when invalid-realtime-tracks?
+             (throw (ex-info "Realtime tracks must be a non-empty subset of configured tracks"
+                             {:type :samuraibff.stream-controls/invalid-controls
+                              :reason :invalid-realtime-tracks})))
+         realtime-tracks (when (seq available-realtime-tracks)
+                           (if explicit-realtime-tracks?
+                             (let [requested-set (set requested-realtime-tracks)]
+                               (filterv requested-set available-realtime-tracks))
+                             available-realtime-tracks))
+         rt-window (parse-finite-double (or (get params :rt_window_sec) (get params "rt_window_sec")
+                                            (get params :window_sec) (get params "window_sec")))
+         rt-overlap (parse-finite-double (or (get params :rt_overlap_sec) (get params "rt_overlap_sec")
+                                             (get params :overlap_sec) (get params "overlap_sec")))
+         rt-emit-every (parse-finite-double (or (get params :rt_emit_every_sec) (get params "rt_emit_every_sec")
+                                                (get params :emit_every_sec) (get params "emit_every_sec")))
 
-        refinement-window (parse-finite-double (or (get params :refinement_window_sec) (get params "refinement_window_sec")
-                                                   (get params :refinement_window) (get params "refinement_window")
-                                                   (get params :refined_window_sec) (get params "refined_window_sec")))
+         refinement-window (parse-finite-double (or (get params :refinement_window_sec) (get params "refinement_window_sec")
+                                                    (get params :refinement_window) (get params "refinement_window")
+                                                    (get params :refined_window_sec) (get params "refined_window_sec")))
 
-        want-any? (or realtime? refined? final?)
-        _ (when-not want-any?
-            (throw (ex-info "At least one output must be enabled"
-                            {:type :samuraibff.stream-controls/invalid-controls
-                             :reason :no-outputs})))
+         want-any? (or realtime? refined? final?)
+         _ (when-not want-any?
+             (throw (ex-info "At least one output must be enabled"
+                             {:type :samuraibff.stream-controls/invalid-controls
+                              :reason :no-outputs})))
 
         ;; Applied semantics.
-        store-recording? (if final? store-recording? false)
+         store-recording? (if (or final? (and refined? retained-refinement?)) store-recording? false)
 
         ;; Clamp realtime knobs only when realtime is enabled.
-        rt-window (when (and realtime? (some? rt-window))
-                    (clamp rt-window rt-window-min-sec rt-window-max-sec))
-        rt-overlap (when (and realtime? (some? rt-overlap))
-                     (let [w (or rt-window rt-window-max-sec)]
-                       (clamp rt-overlap rt-overlap-min-sec w)))
+         rt-window (when (and realtime? (some? rt-window))
+                     (clamp rt-window rt-window-min-sec rt-window-max-sec))
+         rt-overlap (when (and realtime? (some? rt-overlap))
+                      (let [w (or rt-window rt-window-max-sec)]
+                        (clamp rt-overlap rt-overlap-min-sec w)))
 
-        refinement-window (when (and refined? (some? refinement-window))
-                            (clamp refinement-window refinement-window-min-sec refinement-window-max-sec))
-        rt-emit-every (when (and realtime? (some? rt-emit-every) rt-partial-enable?)
-                        (let [w (or rt-window rt-window-max-sec)]
-                          (clamp rt-emit-every rt-emit-every-min-sec w)))]
+         refinement-window (when (and refined? (some? refinement-window))
+                             (clamp refinement-window refinement-window-min-sec refinement-window-max-sec))
+         rt-emit-every (when (and realtime? (some? rt-emit-every) rt-partial-enable?)
+                         (let [w (or rt-window rt-window-max-sec)]
+                           (clamp rt-emit-every rt-emit-every-min-sec w)))]
      (cond-> {:realtime realtime?
               :refined refined?
               :final final?

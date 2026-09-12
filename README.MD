@@ -4,6 +4,20 @@ Clojure BFF (backend-for-frontend) for the **nanosamur.ai** solution.
 
 The opt-in [final-track spike](docs/final-tracks.md) adds frozen operator plans
 for completed recordings while preserving the primary transcript API.
+Opt-in [refinement tracks](docs/refinement-tracks.md) extend that plan to fixed
+live windows with an ordered EOF and the existing primary WebSocket/API view.
+The [track selection UI and read API](docs/track-selection.md) expose permitted
+catalog choices, freeze independent stage selections, and show per-track results
+and playback in live and historical tabs.
+Record's Session settings separates **Real-time**, **Refined**, **Final**, and
+**Recording**. Output tab checkboxes toggle the stage without opening it and
+restore its previous track selection. Every track is optional; clearing the last
+one disables that stage. Session details opens each result directly in a tab such
+as **Final Transcript (WhisperX)**. The compatibility output for existing APIs,
+workflows and webhooks is chosen automatically from the selected tracks.
+Realtime capability cards show provider limits; the maximum inference input is
+separate from the configurable **Window (sec)**, whose **Default** uses the
+rtservice configuration.
 
 This repo contains:
 

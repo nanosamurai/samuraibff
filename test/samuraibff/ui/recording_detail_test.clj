@@ -37,21 +37,34 @@
     (let [records [{:event_created_at_ns nil
                     :lang "en"
                     :segments [{:start_s 0.031
-                               :end_s 19.977
-                               :text "hello"
-                               :speaker "SPEAKER_00"}]}]
+                                :end_s 19.977
+                                :text "hello"
+                                :speaker "SPEAKER_00"}]}]
           events (recording-detail/db-refined-records->events records)
           msgs (recording-detail/refined-events->messages events)
           msg (first msgs)
           cached (transcript/normalize-refined {:seq 1
-                                               :ts_ms 1
-                                               :start_s 0.031
-                                               :end_s 19.977
-                                               :text "hello"
-                                               :speaker "SPEAKER_00"
-                                               :lang "en"})]
+                                                :ts_ms 1
+                                                :start_s 0.031
+                                                :end_s 19.977
+                                                :text "hello"
+                                                :speaker "SPEAKER_00"
+                                                :lang "en"})]
       (is (= 1 (count msgs)))
       (is (= "en" (:lang msg)))
       ;; This is the key property that prevents duplicates in Recording detail.
       (is (= (transcript/refined-dedupe-key msg)
              (transcript/refined-dedupe-key cached))))))
+
+(deftest track-tabs-flatten-stages-and-preserve-pending-and-legacy-views
+  (let [plan {:refinement_tracks [{:track_id "whisperx"}]
+              :final_tracks [{:track_id "whisperx"} {:track_id "other"}]}
+        indexed [{:stage "refined" :track_id "whisperx" :display_name "WhisperX"}
+                 {:stage "final" :track_id "whisperx" :display_name "WhisperX"}]
+        tabs (recording-detail/track-transcript-tabs {:final-msgs [{:text "compatibility copy"}]} plan indexed)]
+    (is (= [[:refined "whisperx"] [:final "whisperx"] [:final "other"]] (mapv :id tabs)))
+    (is (= ["Refined Transcript (WhisperX)" "Final Transcript (WhisperX)" "Final Transcript (other)"] (mapv :label tabs)))
+    (is (= "other" (get-in tabs [2 :track :track_id])))
+    (is (not-any? #(= :final (:id %)) tabs)))
+  (is (= [{:id :final :stage :final :label "Final Transcript"}]
+         (recording-detail/track-transcript-tabs {:final-msgs [{:text "legacy"}]} nil nil))))

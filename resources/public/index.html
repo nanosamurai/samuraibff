@@ -248,6 +248,44 @@
 
     .stream-controls-body{display:flex;flex-direction:column;gap:10px}
 
+    .session-settings{padding:20px;gap:0}
+    .session-settings .stream-controls-header{margin-bottom:18px}
+    .session-settings .stream-controls-title .muted{font-size:12px}
+    .settings-tabs{display:flex;flex-wrap:wrap;gap:6px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+    .output-tab,.settings-tab{display:inline-flex;align-items:center;border:1px solid transparent;border-radius:9px;background:rgba(12,18,27,.45);min-height:40px}
+    .output-tab{padding-left:12px;gap:7px}
+    .output-tab input{width:15px;height:15px;min-width:15px;margin:0;accent-color:var(--accent);cursor:pointer}
+    .output-tab button,.settings-tab{color:var(--muted);font:inherit;font-size:13px;cursor:pointer}
+    .output-tab button{display:flex;align-items:center;gap:8px;padding:10px 12px 10px 0;border:0;background:none}
+    .settings-tab{padding:10px 13px}
+    .output-tab.active,.settings-tab.active{border-color:rgba(168,139,255,.4);background:rgba(168,139,255,.12)}
+    .output-tab.active button,.settings-tab.active{color:var(--txt)}
+    .output-tab-count{font-size:10px;color:var(--muted);border-radius:5px;padding:1px 5px;background:rgba(255,255,255,.06)}
+    .settings-tabs button:focus-visible,.settings-tabs input:focus-visible,.track-choice:focus-within{outline:2px solid var(--accent);outline-offset:3px}
+    .settings-content{padding-top:20px;min-width:0}
+    .stage-fieldset{border:0;margin:0;padding:0;min-width:0}
+    .stage-settings{display:flex;flex-direction:column;gap:18px;max-width:940px}
+    .stage-heading h3{font-size:15px;font-weight:650;margin:0 0 6px}
+    .stage-heading p,.stage-settings p{margin:0;font-size:12px;line-height:1.6}
+    .track-choice-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:10px}
+    .track-choice{display:flex;align-items:flex-start;gap:11px;padding:14px;border:1px solid rgba(34,48,70,.8);border-radius:11px;background:rgba(12,18,27,.35);cursor:pointer;transition:border-color .15s,background .15s}
+    .track-choice:hover{border-color:rgba(168,139,255,.5)}
+    .track-choice.selected{border-color:rgba(168,139,255,.35);background:rgba(168,139,255,.06)}
+    .track-choice input{flex-shrink:0;min-width:15px;width:15px;height:15px;margin:2px 0 0;accent-color:var(--accent)}
+    .track-choice-copy{display:flex;flex-direction:column;gap:6px;min-width:0;overflow-wrap:anywhere}
+    .track-choice-copy strong{font-size:13px;font-weight:600}
+    .track-choice-copy .hint{margin:0;font-size:11px;line-height:1.6}
+    .stage-track-choices>.hint{margin-top:10px}
+    .stage-options{display:flex;flex-direction:column;gap:14px}
+    .stage-options>.checkbox-row{align-self:flex-start;font-size:12px;border:0;background:none;padding:0}
+    .stage-number-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;max-width:700px}
+    .stage-settings .field{display:flex;flex-direction:column;gap:7px;max-width:340px}
+    .stage-settings .field .hint{margin:0}
+    .stage-settings .field input,.stage-settings .field select{width:100%;min-width:0;box-sizing:border-box}
+    .stage-fieldset:disabled .track-choice{cursor:default;opacity:.65}
+    .transcript-tabs{flex-wrap:wrap}
+    @media(max-width:640px){.session-settings{padding:14px}.stage-number-grid{grid-template-columns:1fr}.settings-tabs{gap:5px}.settings-tab{padding:9px}.output-tab{padding-left:9px}}
+
     .sc-divider{height:1px;background:rgba(34,48,70,.6)}
 
     /* Flex-based "grid" (wraps naturally on smaller widths) */
@@ -536,6 +574,11 @@
     .right-panel{display:flex;flex-direction:column;min-height:0;height:calc(100vh - 56px - 16px - 16px - 68px)}
 
     .tabs{display:flex;gap:8px;margin-bottom:10px}
+    .async-tracks{min-width:0;width:100%}
+    .async-tracks .tabs{flex-wrap:wrap}
+    .async-track-body{display:flex;flex-direction:column;gap:12px;min-width:0}
+    fieldset.sc-cell{border:1px solid rgba(34,48,70,.7);border-radius:10px;padding:12px;min-width:0}
+    fieldset.sc-cell .checkbox-row{margin-bottom:6px}
     .tab{padding:7px 10px;border-radius:10px;border:1px solid rgba(34,48,70,.7);background:rgba(12,18,27,.6)}
     .tab.active{border-color:rgba(168,139,255,.45);background:rgba(168,139,255,.14)}
 

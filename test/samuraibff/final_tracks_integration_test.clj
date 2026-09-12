@@ -32,8 +32,12 @@
               mirror (first @publications)]
           (is (= plan (:asr_plan mirror)))
           (is (= (json/parse-string (json/generate-string (dissoc initial :event_id)))
-                 (json/parse-string (json/generate-string (dissoc mirror :event_id :asr_plan)))))
+                 (json/parse-string (json/generate-string (dissoc mirror :event_id :asr_plan :asr_track_catalog)))))
           (is (= plan (tracks/freeze! ds :fixture config (str tenant) (str session) controls 16000)))
+          (is (= plan (tracks/freeze! ds :fixture
+                                     (assoc-in config [:final-tracks :selections-json]
+                                               (json/generate-string [{:track_id "replacement" :profile_id "whisperx-medium-final-r1" :primary true}]))
+                                     (str tenant) (str session) controls 16000)))
           (is (= {:updated? false} (sessions/update-session-stream-controls! ds tenant session {:final false})))
           (is (= {:updated? false} (sessions/activate-session-on-audio-start-with-controls!
                                     ds tenant session {:final false})))

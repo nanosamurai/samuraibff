@@ -17,9 +17,10 @@
     `resources/system.edn`)
 
   Output:
-  - the same config map (no side effects)." 
+  - the same config map (no side effects)."
   (:require
-    [integrant.core :as ig]))
+   [integrant.core :as ig]
+   [samuraibff.async-tracks :as async-tracks]))
 
 (defmethod ig/init-key :samuraibff/config
   [_ config]
@@ -28,7 +29,10 @@
   Inputs:
   - config: map
 
-  Returns: map (the same config map)." 
+  Returns: map (the same config map)."
+  (doseq [{:keys [config-key]} async-tracks/stages
+          :when (get-in config [config-key :enabled?])]
+    (async-tracks/catalog config config-key))
   config)
 
 (defmethod ig/halt-key! :samuraibff/config
@@ -37,5 +41,5 @@
 
   No-op because config carries no resources.
 
-  Returns: nil." 
+  Returns: nil."
   nil)
