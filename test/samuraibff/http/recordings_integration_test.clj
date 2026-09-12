@@ -56,6 +56,10 @@
                                  id, tenant_id, session_id, type, source, model, full_text, segments, created_at
                                ) VALUES (?, ?, ?, 'final', 'worker', 'whisperx', 'hello final', '[]'::jsonb, now())"
                                 (UUID/fromString "00000000-0000-0000-0000-000000000100") tenant-a session-a])
+            _ (jdbc/execute! ds ["INSERT INTO session_transcripts (id,tenant_id,session_id,type,source,full_text,segments,is_primary,status,created_at) VALUES (?, ?, ?, 'final','final-track','secondary arrives last','[]',false,'succeeded',now()+interval '1 second')"
+                                (UUID/randomUUID) tenant-a session-a])
+            _ (jdbc/execute! ds ["INSERT INTO session_transcripts (id,tenant_id,session_id,type,source,full_text,segments,is_primary,status,created_at) VALUES (?, ?, ?, 'final','final-track','','[]',true,'failed',now()+interval '2 seconds')"
+                                (UUID/randomUUID) tenant-a session-a])
             ;; attach refined transcript to session-a
             _ (jdbc/execute! ds ["INSERT INTO session_transcripts (
                                  id, tenant_id, session_id, type, source, model, full_text, segments, created_at

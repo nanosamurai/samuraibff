@@ -1,59 +1,78 @@
-# Opt-in final-track plans
+# Final transcripts in Postgres
 
-The finalizer-first spike freezes an operator-selected plan when `/ws/audio`
-starts a retained, mono 16 kHz recording. Set `SAMURAIBFF_FINAL_TRACKS_ENABLED=true`
-only after applying deployment migration `014-final-track-results.up.sql`.
-The BFF-owned `0010_sessions_asr_meta_snapshot` migration adds the same snapshot
-column for independently migrated BFF installations; it does not replace the
-deployment migration needed by Persistor.
+The opt-in final-track path stores every terminal outcome in
+`session_transcripts`: `full_text`, `segments` JSONB, track/profile/plan identity,
+status, availability, degradations and the recording association. There is one
+row per logical result. Source audio retains its existing S3 role.
 
-`SAMURAIBFF_FINAL_TRACKS_JSON` optionally supplies an array of selections:
-
-```json
-[{"track_id":"whisperx","profile_id":"whisperx-medium-final-r1","primary":true}]
+```mermaid
+flowchart LR
+  Worker[Selected finalizer] -->|Inline FinalTrackResult v2| Kafka[transcripts.final-tracks]
+  Kafka --> Persistor
+  Persistor -->|Accept first terminal result in one transaction| DB[(Postgres)]
+  DB --> BFF[Transcript reads]
+  Persistor -->|After commit, accepted primary content| Legacy[transcripts.final]
 ```
 
-That is also the default. The catalog allows at most four unique logical track
-IDs, exactly one primary, and fixed allowlisted profiles. The synthetic
-`test-final-r1` profile requires `SAMURAIBFF_FINAL_TRACK_TEST_PROFILE_ENABLED=true`.
-There is no public track picker, model URL, or runtime-argument API.
+Persistor owns primary compatibility publication for this path. The legacy
+finalizer still publishes its existing `SessionTranscript` when no track plan
+is present. Selection and the tenant-owned frozen plan remain unchanged.
+Persistor derives primary selection from that plan. Secondary results and failed
+outcomes cannot become the default transcript merely by arriving later.
 
-The transaction locks the tenant-owned session and stores the plan in
-`sessions.stream_controls.asr_plan`. The complete session inception metadata is
-saved in `sessions.asr_meta_snapshot`; admission adds `asr_plan` while preserving
-the existing routing, workflow, and refinement sections. Its Kafka publication
-is acknowledged before audio is accepted. Reconnects reuse the frozen plan and
-controls. A session already started without a plan cannot be upgraded in place.
-A frozen session cannot switch back to legacy admission or change retention.
-Legacy asynchronous control writes also refuse to overwrite an existing plan,
-including when they complete after plan admission.
+## Contract and recovery
 
-Every audio event carries canonical `x-asr-plan` JSON, `x-asr-plan-id`, and
-`x-final-track-ids`. Recorder copies that plan into `RecordingFinished` and emits
-one source event. Track groups consume that shared topic and filter locally;
-they do not depend on a timely `sessions.meta` lookup. The compacted metadata
-topic remains the latest-session view, not the authority for an emitted job.
+`FinalTrackResult.schema_version=2` has 18 fields. Removed execution hierarchy,
+artifact URI/digest, primary and provenance fields have reserved names/numbers.
+Inline `full_text` and `segments` use tags 27/28; tag 26 remains available to the
+preserved refinement draft. Retained tags/types and stable result IDs are unchanged.
+Silence succeeds with empty content and false availability flags. Missing timing
+or speakers remains explicit; failures contain an error code and no transcript.
 
-Each selected track publishes to `transcripts.final-tracks`. Only the successful
-primary also projects the existing `SessionTranscript` body onto
-`transcripts.final`, preserving the current transcript and recording API. No
-secondary-track UI or query API is added by this spike.
+The worker publishes only the inline result, then acknowledges its recording
+input. It never reads/writes transcript objects or outcome manifests. A replay
+can repeat inference. The first terminal result accepted by Persistor is
+authoritative: retries return that row, even if later inference differs.
+Conflicting tenant, plan, profile or source identities cannot overwrite it.
 
-The feature defaults off. The opt-in mode requires `store_recording=true`, S3
-source storage, and completed recordings bounded to 600 seconds in the recorder.
-Shared artifact retention/deletion and live refinement execution remain later
-work. Use the isolated `docker-compose.final-tracks.yml` in `nanosamurai` for
-qualification; do not enable this on general user recordings yet.
+Persistor acknowledges its input only after the transaction commits and any
+primary publication is acknowledged. A retry after commit republishes the
+accepted content. Its legacy consumer verifies identified compatibility events
+against the accepted row instead of creating another transcript. A crash after
+publication and before offset commit can duplicate publication. This remains
+at-least-once delivery, with no exactly-once inference, webhook or workflow claim
+and no outbox service.
 
-Focused tests cover catalog validation, canonical cross-language headers,
-transactional freezing/replay, retention rejection, tenant ownership, and
-preservation of full session metadata. The full BFF suite also exercises the
-existing feature-off WebSocket, refined forwarding, transcript, recording and
-authentication paths. Test HTTP and Testcontainers services bind to loopback;
-set `TESTCONTAINERS_RYUK_DISABLED=true` when running the suite locally so the
-automatic cleanup sidecar does not publish a wildcard port. Fixtures still stop
-their own containers in `finally`.
+An inline protobuf may occupy at most 900,000 bytes. The entire keyed Kafka
+record, bounded tracing headers and a conservative framing allowance must fit
+1,000,000 bytes. Local brokers/producers/partition fetches allow at least
+1,048,576 bytes. Oversized model content becomes a bounded `result_too_large`
+failure; oversized input records are rejected before persistence. Transcript
+contents and raw provider exceptions are not logged.
 
-Publication scans recognize only the known synthetic UUID tails in the shared
-final-track vector, scoped to that file and rule; other values remain scanned.
+## Migration and rollout
 
+Apply Compose migration 016 before either corrected service. It extends the
+existing transcript table and adopts already-stored primary metadata. Migrations
+014/015 are preserved because they have been applied locally. The old
+`transcript_track_results` table is retained only as migration input and for the
+held refinement drafts; corrected final-track runtime code neither writes nor
+reads it. Do not drop it or reset volumes before all retained data is accounted for.
+
+Keep producers stopped while inventorying old topic offsets and result objects.
+Drain old work with the matching old service set, verify/import retained results,
+then apply schema and deploy the corrected consumer before the new producer.
+Schema-1 reference records stop for explicit conversion and remain uncommitted;
+they are not silently discarded or fetched through a runtime S3 fallback.
+Do not rewind a corrected consumer onto retained schema-1 history.
+
+For rollback, stop/drain new producers and the corrected consumer, preserve the
+schema/data, and restore the complete previous service set with its recorded
+offsets. Never run a schema-1 consumer against schema-2 records. Existing branches
+and locally retained images remain available; no automatic rollback/down migration
+is provided for populated transcript rows.
+
+Session deletion cascades to its transcripts and recordings; a result arriving
+after deletion cannot recreate the session. Shared source-audio object retention
+and deletion during recording assembly remain separate lifecycle work. Wider
+rollout stays gated on the retained-data checks and those existing limitations.

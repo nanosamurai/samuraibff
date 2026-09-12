@@ -87,7 +87,9 @@ CREATE TABLE session_transcripts (
     segment_start_s     double precision,
     segment_end_s       double precision,
     supersedes_seq      bigint[],
-    event_created_at_ns bigint
+    event_created_at_ns bigint,
+    is_primary boolean NOT NULL DEFAULT true,
+    status text NOT NULL DEFAULT 'succeeded'
 );
 
 CREATE INDEX idx_session_transcripts_tenant ON session_transcripts(tenant_id);
