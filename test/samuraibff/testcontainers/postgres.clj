@@ -9,31 +9,33 @@
   - `jdbc-url`      (fn)
   - `apply-schema!` (fn)
 
-  The goal is to keep DB integration tests readable and consistent." 
+  The goal is to keep DB integration tests readable and consistent."
   (:require
-    [clojure.java.io :as io]
-    [clojure.string :as str]
-    [next.jdbc :as jdbc]
-    [org.corfield.logging4j2 :as log])
+   [clojure.java.io :as io]
+   [samuraibff.testcontainers.loopback :as loopback]
+   [clojure.string :as str]
+   [next.jdbc :as jdbc]
+   [org.corfield.logging4j2 :as log])
   (:import
-    (org.testcontainers.containers PostgreSQLContainer)
-    (javax.sql DataSource)))
+   (org.testcontainers.containers PostgreSQLContainer)
+   (javax.sql DataSource)))
 
 (defn start-postgres!
   "Start a Postgres testcontainer.
 
   Returns:
-  - org.testcontainers.containers.PostgreSQLContainer" 
+  - org.testcontainers.containers.PostgreSQLContainer"
   ^PostgreSQLContainer
   []
   (doto (PostgreSQLContainer. "postgres:16-alpine")
     (.withDatabaseName "drsynth")
     (.withUsername "drsynth")
     (.withPassword "drsynth")
+    (loopback/only!)
     (.start)))
 
 (defn stop-postgres!
-  "Stop a Postgres testcontainer." 
+  "Stop a Postgres testcontainer."
   [^PostgreSQLContainer c]
   (when c
     (try
@@ -42,12 +44,12 @@
         nil))))
 
 (defn jdbc-url
-  "Return JDBC URL for a running Postgres container." 
+  "Return JDBC URL for a running Postgres container."
   [^PostgreSQLContainer c]
   (.getJdbcUrl c))
 
 (defn datasource
-  "Create a next.jdbc datasource for the given JDBC URL + credentials." 
+  "Create a next.jdbc datasource for the given JDBC URL + credentials."
   ^DataSource
   [jdbc-url username password]
   (jdbc/get-datasource {:dbtype "postgresql"
@@ -65,7 +67,7 @@
   - executes the SQL from `test-resources/migrations/0001_create_core_schema.up.sql`
   - plus any additional migrations needed by the BFF read model used in tests
 
-  Returns: nil" 
+  Returns: nil"
   [^DataSource ds]
   (let [paths ["migrations/0001_create_core_schema.up.sql"
                ;; NOTE: 0001 already contains workflows/workflow_defaults.
@@ -89,7 +91,7 @@
   Binds:
   - container-sym => PostgreSQLContainer
 
-  Ensures container stop in finally." 
+  Ensures container stop in finally."
   [[container-sym] & body]
   `(let [~container-sym (start-postgres!)]
      (try

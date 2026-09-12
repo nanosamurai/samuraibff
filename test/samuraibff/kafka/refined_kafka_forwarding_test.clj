@@ -13,33 +13,33 @@
   Notes:
   - This test does not require rtservice (we don't open WS endpoints).
   - Uses `org.testcontainers/kafka` directly (no wrapper lib).
-  - All waits have timeouts to avoid hanging CI." 
+  - All waits have timeouts to avoid hanging CI."
   (:require
-    [clojure.core.async :as async]
-    [clojure.test :refer :all]
-    [integrant.core :as ig]
-    [org.corfield.logging4j2 :as log]
-    [samuraibff.config]
-    [samuraibff.http.router]
-    [samuraibff.http.server]
-    [samuraibff.kafka.refined-consumer]
-    [samuraibff.ws.registry])
+   [clojure.core.async :as async]
+   [clojure.test :refer :all]
+   [integrant.core :as ig]
+   [org.corfield.logging4j2 :as log]
+   [samuraibff.config]
+   [samuraibff.http.router]
+   [samuraibff.http.server]
+   [samuraibff.kafka.refined-consumer]
+   [samuraibff.ws.registry])
   (:import
-    (java.util Properties UUID)
-    (java.util.concurrent TimeUnit ExecutionException)
-    (org.apache.kafka.clients.admin AdminClient NewTopic)
-    (org.apache.kafka.clients.producer KafkaProducer ProducerRecord)
-    (org.apache.kafka.common.errors TopicExistsException)
-    (org.testcontainers.containers KafkaContainer)
-    (org.testcontainers.utility DockerImageName)
-    (samuraibff.proto RefinedEvent)))
+   (java.util Properties UUID)
+   (java.util.concurrent TimeUnit ExecutionException)
+   (org.apache.kafka.clients.admin AdminClient NewTopic)
+   (org.apache.kafka.clients.producer KafkaProducer ProducerRecord)
+   (org.apache.kafka.common.errors TopicExistsException)
+   (org.testcontainers.containers KafkaContainer)
+   (org.testcontainers.utility DockerImageName)
+   (samuraibff.proto RefinedEvent)))
 
 (def ^:private kafka-image
   ;; Pin a reasonably recent CP Kafka image.
   "confluentinc/cp-kafka:7.6.1")
 
 (defn- admin-client
-  "Create an AdminClient for the given bootstrap servers." 
+  "Create an AdminClient for the given bootstrap servers."
   [bootstrap]
   (let [p (doto (Properties.)
             (.put "bootstrap.servers" bootstrap))]
@@ -52,7 +52,7 @@
   - bootstrap: string
   - topics: vector of [topic-name partitions]
 
-  Returns: nil." 
+  Returns: nil."
   [bootstrap topics]
   (with-open [admin (admin-client bootstrap)]
     (let [new-topics (mapv (fn [[topic partitions]]
@@ -69,7 +69,7 @@
   nil)
 
 (defn- producer
-  "Create a Kafka producer for (string key, bytes value)." 
+  "Create a Kafka producer for (string key, bytes value)."
   [bootstrap]
   (let [p (doto (Properties.)
             (.put "bootstrap.servers" bootstrap)
@@ -81,7 +81,7 @@
 (defn- start-bff-a!
   "Start origin BFF instance (HTTP + ws-registry).
 
-  Returns: Integrant system map." 
+  Returns: Integrant system map."
   [{:keys [port bootstrap]}]
   (let [cfg {:samuraibff/config {:env :test
                                  :http {:host "127.0.0.1" :port port}
@@ -102,7 +102,7 @@
 (defn- start-bff-b!
   "Start non-origin BFF instance running only ws-registry + refined-consumer.
 
-  Returns: Integrant system map." 
+  Returns: Integrant system map."
   [{:keys [bootstrap]}]
   (let [cfg {:samuraibff/config {:env :test
                                  :http {:host "127.0.0.1" :port 0}
@@ -125,6 +125,7 @@
         session-id (str (UUID/randomUUID))
         container (KafkaContainer. (DockerImageName/parse kafka-image))]
     (try
+      (.setPortBindings container (mapv #(str "127.0.0.1:0:" %) (.getExposedPorts container)))
       (.start container)
       (let [bootstrap (.getBootstrapServers container)]
         (create-topics! bootstrap [[topic 1]])
@@ -134,56 +135,56 @@
           (try
             ;; Create local session on A and tap events BEFORE producing.
             (samuraibff.ws.registry/ensure-session!
-              (get sys-a :samuraibff/ws-registry)
-              "tenant-a"
-              session-id
-              {:lang "en" :sample-rate 16000})
+             (get sys-a :samuraibff/ws-registry)
+             "tenant-a"
+             session-id
+             {:lang "en" :sample-rate 16000})
 
-             (let [registry-a (get sys-a :samuraibff/ws-registry)
+            (let [registry-a (get sys-a :samuraibff/ws-registry)
                   session-a (samuraibff.ws.registry/get-session registry-a "tenant-a" session-id)
                   out (async/chan 8)]
               (samuraibff.ws.registry/tap-events! session-a out)
               (try
                 (with-open [p (producer bootstrap)]
-                   (let [seg1 (-> (samuraibff.proto.SessionTranscriptSegment/newBuilder)
-                                  (.setStartS 0.0)
-                                  (.setEndS 0.5)
-                                  (.setText "hello")
-                                  (.setSpeaker "SPEAKER_00")
-                                  (.build))
-                         seg2 (-> (samuraibff.proto.SessionTranscriptSegment/newBuilder)
-                                  (.setStartS 0.5)
-                                  (.setEndS 1.0)
-                                  (.setText "from kafka")
-                                  (.setSpeaker "SPEAKER_01")
-                                  (.build))
-                         ev (-> (RefinedEvent/newBuilder)
-                                (.setSessionId session-id)
-                                (.setTenantId "tenant-a")
-                                (.setStartS 0.0)
-                                (.setEndS 1.0)
-                                (.setText "hello from kafka")
-                                (.setLang "en")
-                                (.setBffOriginUri (str "http://127.0.0.1:" port-a))
-                                (.addSegments seg1)
-                                (.addSegments seg2)
-                                (.build))
-                         record (ProducerRecord. topic session-id (.toByteArray ev))]
+                  (let [seg1 (-> (samuraibff.proto.SessionTranscriptSegment/newBuilder)
+                                 (.setStartS 0.0)
+                                 (.setEndS 0.5)
+                                 (.setText "hello")
+                                 (.setSpeaker "SPEAKER_00")
+                                 (.build))
+                        seg2 (-> (samuraibff.proto.SessionTranscriptSegment/newBuilder)
+                                 (.setStartS 0.5)
+                                 (.setEndS 1.0)
+                                 (.setText "from kafka")
+                                 (.setSpeaker "SPEAKER_01")
+                                 (.build))
+                        ev (-> (RefinedEvent/newBuilder)
+                               (.setSessionId session-id)
+                               (.setTenantId "tenant-a")
+                               (.setStartS 0.0)
+                               (.setEndS 1.0)
+                               (.setText "hello from kafka")
+                               (.setLang "en")
+                               (.setBffOriginUri (str "http://127.0.0.1:" port-a))
+                               (.addSegments seg1)
+                               (.addSegments seg2)
+                               (.build))
+                        record (ProducerRecord. topic session-id (.toByteArray ev))]
                     (.send p record)
                     (.flush p)))
 
                 ;; Wait for the forwarded refined event to appear on A.
-                 (let [[m1 ch1] (async/alts!! [out (async/timeout 12000)] :priority true)
-                       [m2 ch2] (async/alts!! [out (async/timeout 12000)] :priority true)]
-                   (is (= out ch1) "Expected refined event before timeout")
-                   (is (= out ch2) "Expected refined event before timeout")
-                   (is (= "refined" (:type m1)))
-                   (is (= "refined" (:type m2)))
-                   (is (= session-id (:session_id m1)))
-                   (is (= session-id (:session_id m2)))
-                   (is (= "en" (:lang m1)))
-                   (is (= "en" (:lang m2)))
-                   (is (= ["hello" "from kafka"] (mapv :text [m1 m2]))))
+                (let [[m1 ch1] (async/alts!! [out (async/timeout 12000)] :priority true)
+                      [m2 ch2] (async/alts!! [out (async/timeout 12000)] :priority true)]
+                  (is (= out ch1) "Expected refined event before timeout")
+                  (is (= out ch2) "Expected refined event before timeout")
+                  (is (= "refined" (:type m1)))
+                  (is (= "refined" (:type m2)))
+                  (is (= session-id (:session_id m1)))
+                  (is (= session-id (:session_id m2)))
+                  (is (= "en" (:lang m1)))
+                  (is (= "en" (:lang m2)))
+                  (is (= ["hello" "from kafka"] (mapv :text [m1 m2]))))
 
                 (finally
                   (samuraibff.ws.registry/untap-events! session-a out)

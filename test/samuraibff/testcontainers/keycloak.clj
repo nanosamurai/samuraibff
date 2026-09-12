@@ -22,17 +22,17 @@
   - Keycloak image is pinned to `keycloak/keycloak:26.4.7` by default.
   "
   (:require
-    [clojure.string :as str]
-    [jsonista.core :as json]
-    [org.corfield.logging4j2 :as log])
+   [clojure.string :as str]
+   [jsonista.core :as json]
+   [org.corfield.logging4j2 :as log])
   (:import
-    (java.net URI)
-    (java.net.http HttpClient HttpClient$Redirect HttpRequest HttpRequest$BodyPublishers HttpResponse$BodyHandlers)
-    (java.nio.charset StandardCharsets)
-    (java.time Duration)
-    (org.testcontainers.containers GenericContainer)
-    (org.testcontainers.containers.wait.strategy Wait)
-    (org.testcontainers.utility DockerImageName)))
+   (java.net URI)
+   (java.net.http HttpClient HttpClient$Redirect HttpRequest HttpRequest$BodyPublishers HttpResponse$BodyHandlers)
+   (java.nio.charset StandardCharsets)
+   (java.time Duration)
+   (org.testcontainers.containers GenericContainer)
+   (org.testcontainers.containers.wait.strategy Wait)
+   (org.testcontainers.utility DockerImageName)))
 
 (def ^:private json-mapper
   (json/object-mapper {:decode-key-fn keyword
@@ -133,7 +133,7 @@
      :raw body-str}))
 
 (defn- master-admin-token!
-  "Fetch admin access token for Keycloak master realm using admin-cli + password grant." 
+  "Fetch admin access token for Keycloak master realm using admin-cli + password grant."
   [^GenericContainer c {:keys [admin-username admin-password]}]
   (let [url (str (base-url c) "/realms/master/protocol/openid-connect/token")
         params {:grant_type "password"
@@ -185,12 +185,13 @@
                               (.forPort 8080)
                               (.forStatusCode 200)
                               (.withStartupTimeout (java.time.Duration/ofMinutes 3)))))]
+     (.setPortBindings c ["127.0.0.1:0:8080"])
      (.start c)
      (log/info "Keycloak testcontainer started" {:base-url (base-url c)})
      c)))
 
 (defn stop-keycloak!
-  "Stop a Keycloak testcontainer." 
+  "Stop a Keycloak testcontainer."
   [^GenericContainer c]
   (when c
     (try
@@ -202,7 +203,7 @@
   "Run body with a running Keycloak testcontainer.
 
   Binds:
-  - container-sym => GenericContainer" 
+  - container-sym => GenericContainer"
   [[container-sym] & body]
   `(let [~container-sym (start-keycloak!)]
      (try
@@ -216,11 +217,11 @@
         repr {:realm (str realm)
               :enabled true}
         {:keys [status raw]} (http-request-json!
-                               {:method :post
-                                :url url
-                                :headers {"Authorization" (str "Bearer " admin-token)
-                                          "Content-Type" "application/json"}
-                                :body (json/write-value-as-string repr json-mapper)})]
+                              {:method :post
+                               :url url
+                               :headers {"Authorization" (str "Bearer " admin-token)
+                                         "Content-Type" "application/json"}
+                               :body (json/write-value-as-string repr json-mapper)})]
     (when-not (or (= status 201) (= status 204))
       ;; tolerate re-runs locally: Keycloak returns 409 when realm exists
       (when-not (= status 409)
@@ -252,11 +253,11 @@
   [^GenericContainer c admin-token realm client-repr]
   (let [url (str (base-url c) "/admin/realms/" realm "/clients")
         {:keys [status raw]} (http-request-json!
-                               {:method :post
-                                :url url
-                                :headers {"Authorization" (str "Bearer " admin-token)
-                                          "Content-Type" "application/json"}
-                                :body (json/write-value-as-string client-repr json-mapper)})]
+                              {:method :post
+                               :url url
+                               :headers {"Authorization" (str "Bearer " admin-token)
+                                         "Content-Type" "application/json"}
+                               :body (json/write-value-as-string client-repr json-mapper)})]
     (when-not (or (= status 201) (= status 204) (= status 409))
       (throw (ex-info "Keycloak create client failed" {:status status :url url :body raw :client-id (:clientId client-repr)})))
     (let [cid (:clientId client-repr)
@@ -266,7 +267,7 @@
       uuid)))
 
 (defn- generate-client-secret!
-  "Generate (or rotate) a client secret and return it." 
+  "Generate (or rotate) a client secret and return it."
   [^GenericContainer c admin-token realm client-uuid]
   (let [url (str (base-url c) "/admin/realms/" realm "/clients/" client-uuid "/client-secret")
         {:keys [status body raw]} (http-request-json!
@@ -281,15 +282,15 @@
     (str secret)))
 
 (defn- add-protocol-mapper!
-  "Add a protocol mapper to a client (best effort; throws on failure)." 
+  "Add a protocol mapper to a client (best effort; throws on failure)."
   [^GenericContainer c admin-token realm client-uuid mapper]
   (let [url (str (base-url c) "/admin/realms/" realm "/clients/" client-uuid "/protocol-mappers/models")
         {:keys [status raw]} (http-request-json!
-                               {:method :post
-                                :url url
-                                :headers {"Authorization" (str "Bearer " admin-token)
-                                          "Content-Type" "application/json"}
-                                :body (json/write-value-as-string mapper json-mapper)})]
+                              {:method :post
+                               :url url
+                               :headers {"Authorization" (str "Bearer " admin-token)
+                                         "Content-Type" "application/json"}
+                               :body (json/write-value-as-string mapper json-mapper)})]
     (when-not (or (= status 201) (= status 204) (= status 409))
       (throw (ex-info "Keycloak create protocol mapper failed" {:status status :url url :body raw :mapper (:name mapper)})))
     true))
@@ -297,7 +298,7 @@
 (defn- create-user!
   "Create a user and set password.
 
-  Returns user UUID." 
+  Returns user UUID."
   [^GenericContainer c admin-token realm {:keys [username password email tenant-id]}]
   (let [create-url (str (base-url c) "/admin/realms/" realm "/users")
         repr {:username (str username)
@@ -314,11 +315,11 @@
               ;; Attributes are multi-valued in Keycloak JSON.
               :attributes {"tenant_id" [(str tenant-id)]}}
         {:keys [status raw]} (http-request-json!
-                               {:method :post
-                                :url create-url
-                                :headers {"Authorization" (str "Bearer " admin-token)
-                                          "Content-Type" "application/json"}
-                                :body (json/write-value-as-string repr json-mapper)})]
+                              {:method :post
+                               :url create-url
+                               :headers {"Authorization" (str "Bearer " admin-token)
+                                         "Content-Type" "application/json"}
+                               :body (json/write-value-as-string repr json-mapper)})]
     (when-not (or (= status 201) (= status 204) (= status 409))
       (throw (ex-info "Keycloak create user failed" {:status status :url create-url :body raw :username username})))
     ;; Lookup user id.
@@ -337,11 +338,11 @@
       (let [pw-url (str (base-url c) "/admin/realms/" realm "/users/" user-id "/reset-password")
             pw-repr {:type "password" :value (str password) :temporary false}
             {:keys [status raw]} (http-request-json!
-                                   {:method :put
-                                    :url pw-url
-                                    :headers {"Authorization" (str "Bearer " admin-token)
-                                              "Content-Type" "application/json"}
-                                    :body (json/write-value-as-string pw-repr json-mapper)})]
+                                  {:method :put
+                                   :url pw-url
+                                   :headers {"Authorization" (str "Bearer " admin-token)
+                                             "Content-Type" "application/json"}
+                                   :body (json/write-value-as-string pw-repr json-mapper)})]
         (when-not (<= 200 status 299)
           (throw (ex-info "Keycloak set password failed" {:status status :url pw-url :body raw :username username}))))
 
@@ -349,11 +350,11 @@
       (let [put-url (str (base-url c) "/admin/realms/" realm "/users/" user-id)
             put-repr (assoc repr :id (str user-id))
             {:keys [status raw]} (http-request-json!
-                                   {:method :put
-                                    :url put-url
-                                    :headers {"Authorization" (str "Bearer " admin-token)
-                                              "Content-Type" "application/json"}
-                                    :body (json/write-value-as-string put-repr json-mapper)})]
+                                  {:method :put
+                                   :url put-url
+                                   :headers {"Authorization" (str "Bearer " admin-token)
+                                             "Content-Type" "application/json"}
+                                   :body (json/write-value-as-string put-repr json-mapper)})]
         (when-not (<= 200 status 299)
           (throw (ex-info "Keycloak update user failed" {:status status :url put-url :body raw :username username}))))
 
@@ -390,7 +391,7 @@
     body))
 
 (defn- grant-service-account-role!
-  "Grant a client role (in realm-management) to service-account user." 
+  "Grant a client role (in realm-management) to service-account user."
   [^GenericContainer c admin-token realm service-user-id realm-mgmt-client-uuid role-name]
   (let [role (client-role-repr c admin-token realm realm-mgmt-client-uuid role-name)
         url (str (base-url c)
@@ -398,11 +399,11 @@
                  "/users/" service-user-id
                  "/role-mappings/clients/" realm-mgmt-client-uuid)
         {:keys [status raw]} (http-request-json!
-                               {:method :post
-                                :url url
-                                :headers {"Authorization" (str "Bearer " admin-token)
-                                          "Content-Type" "application/json"}
-                                :body (json/write-value-as-string [role] json-mapper)})]
+                              {:method :post
+                               :url url
+                               :headers {"Authorization" (str "Bearer " admin-token)
+                                         "Content-Type" "application/json"}
+                               :body (json/write-value-as-string [role] json-mapper)})]
     (when-not (<= 200 status 299)
       (throw (ex-info "Keycloak grant role failed" {:status status :url url :body raw :role role-name})))
     true))
@@ -410,16 +411,16 @@
 (defn- create-realm-role!
   "Create a realm role (idempotent).
 
-  Returns role name." 
+  Returns role name."
   [^GenericContainer c admin-token realm role-name]
   (let [url (str (base-url c) "/admin/realms/" realm "/roles")
         repr {:name (str role-name)}
         {:keys [status raw]} (http-request-json!
-                               {:method :post
-                                :url url
-                                :headers {"Authorization" (str "Bearer " admin-token)
-                                          "Content-Type" "application/json"}
-                                :body (json/write-value-as-string repr json-mapper)})]
+                              {:method :post
+                               :url url
+                               :headers {"Authorization" (str "Bearer " admin-token)
+                                         "Content-Type" "application/json"}
+                               :body (json/write-value-as-string repr json-mapper)})]
     (when-not (or (= status 201) (= status 204) (= status 409))
       (throw (ex-info "Keycloak create realm role failed" {:status status :url url :body raw :role role-name})))
     (str role-name)))
@@ -436,16 +437,16 @@
     body))
 
 (defn- grant-realm-role!
-  "Grant a realm role to a user." 
+  "Grant a realm role to a user."
   [^GenericContainer c admin-token realm user-id role-name]
   (let [role (realm-role-repr c admin-token realm role-name)
         url (str (base-url c) "/admin/realms/" realm "/users/" user-id "/role-mappings/realm")
         {:keys [status raw]} (http-request-json!
-                               {:method :post
-                                :url url
-                                :headers {"Authorization" (str "Bearer " admin-token)
-                                          "Content-Type" "application/json"}
-                                :body (json/write-value-as-string [role] json-mapper)})]
+                              {:method :post
+                               :url url
+                               :headers {"Authorization" (str "Bearer " admin-token)
+                                         "Content-Type" "application/json"}
+                               :body (json/write-value-as-string [role] json-mapper)})]
     (when-not (<= 200 status 299)
       (throw (ex-info "Keycloak grant realm role failed" {:status status :url url :body raw :role role-name :user-id user-id})))
     true))
@@ -485,15 +486,15 @@
 
     ;; --- Web client (end-user, password grant) ---
     (let [web-client-uuid (create-client!
-                            c admin-token realm
-                            {:clientId web-client-id
-                             :name "BFF Web (test)"
-                             :enabled true
-                             :publicClient true
-                             :directAccessGrantsEnabled true
-                             :standardFlowEnabled false
-                             :serviceAccountsEnabled false
-                             :protocol "openid-connect"})
+                           c admin-token realm
+                           {:clientId web-client-id
+                            :name "BFF Web (test)"
+                            :enabled true
+                            :publicClient true
+                            :directAccessGrantsEnabled true
+                            :standardFlowEnabled false
+                            :serviceAccountsEnabled false
+                            :protocol "openid-connect"})
           tenant-mapper {:name "tenant_id"
                          :protocol "openid-connect"
                          :protocolMapper "oidc-usermodel-attribute-mapper"
@@ -508,15 +509,15 @@
 
           ;; --- Admin client (service account) ---
           admin-client-uuid (create-client!
-                              c admin-token realm
-                              {:clientId admin-client-id
-                               :name "BFF Admin (test)"
-                               :enabled true
-                               :publicClient false
-                               :serviceAccountsEnabled true
-                               :directAccessGrantsEnabled false
-                               :standardFlowEnabled false
-                               :protocol "openid-connect"})
+                             c admin-token realm
+                             {:clientId admin-client-id
+                              :name "BFF Admin (test)"
+                              :enabled true
+                              :publicClient false
+                              :serviceAccountsEnabled true
+                              :directAccessGrantsEnabled false
+                              :standardFlowEnabled false
+                              :protocol "openid-connect"})
           admin-client-secret (generate-client-secret! c admin-token realm admin-client-uuid)
           sa-user-id (service-account-user-id c admin-token realm admin-client-uuid)
           realm-mgmt-uuid (realm-management-client-uuid c admin-token realm)
@@ -547,7 +548,7 @@
 (defn password-token!
   "Mint an access token using Direct Access Grants (password grant).
 
-  Returns access token string." 
+  Returns access token string."
   [token-endpoint {:keys [client-id username password]}]
   (let [params {:grant_type "password"
                 :client_id (str client-id)
@@ -574,7 +575,7 @@
 (defn client-credentials-token!
   "Mint an access token using OAuth2 client_credentials.
 
-  Returns access token string." 
+  Returns access token string."
   [token-endpoint {:keys [client-id client-secret]}]
   (let [params {:grant_type "client_credentials"
                 :client_id (str client-id)

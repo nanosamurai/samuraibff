@@ -9,7 +9,7 @@
   - `unit-nses` (var)
   - `run`      (exec-fn for `clojure -X:ci`)"
   (:require
-    [cognitect.test-runner.api :as tr]))
+   [cognitect.test-runner.api :as tr]))
 
 (def unit-nses
   "List of test namespaces to run in PR-gate CI.
@@ -21,8 +21,9 @@
   Note:
   Some namespaces are named *integration-test* but are still lightweight
   (bind local ephemeral ports, use mocks, and skip when dependencies are not
-  reachable). Those are acceptable here as long as they are Docker-free." 
+  reachable). Those are acceptable here as long as they are Docker-free."
   '[samuraibff.auth.oidc-audience-test
+    samuraibff.final-tracks-test
     samuraibff.auth.oidc-jwks-fetch-test
     samuraibff.auth.oidc-test
     samuraibff.http.auth-test
@@ -44,6 +45,6 @@
   Behavior:
   - Executes `unit-nses` via cognitect.test-runner.
   - Returns the test runner result map (and sets process exit code
-    appropriately when used via `clojure -X`)." 
+    appropriately when used via `clojure -X`)."
   [_opts]
   (tr/test {:nses unit-nses}))

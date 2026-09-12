@@ -13,14 +13,14 @@
   There is a small race window, but in practice it is good enough for CI and
   local runs."
   []
-  (with-open [s (java.net.ServerSocket. 0)]
+  (with-open [s (java.net.ServerSocket. 0 50 (java.net.InetAddress/getLoopbackAddress))]
     (.getLocalPort s)))
 
 (create-ns 'samuraibff)
 
 (deftest test-system-start
   (let [port (free-port)
-        config {:samuraibff/http-server {:config {:port port} :handler (ig/ref :samuraibff/router)}
+        config {:samuraibff/http-server {:config {:ip "127.0.0.1" :port port} :handler (ig/ref :samuraibff/router)}
                 :samuraibff/router {}}
         system (ig/init config)]
     (is (contains? system :samuraibff/http-server))
@@ -29,7 +29,7 @@
 
 (deftest test-system-restart
   (let [port (free-port)
-        config {:samuraibff/http-server {:config {:port port} :handler (ig/ref :samuraibff/router)}
+        config {:samuraibff/http-server {:config {:ip "127.0.0.1" :port port} :handler (ig/ref :samuraibff/router)}
                 :samuraibff/router {}}
         system (ig/init config)]
     (is (contains? system :samuraibff/http-server))
@@ -40,7 +40,7 @@
 
 (deftest test-router-integration
   (let [port (free-port)
-        config {:samuraibff/http-server {:config {:port port} :handler (ig/ref :samuraibff/router)}
+        config {:samuraibff/http-server {:config {:ip "127.0.0.1" :port port} :handler (ig/ref :samuraibff/router)}
                 :samuraibff/router {}}
         system (ig/init config)]
     (is (contains? system :samuraibff/http-server))

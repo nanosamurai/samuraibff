@@ -7,43 +7,43 @@
   - we assert the connection fails quickly
 
   Note: nv-websocket-client hides HTTP status details; we treat failure to
-  connect / immediate disconnect as success." 
+  connect / immediate disconnect as success."
   (:require
-    [clojure.test :refer :all]
-    [integrant.core :as ig]
-    [samuraibff.config]
-    [samuraibff.grpc.client]
-    [samuraibff.http.router]
-    [samuraibff.http.server]
-    [samuraibff.ws.registry])
+   [clojure.test :refer :all]
+   [integrant.core :as ig]
+   [samuraibff.config]
+   [samuraibff.grpc.client]
+   [samuraibff.http.router]
+   [samuraibff.http.server]
+   [samuraibff.ws.registry])
   (:import
-    (com.neovisionaries.ws.client WebSocketAdapter WebSocketException WebSocketFactory)
-    (java.util UUID)
-    (java.util.concurrent CountDownLatch TimeUnit)))
+   (com.neovisionaries.ws.client WebSocketAdapter WebSocketException WebSocketFactory)
+   (java.util UUID)
+   (java.util.concurrent CountDownLatch TimeUnit)))
 
 (defn- ws-url
   [port path query]
   (str "ws://localhost:" port path "?" query))
 
 (defn- connect-fails?
-  "Return true if connecting to the given ws URL fails or disconnects quickly." 
+  "Return true if connecting to the given ws URL fails or disconnects quickly."
   [^String url]
   (let [latch (CountDownLatch. 1)
         closed?* (atom false)
         ws (-> (WebSocketFactory.)
                (.createSocket url))]
     (.addListener
-      ws
-      (proxy [WebSocketAdapter] []
-        (onConnected [_ws _headers]
+     ws
+     (proxy [WebSocketAdapter] []
+       (onConnected [_ws _headers]
           ;; If server upgrades anyway, consider this a failure for this test.
-          (reset! closed?* false))
-        (onDisconnected [_ws _server-close _client-close _closed-by-server]
-          (reset! closed?* true)
-          (.countDown latch))
-        (onError [error]
-          (reset! closed?* true)
-          (.countDown latch))))
+         (reset! closed?* false))
+       (onDisconnected [_ws _server-close _client-close _closed-by-server]
+         (reset! closed?* true)
+         (.countDown latch))
+       (onError [error]
+         (reset! closed?* true)
+         (.countDown latch))))
 
     (try
       (.connect ws)
@@ -61,7 +61,7 @@
   (let [port 8091
         session-id (str (UUID/randomUUID))
         cfg {:samuraibff/config {:env :test
-                                 :http {:port port}
+                                 :http {:host "127.0.0.1" :port port}
                                  :auth {:required? true
                                         :issuer "http://example.invalid/issuer"
                                         :audience "bff-web"}
@@ -76,11 +76,11 @@
         system (ig/init cfg)]
     (try
       (is (true?
-            (connect-fails? (ws-url port "/ws/events" (str "session_id=" session-id))))
+           (connect-fails? (ws-url port "/ws/events" (str "session_id=" session-id))))
           "Expected /ws/events to reject missing auth token")
 
       (is (true?
-            (connect-fails? (ws-url port "/ws/audio" (str "session_id=" session-id "&lang=en&sample_rate=16000"))))
+           (connect-fails? (ws-url port "/ws/audio" (str "session_id=" session-id "&lang=en&sample_rate=16000"))))
           "Expected /ws/audio to reject missing auth token")
 
       (finally

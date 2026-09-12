@@ -16,7 +16,7 @@
 
   Notes:
   - We do not open real browser websockets; we tap ws-registry mult directly.
-  - The result is streamed only for refined-trigger workflows." 
+  - The result is streamed only for refined-trigger workflows."
   (:require
    [clojure.core.async :as async]
    [clojure.test :refer :all]
@@ -114,6 +114,7 @@
         wf-run-id (str (UUID/randomUUID))
         container (KafkaContainer. (DockerImageName/parse kafka-image))]
     (try
+      (.setPortBindings container (mapv #(str "127.0.0.1:0:" %) (.getExposedPorts container)))
       (.start container)
       (let [bootstrap (.getBootstrapServers container)]
         (create-topics! bootstrap [[topic 1]])
