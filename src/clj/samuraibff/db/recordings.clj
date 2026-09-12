@@ -74,7 +74,7 @@
          "  EXISTS (SELECT 1 FROM session_transcripts st\n"
          "          WHERE st.session_id = s.id\n"
          "            AND st.tenant_id = s.tenant_id\n"
-         "            AND st.type = 'final') AS has_final_transcript\n"
+         "            AND st.type = 'final' AND st.is_primary AND st.status = 'succeeded') AS has_final_transcript\n"
          "FROM sessions s\n"
          "LEFT JOIN latest_recording lr ON lr.session_id = s.id\n"
          "WHERE s.tenant_id = ?\n"
@@ -167,7 +167,9 @@
                              :event_created_at_ns)
                    (h/from :session_transcripts)
                    (h/where [:= :tenant_id tenant-id]
-                            [:= :session_id session-id])
+                            [:= :session_id session-id]
+                            [:or [:<> :type "final"]
+                             [:and [:= :is_primary true] [:= :status "succeeded"]]])
                    (h/order-by [:created_at :asc])
                    (h/limit (long limit)))
         q (cond-> base-q
