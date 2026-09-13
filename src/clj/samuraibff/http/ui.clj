@@ -25,7 +25,6 @@
    [samuraibff.sessions.meta :as sessions.meta]
    [samuraibff.util.uuid :as uuid]
    [samuraibff.webhooks.routing-snapshot :as webhooks.snapshot]
-   [samuraibff.final-tracks :as final-tracks]
    [samuraibff.workflows.snapshot :as workflows.snapshot]
    [samuraibff.ws.registry :as ws.registry])
   (:import
@@ -250,7 +249,6 @@
                                                       :event_types_count (count (keys (or targets {})))
                                                       :targets_count (or targets-count 0)
                                                       :workflow_targets_count (count (or wf-targets []))})
-                (final-tracks/save-meta-snapshot! ds config tenant-id-uuid session-uuid meta)
                 (kafka.producer/send-sessions-meta! kafka-producer session-id meta {:tenant-id (str tenant-id-uuid)}))
               (catch Exception e
                 (log/warn e "Failed publishing sessions.meta" {:tenant_id (str tenant-id-uuid)
