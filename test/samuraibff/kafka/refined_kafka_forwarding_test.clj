@@ -125,6 +125,7 @@
         session-id (str (UUID/randomUUID))
         container (KafkaContainer. (DockerImageName/parse kafka-image))]
     (try
+      (.setPortBindings container ["127.0.0.1::9093"])
       (.start container)
       (let [bootstrap (.getBootstrapServers container)]
         (create-topics! bootstrap [[topic 1]])
