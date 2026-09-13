@@ -21,9 +21,11 @@ the schema fix was required for the real HTTP reconnect assertion.
 The repeatable overlay and assertions live in Nanosamurai's
 `docker-compose.final-tracks-smoke.yml` and `smoke-tests/final-tracks/`; see its
 `docs/final-tracks-spike.md` (mirrored in Nanodeploy). This run used a separate
-validation DB in the existing local infrastructure. Applying migration 018 to
-the retained DB is pending explicit approval after automatic review rejected
-removing its obsolete execution-ID check; its historical rows remain intact.
+validation DB in the existing local infrastructure. After explicit approval,
+migration 018 and a separate local cleanup removed the retained DB's obsolete
+experimental schema while preserving all original transcript/recording content.
+The full Compose smoke passed again against that retained DB with the rebuilt
+BFF image. The active local configuration now uses the retained DB.
 
 The browser still chooses one final result. Selection UI and separate result
 tabs belong to spike 3; session `finished` does not prove all tracks succeeded.
