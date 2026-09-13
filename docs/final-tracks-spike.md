@@ -20,12 +20,13 @@ the schema fix was required for the real HTTP reconnect assertion.
 
 The repeatable overlay and assertions live in Nanosamurai's
 `docker-compose.final-tracks-smoke.yml` and `smoke-tests/final-tracks/`; see its
-`docs/final-tracks-spike.md` (mirrored in Nanodeploy). This run used a separate
-validation DB in the existing local infrastructure. After explicit approval,
-migration 018 and a separate local cleanup removed the retained DB's obsolete
-experimental schema while preserving all original transcript/recording content.
-The full Compose smoke passed again against that retained DB with the rebuilt
-BFF image. The active local configuration now uses the retained DB.
+`docs/final-tracks-spike.md` (mirrored in Nanodeploy). The rollout and full smoke
+now target the original Compose project `nanosamurai` and its Postgres 18 database,
+where migrations 017/018 were applied. All 117 original transcripts and 51
+recording records were preserved. BFF uses its local image at
+`http://127.0.0.1:8000`; the experimental Compose project is stopped. The original
+LocalStack recordings bucket was empty at startup, so historical audio remains
+unavailable there; the smoke verifies new recording and playback.
 
 The browser still chooses one final result. Selection UI and separate result
 tabs belong to spike 3; session `finished` does not prove all tracks succeeded.
