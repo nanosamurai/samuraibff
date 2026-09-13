@@ -23,7 +23,7 @@
 (defn- free-port
   "Return an available local TCP port by binding ServerSocket(0)." 
   []
-  (with-open [sock (java.net.ServerSocket. 0)]
+  (with-open [sock (java.net.ServerSocket. 0 0 (java.net.InetAddress/getLoopbackAddress))]
     (.getLocalPort sock)))
 
 (deftest starts-with-db-down-and_reports-not-ready

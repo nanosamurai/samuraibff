@@ -125,3 +125,10 @@ Outputs:
 
 * `dist/electron/` (NSIS installer + portable exe)
 
+
+### Local test isolation
+
+Integration fixtures bind Postgres, LocalStack, Keycloak and HTTP ports to
+`127.0.0.1`. For local runs, set `TESTCONTAINERS_RYUK_DISABLED=true` so the
+auxiliary reaper does not publish an unrestricted port; fixture cleanup stops
+the containers. Docker build contexts exclude `.env` and scratch worktrees.

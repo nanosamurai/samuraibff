@@ -31,7 +31,7 @@
   Returns: system map." 
   [port]
   (let [cfg {:samuraibff/config {:env :test
-                                 :http {:port port}}
+                                 :http {:host "127.0.0.1" :port port}}
              :samuraibff/ws-registry {:config (ig/ref :samuraibff/config)
                                       :kafka-producer nil}
              :samuraibff/router {:config (ig/ref :samuraibff/config)

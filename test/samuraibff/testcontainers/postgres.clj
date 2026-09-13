@@ -30,6 +30,7 @@
     (.withDatabaseName "drsynth")
     (.withUsername "drsynth")
     (.withPassword "drsynth")
+    (.setPortBindings ["127.0.0.1::5432"])
     (.start)))
 
 (defn stop-postgres!

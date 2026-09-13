@@ -64,7 +64,7 @@
         tenant-b "tenant-b"
         session-id (str (UUID/randomUUID))
         cfg {:samuraibff/config {:env :test
-                                 :http {:port port}
+                                 :http {:host "127.0.0.1" :port port}
                                  :auth {:required? true
                                         :issuer "http://example.invalid/issuer"
                                         :audience "bff-web"}
