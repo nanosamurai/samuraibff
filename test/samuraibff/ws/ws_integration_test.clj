@@ -22,6 +22,8 @@
     [integrant.core :as ig]
     [jsonista.core :as json]
     [samuraibff.config]
+    [samuraibff.db.sessions :as db.sessions]
+    [samuraibff.sessions.meta :as sessions.meta]
     [samuraibff.grpc.client :as grpc]
     [samuraibff.http.router]
     [samuraibff.http.server]
@@ -148,12 +150,15 @@
                                  :http {:host "127.0.0.1" :port port}}
              :samuraibff/ws-registry {:config (ig/ref :samuraibff/config)}
              :samuraibff/router {:config (ig/ref :samuraibff/config)
+                                 :db {:ds :stub}
                                  :ws-registry (ig/ref :samuraibff/ws-registry)
                                  :grpc {:tracks [{:id "faster"}
                                                  {:id "qwen"}]}}
              :samuraibff/http-server {:config (ig/ref :samuraibff/config)
                                       :handler (ig/ref :samuraibff/router)}}]
-    (with-redefs [grpc/get-capabilities (fn [client _]
+    (with-redefs [db.sessions/activate-session-on-audio-start-with-controls! (fn [_ _ _ controls] controls)
+                  sessions.meta/resolve-sessions-meta (fn [& _] {})
+                  grpc/get-capabilities (fn [client _]
                                          {:provider-profile-id (str (:id client) "-profile")})
                   grpc/start-stream! fake-start-stream!]
       (let [system (ig/init cfg)

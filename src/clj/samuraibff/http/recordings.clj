@@ -611,7 +611,11 @@
             (json-response 404 {:ok false :message "not-found"})
             (let [recording (db.recordings/find-latest-recording ds tenant-uuid session-uuid)
                   refined (db.recordings/list-transcript-records ds tenant-uuid session-uuid {:type "refined" :limit 2000})
-                  final (db.recordings/list-transcript-records ds tenant-uuid session-uuid {:type "final" :limit 20})
+                  final (db.recordings/list-transcript-records
+                         ds tenant-uuid session-uuid
+                         {:type "final" :limit 20
+                          :track-id (or (get-in req [:parameters :query :track_id])
+                                        (get-in req [:query-params "track_id"]))})
                   webhook-outcomes (db.wh.outcomes/list-latest-outcomes-for-session ds tenant-uuid session-uuid {:limit 50})
                   workflow-results (db.workflow-results/list-latest-results-for-session ds tenant-uuid session-uuid {:limit 50})
                   has-recording? (boolean recording)
@@ -622,7 +626,8 @@
                     {:id (str (:id r))
                      :type (:type r)
                      :source (:source r)
-                     :model (:model r)
+                    :model (:model r)
+                     :track_id (or (:track_id r) "whisperx")
                      :window_length (:window_length r)
                      :segment_start_s (:segment_start_s r)
                      :segment_end_s (:segment_end_s r)

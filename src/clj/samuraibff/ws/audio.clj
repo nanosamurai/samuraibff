@@ -19,6 +19,8 @@
    [org.httpkit.server :as http]
    [samuraibff.db.sessions :as db.sessions]
    [samuraibff.grpc.client :as grpc.client]
+   [samuraibff.kafka.producer :as kafka.producer]
+   [samuraibff.sessions.meta :as sessions.meta]
    [samuraibff.stream-controls :as stream-controls]
    [samuraibff.ws.auth :as ws.auth]
    [samuraibff.ws.registry :as ws.registry]
@@ -122,8 +124,18 @@
           (if-not ok?
             response
             (try
-              (let [available-realtime-tracks (mapv :id (grpc.client/tracks grpc))
-                    controls (stream-controls/parse-and-validate params available-realtime-tracks)
+              (let [_ (ws.tenant/assert-session-access! config ws-registry tenant-id session-id)
+                    available-realtime-tracks (mapv :id (grpc.client/tracks grpc))
+                    requested-controls (stream-controls/parse-and-validate
+                                        params available-realtime-tracks
+                                        (or (:final-tracks config) ["whisperx"]))
+                    ds (:ds db)
+                    _ (when-not ds
+                        (throw (ex-info "Database unavailable" {:type :samuraibff.ws/db-unavailable})))
+                    tenant-uuid (java.util.UUID/fromString (str tenant-id))
+                    session-uuid (java.util.UUID/fromString session-id)
+                    controls (db.sessions/activate-session-on-audio-start-with-controls!
+                              ds tenant-uuid session-uuid requested-controls)
                     rt-window-sec (parse-rt-double (or (:rt_window_sec controls)
                                                        (get params :rt_window_sec) (get params "rt_window_sec")
                                                        (get params :window_sec) (get params "window_sec")))
@@ -149,17 +161,11 @@
                              config ws-registry tenant-id session-id
                              session-opts)]
 
-                (when-let [ds (:ds db)]
-                  (let [tenant-uuid (java.util.UUID/fromString (str tenant-id))
-                        session-uuid (java.util.UUID/fromString (str session-id))]
-                    (future
-                      (try
-                        (db.sessions/activate-session-on-audio-start-with-controls!
-                         ds tenant-uuid session-uuid controls)
-                        (catch Exception e
-                          (log/warn e "Session DB update failed" {:session-id session-id
-                                                                  :tenant-id tenant-id
-                                                                  :op :activate-with-controls}))))))
+                (kafka.producer/send-sessions-meta!
+                 (:kafka-producer ws-registry) session-id
+                 (assoc (sessions.meta/resolve-sessions-meta config ds tenant-uuid session-uuid)
+                        :stream_controls controls)
+                 {:tenant-id tenant-id})
                 (ws.registry/start-rt! ws-registry grpc session)
 
                 (http/as-channel
@@ -193,6 +199,7 @@
                 (let [{:keys [type]} (ex-data e)]
                   (case type
                     :samuraibff.stream-controls/invalid-controls (bad-request "invalid-stream-controls")
+                    :samuraibff.ws/db-unavailable {:status 503 :body "db-unavailable"}
                     :samuraibff.ws/missing-tenant-id (ws.tenant/forbidden-response "missing-tenant-id")
                     :samuraibff.ws/unknown-session (ws.tenant/forbidden-response "unknown-session")
                     (throw e)))))))))))

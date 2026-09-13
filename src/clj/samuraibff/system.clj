@@ -196,6 +196,14 @@
                         :refined (s "SAMURAIBFF_KAFKA_TOPIC_REFINED")
                         :workflow-result (s "SAMURAIBFF_KAFKA_TOPIC_WORKFLOW_RESULT")}}
 
+      :final-tracks (when-let [raw (s "SAMURAIBFF_FINAL_TRACKS")]
+                      (let [ids (mapv str/trim (str/split raw #"," -1))]
+                        (when (or (> (count ids) 4)
+                                  (not= (count ids) (count (distinct ids)))
+                                  (some #(not (re-matches #"[a-z0-9][a-z0-9_-]{0,63}" %)) ids))
+                          (throw (ex-info "Invalid SAMURAIBFF_FINAL_TRACKS" {})))
+                        ids))
+
       :grpc {:rtservice-addr (s "SAMURAIBFF_GRPC_RTSERVICE_ADDR")
              :realtime-tracks (parse-realtime-tracks (getenv-fn "SAMURAIBFF_GRPC_REALTIME_TRACKS"))
              :admission-timeout-ms (i "SAMURAIBFF_GRPC_ADMISSION_TIMEOUT_MS")

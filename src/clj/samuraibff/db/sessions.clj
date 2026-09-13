@@ -232,38 +232,24 @@
     {:updated? (pos? (long (or (:next.jdbc/update-count res) 0)))}))
 
 (defn activate-session-on-audio-start-with-controls!
-  "Mark a session as active, set started_at, and persist stream controls.
-
-  This is meant for `/ws/audio` so we only touch the sessions table once.
-
-  Semantics:
-  - status is set to \"active\"
-  - started_at is set to `now()` if not already set
-  - stream_controls is stored as jsonb (replaces previous value)
-
-  Inputs:
-  - ds: DataSource
-  - tenant-id: UUID
-  - session-id: UUID
-  - controls: map (typically from `samuraibff.stream-controls/parse-and-validate`)
-
-  Returns:
-  - {:updated? boolean}
-
-  Notes:
-  - Uses raw SQL for the jsonb cast; everything is parameterized (no string concat).
-  - Intended for best-effort use; callers typically run it asynchronously."
+  "Save controls before accepting audio and reuse that snapshot on reconnect.
+  Accepts datasource, tenant/session UUIDs and validated controls. Returns the
+  persisted control map, or throws for missing/foreign sessions and DB errors."
   [^DataSource ds ^UUID tenant-id ^UUID session-id controls]
-  (when-not (and ds (instance? UUID tenant-id) (instance? UUID session-id))
-    (throw (ex-info "activate-session-on-audio-start-with-controls! missing required params"
-                    {:tenant-id tenant-id :session-id session-id})))
-  (let [json (cheshire/generate-string (or controls {}))
-        res (jdbc/execute-one!
+  (let [row (jdbc/execute-one!
              ds
-             ["UPDATE sessions\n     SET status='active',\n         started_at=COALESCE(started_at, now()),\n         stream_controls=(?::jsonb)\n   WHERE tenant_id=? AND id=?"
-              json tenant-id session-id])]
-    {:updated? (pos? (long (or (:next.jdbc/update-count res) 0)))}))
-
+             ["UPDATE sessions SET status='active', started_at=COALESCE(started_at, now()),
+                 stream_controls=CASE
+                   WHEN started_at IS NULL OR stream_controls IS NULL OR stream_controls='{}'::jsonb
+                   THEN ?::jsonb
+                   ELSE jsonb_build_object('final_tracks', jsonb_build_array('whisperx')) || stream_controls
+                 END
+               WHERE tenant_id=? AND id=? RETURNING stream_controls::text AS controls"
+              (cheshire/generate-string controls) tenant-id session-id]
+             {:builder-fn rs/as-unqualified-lower-maps})]
+    (when-not row
+      (throw (ex-info "Unknown session" {:type :samuraibff.ws/unknown-session})))
+    (cheshire/parse-string (:controls row) true)))
 (defn finish-session!
   "Mark a session as finished and set ended_at.
 

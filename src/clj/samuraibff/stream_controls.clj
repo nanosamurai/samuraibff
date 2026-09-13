@@ -124,12 +124,25 @@
   ([params]
    (parse-and-validate params nil))
   ([params available-realtime-tracks]
+   (parse-and-validate params available-realtime-tracks ["whisperx"]))
+  ([params available-realtime-tracks available-final-tracks]
    (let [realtime? (parse-bool (or (get params :realtime) (get params "realtime"))
                                (:realtime default-controls))
         refined? (parse-bool (or (get params :refined) (get params "refined"))
                              (:refined default-controls))
         final? (parse-bool (or (get params :final) (get params "final"))
                            (:final default-controls))
+        final-tracks-raw (or (get params :final_tracks) (get params "final_tracks"))
+        final-tracks (if (some? final-tracks-raw)
+                       (mapv str/trim (str/split (str final-tracks-raw) #"," -1))
+                       ["whisperx"])
+        _ (when (or (> (count final-tracks) 4)
+                    (not= (count final-tracks) (count (distinct final-tracks)))
+                    (some #(not (contains? (set available-final-tracks) %)) final-tracks)
+                    (some str/blank? final-tracks))
+            (throw (ex-info "Final tracks must be a non-empty subset of configured tracks"
+                            {:type :samuraibff.stream-controls/invalid-controls
+                             :reason :invalid-final-tracks})))
         store-recording? (parse-bool (or (get params :store_recording) (get params "store_recording")
                                          (get params :store-recording) (get params "store-recording"))
                                      (:store_recording default-controls))
@@ -182,6 +195,10 @@
 
         ;; Applied semantics.
         store-recording? (if final? store-recording? false)
+        _ (when (and final? (> (count final-tracks) 1) (not store-recording?))
+            (throw (ex-info "Multiple final tracks require store_recording=true"
+                            {:type :samuraibff.stream-controls/invalid-controls
+                             :reason :multiple-final-tracks-require-recording})))
 
         ;; Clamp realtime knobs only when realtime is enabled.
         rt-window (when (and realtime? (some? rt-window))
@@ -198,6 +215,7 @@
      (cond-> {:realtime realtime?
               :refined refined?
               :final final?
+              :final_tracks final-tracks
               :store_recording store-recording?
               :rt_partial_enable rt-partial-enable?}
        (seq realtime-tracks) (assoc :realtime_tracks realtime-tracks)
@@ -238,6 +256,7 @@
   - `x-refinement-window-sec` when refined=true and `:refinement_window_sec` is present."
   [controls]
   (cond-> {"x-outputs" (.getBytes ^String (outputs-header-value controls) "UTF-8")
+           "x-final-tracks" (.getBytes ^String (str/join "," (or (:final_tracks controls) ["whisperx"])) "UTF-8")
            "x-store-recording" (.getBytes ^String (if (:store_recording controls) "true" "false") "UTF-8")}
     (and (true? (:refined controls)) (some? (:refinement_window_sec controls)))
     (assoc "x-refinement-window-sec"

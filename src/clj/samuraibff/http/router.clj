@@ -357,7 +357,8 @@
              ;; method handlers directly at the same node. Put them under an
              ;; empty-path child instead.
             [""
-             {:get {:summary "Get recording detail"
+               {:get {:summary "Get recording detail"
+                      :parameters {:query [:map [:track_id {:optional true} :string]]}
                     :description "Returns recording metadata and transcript records for the given session id."
                     :responses {200 {:body schemas/RecordingDetailResponse}
                                 400 {:body schemas/ApiErrorResponse}

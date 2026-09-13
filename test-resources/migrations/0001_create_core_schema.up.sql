@@ -66,6 +66,7 @@ CREATE TABLE recordings (
 CREATE INDEX idx_recordings_session ON recordings(session_id);
 
 CREATE TABLE session_transcripts (
+    track_id text,
     id             uuid PRIMARY KEY,
     session_id     uuid NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     recording_id   uuid REFERENCES recordings(id) ON DELETE SET NULL,
