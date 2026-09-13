@@ -7,23 +7,23 @@
   - `/ready` returns 503 when DB is unreachable (readiness).
 
   This test intentionally points JDBC at a local closed port so connections are
-  refused quickly."
+  refused quickly." 
   (:require
-   [clojure.test :refer :all]
-   [integrant.core :as ig]
-   [jsonista.core :as json]
-   [org.httpkit.client :as http]
+    [clojure.test :refer :all]
+    [integrant.core :as ig]
+    [jsonista.core :as json]
+    [org.httpkit.client :as http]
     ;; Ensure Integrant init methods are loaded.
-   [samuraibff.config]
-   [samuraibff.db.core]
-   [samuraibff.http.router]
-   [samuraibff.http.server]
-   [samuraibff.ws.registry]))
+    [samuraibff.config]
+    [samuraibff.db.core]
+    [samuraibff.http.router]
+    [samuraibff.http.server]
+    [samuraibff.ws.registry]))
 
 (defn- free-port
-  "Return an available local TCP port by binding ServerSocket(0)."
+  "Return an available local TCP port by binding ServerSocket(0)." 
   []
-  (with-open [sock (java.net.ServerSocket. 0 50 (java.net.InetAddress/getLoopbackAddress))]
+  (with-open [sock (java.net.ServerSocket. 0)]
     (.getLocalPort sock)))
 
 (deftest starts-with-db-down-and_reports-not-ready

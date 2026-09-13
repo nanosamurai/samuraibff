@@ -110,15 +110,13 @@
       :tenant-id string/uuid (Kafka header `tenant_id`)
       :headers map of {header-name string -> header-value bytes}
 
-  Returns: nil."
+  Returns: nil." 
   ([producer session-id meta]
    (send-sessions-meta! producer session-id meta {}))
   ([{:keys [^KafkaProducer producer topic-sessions-meta]}
     session-id
     meta
-    {:keys [tenant-id headers ack?]}]
-   (when (and ack? (not (and producer topic-sessions-meta)))
-     (throw (ex-info "Session metadata producer unavailable" {:type ::unavailable})))
+    {:keys [tenant-id headers]}]
    (when (and producer topic-sessions-meta)
      (session-trace/with-session-trace session-id
        (let [value-bytes (json/write-value-as-bytes meta json-mapper)
@@ -133,14 +131,14 @@
            (when (and (string? k) (bytes? v))
              (.add hdrs k ^bytes v)))
          (try
-           (let [delivery (.send producer record
-                                 (reify Callback
-                                   (onCompletion [_ _metadata exception]
-                                     (when exception
-                                       (log/warn "Kafka metadata send failed" {:topic topic-sessions-meta
-                                                                               :session-id session-id})))))]
-             (when ack?
-               (.get delivery 30 java.util.concurrent.TimeUnit/SECONDS)))
+           (.send
+             producer
+             record
+              (reify Callback
+                (onCompletion [_ _metadata exception]
+                 (when exception
+                   (log/warn exception "Kafka send failed" {:topic topic-sessions-meta
+                                                            :session-id session-id})))))
            (catch Exception e
              (throw e))))))
    nil))

@@ -12,22 +12,22 @@
   - Starts a real http-kit server via Integrant.
   "
   (:require
-   [cheshire.core :as cheshire]
-   [clojure.test :refer :all]
-   [integrant.core :as ig]
-   [next.jdbc :as jdbc]
-   [org.httpkit.client :as http]
-   [samuraibff.config]
-   [samuraibff.db.core]
-   [samuraibff.grpc.client]
-   [samuraibff.http.router]
-   [samuraibff.http.server]
-   [samuraibff.keycloak.admin]
-   [samuraibff.testcontainers.keycloak :as tc.kc]
-   [samuraibff.testcontainers.postgres :as tc.pg]
-   [samuraibff.ws.registry])
+    [cheshire.core :as cheshire]
+    [clojure.test :refer :all]
+    [integrant.core :as ig]
+    [next.jdbc :as jdbc]
+    [org.httpkit.client :as http]
+    [samuraibff.config]
+    [samuraibff.db.core]
+    [samuraibff.grpc.client]
+    [samuraibff.http.router]
+    [samuraibff.http.server]
+    [samuraibff.keycloak.admin]
+    [samuraibff.testcontainers.keycloak :as tc.kc]
+    [samuraibff.testcontainers.postgres :as tc.pg]
+    [samuraibff.ws.registry])
   (:import
-   (java.util UUID)))
+    (java.util UUID)))
 
 (defn- parse-json-body
   [resp]
@@ -44,33 +44,33 @@
   {"Authorization" (str "Bearer " token)})
 
 (defn- free-port
-  "Find a free local TCP port by binding a temporary ServerSocket."
+  "Find a free local TCP port by binding a temporary ServerSocket." 
   []
-  (with-open [sock (java.net.ServerSocket. 0 50 (java.net.InetAddress/getLoopbackAddress))]
+  (with-open [sock (java.net.ServerSocket. 0)]
     (.getLocalPort sock)))
 
 (defn- start-system!
   "Start a minimal Integrant system for HTTP API testing.
 
-  Returns {:system <ig-system> :base-url <string>}"
+  Returns {:system <ig-system> :base-url <string>}" 
   [{:keys [port issuer audience jdbc-url db-user db-pass admin-client-secret]}]
   (let [cfg {:samuraibff/config {:env :test
-                                 :http {:host "127.0.0.1" :port port}
-                                 :auth {:required? true
-                                        :issuer issuer
-                                        :audience audience
-                                        :client-id audience
-                                        :tenant-claim "tenant_id"}
-                                 :db {:jdbc-url jdbc-url
-                                      :username (or db-user "drsynth")
-                                      :password (or db-pass "drsynth")
-                                      :maximum-pool-size 3}
-                                 :keycloak {:admin {:issuer issuer
-                                                    :realm "nanosamurai-test"
-                                                    :client-id "bff-admin"
-                                                    :client-secret admin-client-secret}}
+                                :http {:host "127.0.0.1" :port port}
+                                :auth {:required? true
+                                       :issuer issuer
+                                       :audience audience
+                                       :client-id audience
+                                       :tenant-claim "tenant_id"}
+                                :db {:jdbc-url jdbc-url
+                                     :username (or db-user "drsynth")
+                                     :password (or db-pass "drsynth")
+                                     :maximum-pool-size 3}
+                                :keycloak {:admin {:issuer issuer
+                                                   :realm "nanosamurai-test"
+                                                   :client-id "bff-admin"
+                                                   :client-secret admin-client-secret}}
                                 ;; grpc exists but isn't used by these HTTP tests
-                                 :grpc {:rtservice-addr "localhost:59999"}}
+                                :grpc {:rtservice-addr "localhost:59999"}}
              :samuraibff/db {:config (ig/ref :samuraibff/config)}
              :samuraibff/grpc-client {:config (ig/ref :samuraibff/config)}
              :samuraibff/ws-registry {:config (ig/ref :samuraibff/config)
@@ -93,7 +93,7 @@
     (ig/halt! system)))
 
 (defn- seed-db!
-  "Create tenants + sessions for tenant A and tenant B."
+  "Create tenants + sessions for tenant A and tenant B." 
   [ds {:keys [tenant-a tenant-b session-a session-b]}]
   (jdbc/execute! ds ["INSERT INTO tenants (id, name) VALUES (?, ?)" tenant-a "Tenant A"])
   (jdbc/execute! ds ["INSERT INTO tenants (id, name) VALUES (?, ?)" tenant-b "Tenant B"])
@@ -121,24 +121,24 @@
               session-b (UUID/fromString "00000000-0000-0000-0000-000000000011")
 
               alice-token (tc.kc/password-token!
-                           token-endpoint
-                           {:client-id (:web-client-id provision)
-                            :username (get-in provision [:users :alice :username])
-                            :password (get-in provision [:users :alice :password])})
+                            token-endpoint
+                            {:client-id (:web-client-id provision)
+                             :username (get-in provision [:users :alice :username])
+                             :password (get-in provision [:users :alice :password])})
               bob-token (tc.kc/password-token!
-                         token-endpoint
-                         {:client-id (:web-client-id provision)
-                          :username (get-in provision [:users :bob :username])
-                          :password (get-in provision [:users :bob :password])})
+                          token-endpoint
+                          {:client-id (:web-client-id provision)
+                           :username (get-in provision [:users :bob :username])
+                           :password (get-in provision [:users :bob :password])})
               port (free-port)
               {:keys [system base-url] :as running} (start-system!
-                                                     {:port port
-                                                      :issuer issuer
-                                                      :audience (:web-client-id provision)
-                                                      :jdbc-url jdbc-url
-                                                      :db-user "drsynth"
-                                                      :db-pass "drsynth"
-                                                      :admin-client-secret (:admin-client-secret provision)})]
+                                                      {:port port
+                                                       :issuer issuer
+                                                       :audience (:web-client-id provision)
+                                                       :jdbc-url jdbc-url
+                                                       :db-user "drsynth"
+                                                       :db-pass "drsynth"
+                                                       :admin-client-secret (:admin-client-secret provision)})]
           (try
             ;; Seed into the DB (use raw datasource; same DB the system pool points at).
             (seed-db! ds {:tenant-a tenant-a
@@ -182,9 +182,9 @@
               (is (string? client-secret))
 
               (let [m2m-token (tc.kc/client-credentials-token!
-                               token-endpoint
-                               {:client-id client-id
-                                :client-secret client-secret})
+                                token-endpoint
+                                {:client-id client-id
+                                 :client-secret client-secret})
                     resp-m2m @(http/get (str base-url "/api/recordings")
                                         {:timeout 5000
                                          :headers (authz m2m-token)})

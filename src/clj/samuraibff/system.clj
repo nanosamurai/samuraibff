@@ -11,12 +11,12 @@
 
   Notes:
   - Some Integrant keys in system.edn may be present for future PRs (DB/Kafka/Auth).
-    You can comment them out in system.edn if they are not yet implemented."
+    You can comment them out in system.edn if they are not yet implemented." 
   (:require
-   [clojure.java.io :as io]
-   [integrant.core :as ig]
-   [clojure.string :as str]
-   [org.corfield.logging4j2 :as log]))
+    [clojure.java.io :as io]
+    [integrant.core :as ig]
+    [clojure.string :as str]
+    [org.corfield.logging4j2 :as log]))
 
 (defonce ^:private system* (atom nil))
 
@@ -27,7 +27,7 @@
   - k: string
 
   Returns:
-  - string value or nil."
+  - string value or nil." 
   [^String k]
   (System/getenv k))
 
@@ -37,7 +37,7 @@
   Accepts: true/false, 1/0, yes/no (case-insensitive).
 
   Returns:
-  - boolean or nil if input is blank/nil or not parseable."
+  - boolean or nil if input is blank/nil or not parseable." 
   [s]
   (let [s0 (some-> s str str/trim str/lower-case)]
     (cond
@@ -50,7 +50,7 @@
   "Parse an integer from an env var string.
 
   Returns:
-  - int or nil if input is blank/nil or not parseable."
+  - int or nil if input is blank/nil or not parseable." 
   [s]
   (let [s0 (some-> s str str/trim)]
     (when-not (str/blank? (or s0 ""))
@@ -98,15 +98,15 @@
   Inputs:
   - ms: maps
 
-  Returns: merged map"
+  Returns: merged map" 
   [& ms]
   (apply
-   merge-with
-   (fn [a b]
-     (if (and (map? a) (map? b))
-       (apply deep-merge [a b])
-       b))
-   ms))
+    merge-with
+    (fn [a b]
+      (if (and (map? a) (map? b))
+        (apply deep-merge [a b])
+        b))
+    ms))
 
 (defn- prune-nils
   "Recursively remove nil values from nested maps.
@@ -118,7 +118,7 @@
   - x: any
 
   Returns:
-  - x with nil leaves removed; empty maps become nil."
+  - x with nil leaves removed; empty maps become nil." 
   [x]
   (cond
     (map? x)
@@ -148,7 +148,7 @@
   - getenv-fn: (fn [string] => string|nil)
 
   Returns:
-  - partial Integrant config map"
+  - partial Integrant config map" 
   [getenv-fn]
   (let [s (fn [k] (some-> (getenv-fn k) str/trim not-empty))
         b (fn [k] (parse-bool (getenv-fn k)))
@@ -159,9 +159,6 @@
      {:env (some-> (s "SAMURAIBFF_ENV") keyword)
 
       :features {:ce-mode? (b "SAMURAIBFF_CE_MODE")}
-      :final-tracks {:enabled? (b "SAMURAIBFF_FINAL_TRACKS_ENABLED")
-                     :selections-json (s "SAMURAIBFF_FINAL_TRACKS_JSON")
-                     :test-profile-enabled? (b "SAMURAIBFF_FINAL_TRACK_TEST_PROFILE_ENABLED")}
 
       :http {:host (s "SAMURAIBFF_HTTP_HOST")
              :port (i "SAMURAIBFF_HTTP_PORT")}
@@ -188,16 +185,16 @@
            :password (s "SAMURAIBFF_DB_PASSWORD")
            :maximum-pool-size (i "SAMURAIBFF_DB_MAX_POOL_SIZE")}
 
-      :kafka {:bootstrap-servers (s "SAMURAIBFF_KAFKA_BOOTSTRAP_SERVERS")
-              :client-id (s "SAMURAIBFF_KAFKA_CLIENT_ID")
-              :acks (s "SAMURAIBFF_KAFKA_ACKS")
-              :compression-type (s "SAMURAIBFF_KAFKA_COMPRESSION_TYPE")
-              :security-protocol kafka-security-protocol
-              :consumer-group-id (s "SAMURAIBFF_KAFKA_CONSUMER_GROUP_ID")
-              :consumer-group-id-workflow-results (s "SAMURAIBFF_KAFKA_CONSUMER_GROUP_ID_WORKFLOW_RESULTS")
-              :topics {:audio-raw (s "SAMURAIBFF_KAFKA_TOPIC_AUDIO_RAW")
-                       :refined (s "SAMURAIBFF_KAFKA_TOPIC_REFINED")
-                       :workflow-result (s "SAMURAIBFF_KAFKA_TOPIC_WORKFLOW_RESULT")}}
+       :kafka {:bootstrap-servers (s "SAMURAIBFF_KAFKA_BOOTSTRAP_SERVERS")
+               :client-id (s "SAMURAIBFF_KAFKA_CLIENT_ID")
+               :acks (s "SAMURAIBFF_KAFKA_ACKS")
+               :compression-type (s "SAMURAIBFF_KAFKA_COMPRESSION_TYPE")
+               :security-protocol kafka-security-protocol
+               :consumer-group-id (s "SAMURAIBFF_KAFKA_CONSUMER_GROUP_ID")
+               :consumer-group-id-workflow-results (s "SAMURAIBFF_KAFKA_CONSUMER_GROUP_ID_WORKFLOW_RESULTS")
+               :topics {:audio-raw (s "SAMURAIBFF_KAFKA_TOPIC_AUDIO_RAW")
+                        :refined (s "SAMURAIBFF_KAFKA_TOPIC_REFINED")
+                        :workflow-result (s "SAMURAIBFF_KAFKA_TOPIC_WORKFLOW_RESULT")}}
 
       :grpc {:rtservice-addr (s "SAMURAIBFF_GRPC_RTSERVICE_ADDR")
              :realtime-tracks (parse-realtime-tracks (getenv-fn "SAMURAIBFF_GRPC_REALTIME_TRACKS"))
@@ -218,17 +215,17 @@
                      :recordings {:bucket (s "SAMURAIBFF_S3_RECORDINGS_BUCKET")
                                   :prefix (s "SAMURAIBFF_S3_RECORDINGS_PREFIX")}}}
 
-      :secrets {:backend (some-> (s "SAMURAIBFF_SECRETS_BACKEND") keyword)
-                :aws {:region (s "SAMURAIBFF_SECRETS_AWS_REGION")
-                      :endpoint (s "SAMURAIBFF_SECRETS_AWS_ENDPOINT")
-                      :access-key (s "SAMURAIBFF_SECRETS_AWS_ACCESS_KEY")
-                      :secret-key (s "SAMURAIBFF_SECRETS_AWS_SECRET_KEY")
-                      :kms-key-id (s "SAMURAIBFF_SECRETS_AWS_KMS_KEY_ID")
-                      :name-prefix (s "SAMURAIBFF_SECRETS_AWS_NAME_PREFIX")
-                      :name-suffix (s "SAMURAIBFF_SECRETS_AWS_NAME_SUFFIX")}
-                :k8s {:namespace (s "SAMURAIBFF_SECRETS_K8S_NAMESPACE")
-                      :key (s "SAMURAIBFF_SECRETS_K8S_KEY")
-                      :name-prefix (s "SAMURAIBFF_SECRETS_K8S_NAME_PREFIX")}}
+       :secrets {:backend (some-> (s "SAMURAIBFF_SECRETS_BACKEND") keyword)
+                 :aws {:region (s "SAMURAIBFF_SECRETS_AWS_REGION")
+                       :endpoint (s "SAMURAIBFF_SECRETS_AWS_ENDPOINT")
+                       :access-key (s "SAMURAIBFF_SECRETS_AWS_ACCESS_KEY")
+                       :secret-key (s "SAMURAIBFF_SECRETS_AWS_SECRET_KEY")
+                       :kms-key-id (s "SAMURAIBFF_SECRETS_AWS_KMS_KEY_ID")
+                       :name-prefix (s "SAMURAIBFF_SECRETS_AWS_NAME_PREFIX")
+                       :name-suffix (s "SAMURAIBFF_SECRETS_AWS_NAME_SUFFIX")}
+                 :k8s {:namespace (s "SAMURAIBFF_SECRETS_K8S_NAMESPACE")
+                       :key (s "SAMURAIBFF_SECRETS_K8S_KEY")
+                       :name-prefix (s "SAMURAIBFF_SECRETS_K8S_NAME_PREFIX")}}
 
       :bff {:origin-uri (s "SAMURAIBFF_ORIGIN_URI")
             ;; Public browser origin used for OIDC redirect_uri computation.
@@ -246,7 +243,7 @@
   - cfg: Integrant config map (as read from system.edn)
 
   Returns:
-  - cfg' with overrides applied."
+  - cfg' with overrides applied." 
   ([cfg]
    (apply-env-overrides cfg getenv))
   ([cfg getenv-fn]
@@ -266,7 +263,7 @@
   - config map
 
   Throws:
-  - ex-info when file cannot be read."
+  - ex-info when file cannot be read." 
   [path]
   (try
     (ig/read-string (slurp path))
@@ -286,7 +283,7 @@
   - Selected env vars are overlaid on top of the EDN config (see
     `apply-env-overrides`).
 
-  Returns: config map."
+  Returns: config map." 
   []
   (let [cfg-path (some-> (getenv "SAMURAIBFF_CONFIG_PATH") str/trim not-empty)
         cfg (if cfg-path
@@ -304,7 +301,7 @@
   - starts components
   - stores the system in an internal atom
 
-  Returns: the initialized system map."
+  Returns: the initialized system map." 
   []
   (let [cfg (read-system-config)
         _ (ig/load-namespaces cfg)
@@ -316,7 +313,7 @@
 (defn stop!
   "Stop the currently running Integrant system (if any).
 
-  Returns: nil."
+  Returns: nil." 
   []
   (when-let [sys @system*]
     (try
