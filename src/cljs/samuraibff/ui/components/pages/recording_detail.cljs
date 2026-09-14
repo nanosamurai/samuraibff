@@ -6,12 +6,12 @@
   (:require
    [clojure.string :as str]
    [samuraibff.ui.api :as api]
+   [samuraibff.ui.hooks :as hooks]
    [samuraibff.ui.components.shared :as shared]
    [samuraibff.ui.components.transcript :as components.transcript]
    [samuraibff.ui.recording-detail :as recording-detail]
    [samuraibff.ui.router :as router]
    [samuraibff.ui.store :as store]
-   [samuraibff.ui.transcript :as transcript]
    [samuraibff.ui.util :as util]
    [samuraibff.ui.webhook-delivery-outcomes :as ui.wh.outcomes]
    [samuraibff.ui.workflow-results :as ui.wf.results]
@@ -177,32 +177,6 @@
      (when (seq (str error))
        [:div {:class "badge bad"} (str error)])]))
 
-;; NOTE: refined event conversion helpers live in shared CLJC namespace
-;; `samuraibff.ui.recording-detail` so we can unit-test them from CLJ.
-
-(defn- dedupe-by
-  "De-dupe a sequence by key function, preserving the first seen item.
-
-  Arity:
-  - (dedupe-by key-fn xs) => vector
-  - (dedupe-by key-fn)    => (fn [xs] ...) for ->> pipelines
-
-  Inputs:
-  - key-fn: (fn [x] k)
-  - xs: seq
-
-  Returns: vector."
-  ([key-fn]
-   (fn [xs] (dedupe-by key-fn xs)))
-  ([key-fn xs]
-   (->> (or xs [])
-        (reduce (fn [acc x]
-                  (let [k (key-fn x)]
-                    (if (contains? acc k) acc (assoc acc k x))))
-                {})
-        vals
-        vec)))
-
 (defn- on-time->current-time-s
   "Read the currentTime (seconds) from a React timeupdate event.
 
@@ -213,27 +187,6 @@
   [e]
   (let [t (some-> e .-target .-currentTime)]
     (max 0.0 (double (or t 0.0)))))
-
-(defn- final-segments->messages
-  "Convert final transcript segments (from DB json) into transcript messages.
-
-  Inputs:
-  - segments: vector of {:start_s number :end_s number :text string ...}
-
-  Returns: vector of transcript messages."
-  [segments]
-  (mapv (fn [seg]
-          {:kind "final"
-           :seq 0
-           :ts_ms 0
-           :start_s (:start_s seg)
-           :end_s (:end_s seg)
-           :text (:text seg)
-           ;; Optional word-level timing for karaoke highlighting.
-           :words (:words seg)
-           :speaker (:speaker seg)
-           :lang (:lang seg)})
-        (vec (or segments []))))
 
 (defn- final-audio-player
   "Render audio player for finalized transcript playback.
@@ -272,358 +225,129 @@
                 :on-ended on-ended
                 :style {:width "100%"}}]
        [:div {:class "muted"}
-        "Audio playback not available (no recording or no final transcript)."])]))
-
-;; NOTE: moved to `samuraibff.ui.recording-detail/db-refined-records->events`.
+        "Audio playback not available (no stored recording)."])]))
 
 (defn recording-detail-page
-  "Recording detail page.
-
-  Inputs:
-  - props: map with keys:
-      - :session-id string
-
-  Returns: hiccup."
+  "Render flat per-track Postgres results and shared recording playback for a session ID."
   [{:keys [session-id]}]
-  (let [tab* (react/useState nil)
-        tab (aget tab* 0)
-        set-tab! (aget tab* 1)
-
-        right-tab* (react/useState :workflows)
-        right-tab (aget right-tab* 0)
-        set-right-tab! (aget right-tab* 1)
-
+  (let [[detail set-detail!] (react/useState nil)
+        [error set-error!] (react/useState nil)
+        [tab set-tab!] (react/useState nil)
+        [current-time-s set-time!] (react/useState 0)
+        [follow? set-follow!] (react/useState false)
+        [enroll-range set-enroll!] (react/useState nil)
+        [show-workflows? set-show-workflows!] (react/useState false)
+        [right-tab set-right-tab!] (react/useState :workflows)
         audio-ref (react/useRef nil)
-        current-time* (react/useState 0.0)
-        current-time-s (aget current-time* 0)
-        set-current-time! (aget current-time* 1)
-        ;; Default to no auto-follow; otherwise the UI feels like it fights the user.
-        follow?* (react/useState false)
-        follow? (aget follow?* 0)
-        set-follow! (aget follow?* 1)
         runtime-enabled? (store/workflow-webhook-runtime-enabled?)
-        show-workflows?* (react/useState runtime-enabled?)
-        show-workflows? (and runtime-enabled? (aget show-workflows?* 0))
-        set-show-workflows! (aget show-workflows?* 1)
-
-        loading* (react/useState true)
-        loading? (aget loading* 0)
-        set-loading! (aget loading* 1)
-
-        detail* (react/useState nil)
-        detail (aget detail* 0)
-        set-detail! (aget detail* 1)
-
-        cached-asr (store/cached-asr-segments session-id)
-        cached-refined (store/cached-refined-segments session-id)
-
+        cached-asr (get (hooks/use-atom store/asr-by-session*) session-id [])
+        tabs (cond-> (recording-detail/track-tabs detail)
+               (seq cached-asr) (into [{:id [:realtime] :label "Real-time Transcript"}]))
+        selected (or (some #(when (= tab (:id %)) %) tabs)
+                     (first (filter #(= :final (first (:id %))) tabs)) (first tabs))
+        stage (first (:id selected))
+        rows (:rows selected)
+        messages (if (= stage :realtime) cached-asr (recording-detail/record-messages rows stage))
+        playback? (true? (get-in detail [:session :has_recording]))
+        karaoke? (and playback? (some #(seq (:words %)) messages))
+        session (:session detail)
+        status (:status session)
+        created-at-ms (util/iso->ms (:created_at session))
+        title (or (not-empty (str/trim (or (:title session) "")))
+                  (util/default-session-title created-at-ms) "Recording")
         refresh! (fn []
-                   (set-loading! true)
+                   (set-error! nil)
                    (-> (api/get-recording! session-id)
-                       (.then (fn [resp]
-                                (set-detail! resp)))
-                       (.catch (fn [e]
-                                 (store/append-log! (str "[ui] failed loading recording detail: " e))
-                                 (set-detail! {:ok false :message "failed"})))
-                       (.finally (fn [] (set-loading! false)))))
-
-        db-refined (get-in detail [:transcripts :refined])
-        db-final (get-in detail [:transcripts :final])
-        refined-events (recording-detail/db-refined-records->events db-refined)
-
-        current-title (get-in detail [:session :title])
-        title-display (let [t (str/trim (str (or current-title "")))]
-                        (when (seq t) t))
-
-        created-at-ms (or (util/iso->ms (get-in detail [:session :created_at]))
-                          (util/now-ms))
-        title-display* (or title-display
-                           (util/default-session-title created-at-ms)
-                           "Recording")
-
-        session-status (str (or (get-in detail [:session :status]) ""))
-        status-label (cond
-                       (= session-status "active") "Recording"
-                       (seq session-status) (str/capitalize session-status)
-                       :else "Unknown")
-        status-kind (cond
-                      (= session-status "active") :warn
-                      (= session-status "failed") :bad
-                      (= session-status "finished") :ok
-                      :else :muted)
-        status-tooltip (str "Session status: " (or (seq session-status) "unknown"))
-
-        on-title-saved (fn [new-title]
-                         (set-detail! (fn [prev]
-                                        (assoc-in (or prev {}) [:session :title] new-title))))]
-
+                       (.then set-detail!)
+                       (.catch #(set-error! (shared/safe-http-error %)))))
+        enroll-action (fn [{:keys [msg]}]
+                        (when (and playback? (seq (:speaker msg))
+                                   (number? (:start_s msg)) (number? (:end_s msg))
+                                   (< (:start_s msg) (:end_s msg)))
+                          [:div {:class "bubble-actions"}
+                           [:button {:class "bubble-action-btn" :title "Enroll speaker from this segment"
+                                     :on-click #(do (.stopPropagation %) (set-enroll! msg))}
+                            (shared/icon "＋" {:title "Enroll"})]]))]
     (react/useEffect
      (fn []
-       (refresh!)
-       js/undefined)
+       (let [active? (atom true)
+             load! (fn []
+                     (-> (api/get-recording! session-id)
+                         (.then #(when @active? (set-detail! %)))
+                         (.catch #(when @active? (set-error! (shared/safe-http-error %))))))
+             timer (js/setInterval load! 4000)]
+         (set-detail! nil)
+         (set-tab! nil)
+         (set-error! nil)
+         (load!)
+         (fn [] (reset! active? false) (js/clearInterval timer))))
      #js [session-id])
-
-    ;; Build 3 independent feeds:
-    ;; - realtime ASR (cached locally if available)
-    ;; - refined realtime (DB refined records + cached refined WS items if available)
-    ;; - final transcript (DB)
-    (let [enroll-open?* (react/useState false)
-          enroll-open? (aget enroll-open?* 0)
-          set-enroll-open! (aget enroll-open?* 1)
-          enroll-range* (react/useState nil)
-          enroll-range (aget enroll-range* 0)
-          set-enroll-range! (aget enroll-range* 1)
-          open-enroll! (fn [{:keys [start_s end_s]}]
-                         (set-enroll-range! {:start_s start_s :end_s end_s})
-                         (set-enroll-open! true))
-          close-enroll! (fn []
-                          (set-enroll-open! false)
-                          (set-enroll-range! nil))
-
-          realtime-msgs (transcript/sort-messages (vec (or cached-asr [])))
-          refined-msgs (->> (concat (recording-detail/refined-events->messages refined-events)
-                                    (vec (or cached-refined [])))
-                            ;; De-dupe refined segments by stable content/time key.
-                            ;; :seq is not stable across DB vs WS.
-                            (dedupe-by transcript/refined-dedupe-key)
-                            transcript/sort-messages
-                            vec)
-
-          ;; Final transcript: take the last record and render its segments.
-          final-record (last (vec (or db-final [])))
-          final-msgs (final-segments->messages (vec (or (:segments final-record) [])))
-
-          available-tabs
-          (recording-detail/available-transcript-tabs
-           {:realtime-msgs realtime-msgs
-            :refined-msgs refined-msgs
-            :final-msgs final-msgs})
-
-          default-tab (recording-detail/default-transcript-tab available-tabs)
-
-          selected-tab (let [allowed? (contains? (set (or available-tabs [])) tab)]
-                         (cond
-                           allowed? tab
-                           (some? default-tab) default-tab
-                           :else nil))
-
-          ;; Playback is only shown when we have both:
-          ;; - a recording stored
-          ;; - a final transcript stored
-          playback-enabled? (boolean (and final-record
-                                          (true? (get-in detail [:session :has_recording]))))
-
-          karaoke-enabled? (boolean (and playback-enabled?
-                                         (seq final-msgs)
-                                         (some (fn [m] (seq (:words m))) final-msgs)))
-
-          on-audio-time (fn [e]
-                          (set-current-time! (on-time->current-time-s e)))
-
-          final-body
-          [:div {:style {:display "flex" :flexDirection "column" :gap "12px"}}
-           [final-audio-player {:session-id session-id
-                                :enabled? playback-enabled?
-                                :audio-ref audio-ref
-                                :on-time on-audio-time}]
-
-           (when karaoke-enabled?
-             [:div {:class "row" :style {:marginTop "-4px"}}
-              [:label {:class "muted"
-                       :style {:display "inline-flex" :gap "8px" :alignItems "center"}}
-               [:input {:type "checkbox"
-                        :checked (boolean follow?)
-                        :on-change (fn [e]
-                                     (set-follow! (.. e -target -checked)))}]
-               "Follow"]
-              [:span {:class "muted"}
-               (str "t=" (util/fmt-sec current-time-s))]])
-
-           (let [enroll-action
-                 (fn [{:keys [msg]}]
-                   (when (and (= "final" (:kind msg))
-                              (number? (:start_s msg))
-                              (number? (:end_s msg))
-                              (> (double (:end_s msg)) (double (:start_s msg))))
-                     [:div {:class "bubble-actions"}
-                      [:button {:class "bubble-action-btn"
-                                :title "Enroll speaker from this segment"
-                                :on-click (fn [e]
-                                            (.stopPropagation e)
-                                            (open-enroll! {:start_s (:start_s msg)
-                                                           :end_s (:end_s msg)}))}
-                       (shared/icon "＋" {:title "Enroll"})]]))]
-             (if karaoke-enabled?
-               [components.transcript/final-transcript-karaoke
-                {:messages final-msgs
-                 :audio-ref audio-ref
-                 :current-time-s current-time-s
-                 :follow? follow?
-                 :message-actions enroll-action}]
-               [components.transcript/transcript-view
-                {:messages final-msgs
-                 :auto-scroll? false
-                 :initial-scroll :top
-                 :empty-title "Final transcript"
-                 :empty-hint (if final-record "(no segments)" "No final transcript stored")
-                 :message-actions enroll-action}]))]]
-
-      (react/useEffect
-       (fn []
-         ;; Ensure selected tab always points to a visible tab.
-         ;;
-         ;; This handles two cases:
-         ;; 1) page default (tab starts as nil) => select preferred available tab
-         ;; 2) user-selected tab becomes unavailable after refresh => fallback
-         (let [tab-id tab
-               next-tab selected-tab]
-           (when (not= tab-id next-tab)
-             (set-tab! next-tab)))
-         js/undefined)
-       #js [tab selected-tab])
-
-      [:div {:class "page"}
-       [enroll-speaker-modal {:open? enroll-open?
-                              :session-id session-id
-                              :start-s (get enroll-range :start_s)
-                              :end-s (get enroll-range :end_s)
-                              :on-close close-enroll!}]
-       [:div {:class "page-header"}
-        [:div
-         [:div {:class "page-title"}
-          title-display*
-          [:span {:style {:marginLeft "10px"}}
-           [shared/status-pill {:label status-label
-                                :kind status-kind
-                                :blink? (= session-status "active")
-                                :tooltip status-tooltip}]]]
-         [:div {:class "mono muted"} session-id]
-         (when loading?
-           [:div {:class "muted"} "Loading…"])]
-
-        [:div {:class "row"}
-         [router/link {:route {:page :recordings :params {}}
-                       :class "btn"}
-          "Back to recordings"]
-
-         (when (= session-status "created")
-           [router/link {:route {:page :live :params {}}
-                         :class "btn"
-                         :title "Record with this session"
-                         :on-click (fn [_]
-                                     (store/set-session-id! session-id)
-                                     (store/set-session-created-at-ms! created-at-ms)
-                                     (store/set-session-title!
-                                      (or (some-> current-title str str/trim not-empty)
-                                          (util/default-session-title created-at-ms)
-                                          ""))
-                                     (store/set-session-status! session-status))}
-            "Record with this session"])
-
-         [title-editor {:session-id session-id
-                        :current-title current-title
-                        :on-saved on-title-saved}]
-
-         [:button {:class "btn"
-                   :on-click (fn [_] (refresh!))}
-          "Refresh"]]]
-
-       [:div {:class "tabs"}
-        (when (seq available-tabs)
-          (for [tab-id available-tabs]
-            ^{:key (str "tab-" (name tab-id))}
-            [:button {:class (str "tab " (when (= tab tab-id) "active"))
-                      :type "button"
-                      :on-click (fn [_] (set-tab! tab-id))}
-             (case tab-id
-               :realtime "Real-time transcript"
-               :refined "Refined real-time"
-               :final "Final transcript"
-               (name tab-id))]))
-        [:div {:class "spacer"}]
-        (when runtime-enabled?
-          [:button {:class "btn ghost icon"
-                  :type "button"
-                  :aria-label (if show-workflows?
-                                "Hide workflows panel"
-                                "Show workflows panel")
-                  :title (if show-workflows?
-                           "Hide workflows panel"
-                           "Show workflows panel")
-                  :on-click (fn [_]
-                              (set-show-workflows! (not show-workflows?)))}
-         (shared/icon (if show-workflows? "❯" "❮")
-                      {:title (if show-workflows?
-                                "Hide workflows panel"
-                                "Show workflows panel")})])]
-
-       (if show-workflows?
-         [:div {:class "split"}
-          [:div {:class "split-main"}
-           [:div {:class "card"}
-            (if (empty? available-tabs)
-              [:div {:class "muted"}
-               "No transcripts available for this recording."]
-              [:div
-               [:div {:class "card-title"}
-                (case selected-tab
-                  :refined "Refined real-time"
-                  :final "Final"
-                  "Real-time")]
-               (case selected-tab
-                 :final final-body
-                 :refined [components.transcript/transcript-view
-                           {:messages refined-msgs
-                            :empty-title "Refined real-time"
-                            :empty-hint "No refined transcript available"}]
-                 [components.transcript/transcript-view
-                  {:messages realtime-msgs
-                   :empty-title "Real-time transcript"
-                   :empty-hint "No realtime transcript available"}])])]]
-
-          [:div {:class "split-side"}
-           [:div {:class "right-panel"}
-            [:div {:class "tabs"}
-             [:button {:class (str "tab " (when (= right-tab :workflows) "active"))
-                       :type "button"
-                       :on-click (fn [_] (set-right-tab! :workflows))}
-              "Workflows"]
-             [:button {:class (str "tab " (when (= right-tab :webhooks) "active"))
-                       :type "button"
-                       :on-click (fn [_] (set-right-tab! :webhooks))}
-              "Webhooks"]]
-
-            [:div {:class "right-panel-body"}
-             (case right-tab
-               :workflows
-               [ui.wf.results/workflow-results-card
-                {:items (vec (or (:workflow_results_latest detail) []))
-                 :title "Workflow results"
-                 :fill? true
-                 :empty-hint "No workflow results recorded for this recording."}]
-
-               [ui.wh.outcomes/webhook-dispatches-card
-                {:items (vec (or (:webhook_delivery_outcomes detail) []))
-                 :title "Webhook dispatches"
-                 :fill? true}])]]]]
-
-         [:div {:class "card"}
-          (if (empty? available-tabs)
-            [:div {:class "muted"}
-             "No transcripts available for this recording."]
-            [:div
-             [:div {:class "card-title"}]
-             (case selected-tab
-               :refined "Refined real-time"
-               :final "Final"
-               "Real-time")
-             (case selected-tab
-               :final final-body
-               :refined [components.transcript/transcript-view
-                         {:messages refined-msgs
-                          :empty-title "Refined real-time"
-                          :empty-hint "No refined transcript available"}]
-               [components.transcript/transcript-view
-                {:messages realtime-msgs
-                 :empty-title "Real-time transcript"
-                 :empty-hint "No realtime transcript available"}])])])])))
+    [:div {:class "page"}
+     [enroll-speaker-modal {:open? (some? enroll-range) :session-id session-id
+                            :start-s (:start_s enroll-range) :end-s (:end_s enroll-range)
+                            :on-close #(set-enroll! nil)}]
+     [:div {:class "page-header"}
+      [:div
+       [:div {:class "page-title"} title
+        [:span {:style {:marginLeft "10px"}}
+         [shared/status-pill {:label (if (= status "active") "Recording" (str/capitalize (or status "Loading")))
+                              :kind :muted :tooltip "Session status does not describe every track's outcome."}]]]
+       [:div {:class "mono muted"} session-id]]
+      [:div {:class "row"}
+       [router/link {:route {:page :recordings :params {}} :class "btn"} "Back to recordings"]
+       (when (= status "created")
+         [router/link {:route {:page :live :params {}} :class "btn"
+                       :on-click #(do (store/set-session-id! session-id)
+                                      (store/set-session-title! (:title session))
+                                      (store/set-session-created-at-ms! created-at-ms)
+                                      (store/set-session-status! status))}
+          "Record with this session"])
+       [title-editor {:session-id session-id :current-title (:title session)
+                      :on-saved #(set-detail! (fn [old] (assoc-in old [:session :title] %)))}]
+       [:button {:class "btn" :on-click refresh!} "Refresh"]]]
+     (when error [:p {:role "alert" :class "badge bad"} error])
+     [:div {:class "tabs transcript-tabs" :role "tablist" :aria-label "Transcripts"}
+      (for [{:keys [id label]} tabs]
+        [:button {:key (pr-str id) :class (str "tab " (when (= id (:id selected)) "active"))
+                  :type "button" :role "tab" :aria-selected (= id (:id selected))
+                  :on-click #(set-tab! id)} label])
+      (when runtime-enabled?
+        [:button {:class "btn ghost" :on-click #(set-show-workflows! (not show-workflows?))}
+         "Workflows / Webhooks"])]
+     [:div {:class "split"}
+      [:div {:class "split-main"}
+       [final-audio-player {:session-id session-id :enabled? playback? :audio-ref audio-ref
+                            :on-time #(set-time! (on-time->current-time-s %))}]
+       [:div {:class "card" :role "tabpanel" :aria-label (:label selected)}
+        (if selected
+          [:div
+           [:p {:class "muted" :role "status"}
+            (cond (= stage :realtime) "Live results cached in this browser; realtime text is not stored."
+                  (empty? rows) "No result available yet. This does not establish whether the track is processing or failed."
+                  (= stage :refined) (str (count rows) " saved window(s) available. More windows may still arrive.")
+                  :else "Saved result available.")]
+           (when karaoke?
+             [:label {:class "checkbox-row"}
+              [:input {:type "checkbox" :checked follow? :on-change #(set-follow! (.. % -target -checked))}]
+              "Follow"])
+           (if karaoke?
+             [components.transcript/final-transcript-karaoke
+              {:key (pr-str (:id selected)) :messages messages :audio-ref audio-ref
+               :current-time-s current-time-s :follow? follow? :message-actions enroll-action}]
+             [components.transcript/transcript-view
+              {:key (pr-str (:id selected)) :messages messages :auto-scroll? false :initial-scroll :top
+               :empty-title (:label selected)
+               :empty-hint (if (seq rows) "The stored result contains no speech." "No result available yet.")
+               :message-actions enroll-action}])]
+          [:p {:class "muted"} (if detail "No saved transcript tracks for this session." "Loading…")])]]
+      (when (and runtime-enabled? show-workflows?)
+        [:div {:class "split-side"}
+         [:div {:class "right-panel"}
+          [:div {:class "tabs"}
+           (for [[id label] [[:workflows "Workflows"] [:webhooks "Webhooks"]]]
+             [:button {:key id :class (str "tab " (when (= id right-tab) "active"))
+                       :on-click #(set-right-tab! id)} label])]
+          [:div {:class "right-panel-body"}
+           (if (= right-tab :workflows)
+             [ui.wf.results/workflow-results-card {:items (:workflow_results_latest detail) :title "Workflow results" :fill? true}]
+             [ui.wh.outcomes/webhook-dispatches-card {:items (:webhook_delivery_outcomes detail) :title "Webhook dispatches" :fill? true}])]]])]]))

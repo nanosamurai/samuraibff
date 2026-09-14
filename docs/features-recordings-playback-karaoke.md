@@ -24,6 +24,15 @@ Important:
 
 The audio endpoint supports HTTP **Range** requests so the browser can seek.
 
+Saved transcripts use flat per-track tabs such as `Final Transcript (WhisperX)`.
+Labels are read from the session's frozen `stream_controls.track_labels`; old
+NULL track IDs mean WhisperX. Selected tracks without rows remain visible as
+unavailable, without inferring failure. The shared recording player remains
+available while switching tracks and uses the selected track's existing timing.
+Text-only rows use `full_text` without invented timestamps or speakers. Detail
+pages reload their tenant-scoped Postgres results, including on direct links.
+See [the lean UI spike](track-selection-ui.md).
+
 ## Karaoke highlighting (word-level timing)
 
 When a final transcript segment includes `words[]` timing data
