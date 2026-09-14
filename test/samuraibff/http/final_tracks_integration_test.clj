@@ -15,16 +15,21 @@
           foreign (UUID/randomUUID)
           session (UUID/randomUUID)
           config {:features {:ce-mode? true}}
-          selected (controls/parse-and-validate
+          selected (controls/with-track-labels (controls/parse-and-validate
                     {:final_tracks "test-shadow,whisperx" :refinement_tracks "test-shadow,whisperx"
                      :realtime "false" :refined "true"}
-                    nil ["whisperx" "test-shadow"] ["whisperx" "test-shadow"])]
+                    nil ["whisperx" "test-shadow"] ["whisperx" "test-shadow"])
+                    {:final-tracks ["whisperx" "test-shadow"]
+                     :refinement-tracks ["whisperx" "test-shadow"]
+                     :track-labels {:final {:test-shadow "Original label"}}})]
       (pg/apply-schema! ds)
       (jdbc/execute! ds ["INSERT INTO tenants(id,name) VALUES (?, 'tracks')" tenant])
       (sessions/insert-session! ds {:id session :tenant-id tenant :session-key (str session) :status "created"})
       (is (= selected (sessions/activate-session-on-audio-start-with-controls! ds tenant session selected)))
       (is (= selected (sessions/activate-session-on-audio-start-with-controls!
-                      ds tenant session (controls/parse-and-validate {}))))
+                      ds tenant session (controls/with-track-labels
+                                         (controls/parse-and-validate {})
+                                         {:track-labels {:final {:whisperx "Changed label"}}}))))
       (is (thrown? clojure.lang.ExceptionInfo
                    (sessions/activate-session-on-audio-start-with-controls! ds foreign session selected)))
       (is (= (str tenant) (:tenant_id (meta/resolve-sessions-meta config ds tenant session))))

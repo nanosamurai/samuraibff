@@ -76,6 +76,33 @@
   [x minv maxv]
   (-> x (max minv) (min maxv)))
 
+(defn configured-async-tracks
+  "Return ordered IDs, display labels and defaults from deployment config.
+  Accepts BFF config; returns UI metadata only, without worker discovery."
+  [config]
+  (vec (for [[stage config-key] [[:refined :refinement-tracks] [:final :final-tracks]]
+             :let [ids (or (seq (get config config-key)) ["whisperx"])]
+             id ids]
+         {:stage (name stage)
+          :track_id id
+          :display_name (or (get-in config [:track-labels stage (keyword id)])
+                            (when (= id "whisperx") "WhisperX") id)
+          :default_selected (= id (first ids))})))
+
+(defn with-track-labels
+  "Snapshot selected deployment labels beside validated controls.
+  Accepts controls and config maps; returns controls with a small track_labels map.
+  Client-provided labels are never used."
+  [controls config]
+  (assoc controls :track_labels
+         (reduce (fn [labels {:keys [stage track_id display_name]}]
+                   (let [stage (keyword stage)
+                         selection (get controls (if (= stage :final) :final_tracks :refinement_tracks))]
+                     (if (and (get controls stage) (some #{track_id} selection))
+                       (assoc-in labels [stage (keyword track_id)] display_name)
+                       labels)))
+                 {} (configured-async-tracks config))))
+
 (defn parse-and-validate
   "Parse stream controls from `/ws/audio` query parameters and return a
   validated + clamped control map.
@@ -137,11 +164,11 @@
         final-tracks-raw (or (get params :final_tracks) (get params "final_tracks"))
         final-tracks (if (some? final-tracks-raw)
                        (mapv str/trim (str/split (str final-tracks-raw) #"," -1))
-                       ["whisperx"])
+                       [(first available-final-tracks)])
          refinement-tracks-raw (or (get params :refinement_tracks) (get params "refinement_tracks"))
          refinement-tracks (if (some? refinement-tracks-raw)
                              (mapv str/trim (str/split (str refinement-tracks-raw) #"," -1))
-                             ["whisperx"])
+                             [(first available-refinement-tracks)])
          _ (when (or (> (count refinement-tracks) 4)
                      (not= (count refinement-tracks) (count (distinct refinement-tracks)))
                      (some #(not (contains? (set available-refinement-tracks) %)) refinement-tracks)
