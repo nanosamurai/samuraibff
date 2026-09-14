@@ -242,7 +242,8 @@
                  stream_controls=CASE
                    WHEN started_at IS NULL OR stream_controls IS NULL OR stream_controls='{}'::jsonb
                    THEN ?::jsonb
-                   ELSE jsonb_build_object('final_tracks', jsonb_build_array('whisperx')) || stream_controls
+                   ELSE jsonb_build_object('final_tracks', jsonb_build_array('whisperx'),
+                                           'refinement_tracks', jsonb_build_array('whisperx')) || stream_controls
                  END
                WHERE tenant_id=? AND id=? RETURNING stream_controls::text AS controls"
               (cheshire/generate-string controls) tenant-id session-id]

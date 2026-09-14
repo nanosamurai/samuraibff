@@ -976,42 +976,24 @@
     nil))
 
 (defn append-refined!
-  "Append a refined transcript message.
-
-  Important:
-  - Refined messages are not merged into ASR any more.
-  - For now we do NOT rebase refined events in the UI.
-
-  Input:
-  - ev: map decoded from ws event, expects keys:
-    :seq, :ts_ms, :start_s, :end_s, :text, :speaker (optional), :lang (optional)
-
-  Returns: nil."
+  "Buffer one live refined event within its session and track.
+  Accepts WS event map; replay keeps the first segment for the same window.
+  Updates the visible buffer only for the current session. Returns nil."
   [ev]
-  (let [start (:start_s ev)
-        end (:end_s ev)]
-    (when (or (nil? start) (nil? end) (= (double (or start 0)) (double (or end 0))))
-      (append-log! (str "[refined] suspicious times start=" (pr-str start)
-                        " end=" (pr-str end)
-                        " (no-rebase)")))
-    (let [sid (or (:session_id ev) (get @session* :id) "")]
+  (let [sid (or (:session_id ev) (:id @session*) "")]
       (when (seq sid)
-        ;; split refined
-        (swap! refined-segments*
-               (fn [xs]
                  (let [msg (transcript/normalize-refined ev)
-                       xs (->> (conj (vec (or xs [])) msg)
-                               ;; de-dupe by seq for idempotency
+            messages (->> (conj (vec (get @refined-by-session* sid [])) msg)
                                (reduce (fn [acc m]
-                                         (let [k (:seq m)]
-                                           (if (contains? acc k) acc (assoc acc k m))))
-                                       {})
+                                    (let [key (transcript/refined-dedupe-key m)]
+                                      (if (contains? acc key) acc (assoc acc key m)))) {})
                                vals
-                               transcript/sort-messages
-                               vec)
-                       xs (if (> (count xs) max-segments)
-                            (subvec xs (- (count xs) max-segments))
-                            xs)]
-                   xs)))
-        (swap! refined-by-session* assoc sid (vec @refined-segments*))))
-    nil))
+                          (group-by :track_id)
+                          vals
+                          (mapcat #(take-last max-segments (sort-by (juxt :start_s :seq) %)))
+                          (sort-by (juxt :track_id :start_s :seq))
+                          vec)]
+        (swap! refined-by-session* assoc sid messages)
+        (when (= sid (:id @session*))
+          (reset! refined-segments* messages)))))
+  nil)

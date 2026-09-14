@@ -382,7 +382,13 @@
         false)
       (let [session (get-in @sessions [tenant-id session-id])]
         (when session
-          (let [events (refined-event->ws-events (:seq* session) ev)
+          (let [window {:track_id (or (not-empty (.getTrackId ev)) "whisperx")
+                        :window_sec (.getWindowSec ev)
+                        :window_start_s (.getStartS ev)
+                        :window_end_s (.getEndS ev)
+                        :slice_index (.getSliceIndex ev)}
+                events (mapv (fn [index event] (assoc (merge event window) :segment_index index))
+                             (range) (refined-event->ws-events (:seq* session) ev))
                 results (mapv (fn [event]
                                 (publish! ws-registry session event))
                               events)
