@@ -24,7 +24,8 @@
 (defn record-messages
   "Convert one track's stored rows to display messages, preserving real timings.
   Accepts rows and stage keyword; falls back to full_text for text-only rows,
-  without manufacturing speakers, timestamps or alignment."
+  without manufacturing speakers, timestamps or alignment. Use the latest
+  final row for legacy history and order refined windows by their audio bounds."
   [rows stage]
   (vec (mapcat (fn [row]
                  (map-indexed (fn [idx segment]
@@ -33,5 +34,6 @@
                                 (:segments row)
                                 (when-not (str/blank? (:full_text row))
                                   [{:text (:full_text row)}]))))
-               rows)))
-
+               (if (= stage :final)
+                 (take-last 1 rows)
+                 (sort-by #(or (:segment_start_s %) 0) rows)))))

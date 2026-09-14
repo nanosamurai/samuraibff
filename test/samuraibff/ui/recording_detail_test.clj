@@ -15,6 +15,11 @@
     (is (= [{:kind "final" :seq 0 :lang nil :text "Plain text"}]
            (recording-detail/record-messages (:rows (second tabs)) :final)))
     (is (= [] (recording-detail/record-messages [{:full_text "" :segments []}] :final)))
+    (is (= ["latest"] (mapv :text (recording-detail/record-messages
+                                   [{:full_text "older"} {:full_text "latest"}] :final))))
+    (is (= ["first" "second"] (mapv :text (recording-detail/record-messages
+                                           [{:segment_start_s 10 :full_text "second"}
+                                            {:segment_start_s 0 :full_text "first"}] :refined))))
     (let [segment {:start_s 1 :end_s 2 :text "Timed" :speaker "Speaker"
                    :words [{:start_s 1 :end_s 2 :word "Timed"}]}]
       (is (= [(assoc segment :kind "final" :seq 0 :lang "en")]

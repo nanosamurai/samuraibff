@@ -50,6 +50,9 @@ Local qualification on 2026-09-14 used the original `nanosamurai` project,
 Postgres 18 database and retained volumes. No migrations were applied. The BFF
 release build, lint, full backend test suite and Electron tests are part of the
 qualification; detailed output lives in ignored `.tmp/lean-track-ui/`.
+The final suite passed 129 tests / 982 assertions, plus all eight Electron
+tests. Ordinary realtime/refined/final playback passed after restoring the
+normal Compose configuration and stopping the synthetic workers.
 
 ## Boundaries
 

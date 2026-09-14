@@ -30,6 +30,8 @@ NULL track IDs mean WhisperX. Selected tracks without rows remain visible as
 unavailable, without inferring failure. The shared recording player remains
 available while switching tracks and uses the selected track's existing timing.
 Text-only rows use `full_text` without invented timestamps or speakers. Detail
+feeds keep the latest final row within each track for legacy history and sort
+refined windows by their audio bounds, independent of arrival order. Detail
 pages reload their tenant-scoped Postgres results, including on direct links.
 See [the lean UI spike](track-selection-ui.md).
 
