@@ -250,3 +250,8 @@ Community Edition validation until webhook/workflow consumers are migrated.
 Docker build contexts exclude `.env` files and scratch worktrees. Integration
 fixtures bind test ports to localhost; when running locally set
 `TESTCONTAINERS_RYUK_DISABLED=true` and let fixture cleanup stop containers.
+## Refinement track contract
+
+Refinement tracks add only `RefinedEvent.track_id = 16`; an empty ID means
+`whisperx`. Audio, segment and word message shapes and Kafka keys stay unchanged.
+
