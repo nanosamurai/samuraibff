@@ -119,10 +119,11 @@
   - value: currently selected option value (string)
   - options: vector of options {:value string :label string :flag string}
   - placeholder: string shown when no matching option is found
+  - disabled: boolean; prevents changing a frozen execution choice
   - on-change: (fn [new-value] ...)
 
   Returns: hiccup."
-  [{:keys [value options placeholder on-change]}]
+  [{:keys [value options placeholder on-change disabled]}]
   (let [open?* (react/useState false)
         open? (aget open?* 0)
         set-open! (aget open?* 1)
@@ -190,6 +191,7 @@
 
           trigger
           [:button {:type "button"
+                    :disabled (boolean disabled)
                     :class "dropdown-trigger"
                     :on-click (fn [_]
                                 (set-open! (not open?)))}
@@ -198,7 +200,7 @@
            [:span {:class "dropdown-caret"} "v"]]
 
           menu
-          (when open?
+          (when (and open? (not disabled))
             [:div {:class "dropdown-menu"
                    :on-key-down (fn [e]
                                   (when (= "Escape" (.-key e))

@@ -8,6 +8,7 @@
   - start-audio!
   - stop-audio!"
   (:require
+   [samuraibff.ui.output-settings :as output-settings]
    [clojure.string :as str]
    [samuraibff.ui.env :as env]
    [samuraibff.ui.store :as store]
@@ -282,7 +283,7 @@
   - Promise resolving truthy when capture started."
   [session-id lang]
   (stop-audio!)
-  (let [controls (get-in @store/session* [:controls])
+  (let [controls (output-settings/effective-controls (:controls @store/session*) (:detail @store/auth*))
         qp (cond-> {:session_id session-id
                     :lang (or lang "")
                     :sample_rate target-sample-rate
@@ -298,6 +299,8 @@
 
              ;; Optional numeric knobs (omit when nil)
              (seq (:realtime_tracks controls)) (assoc :realtime_tracks (str/join "," (:realtime_tracks controls)))
+             (and (:final controls) (seq (:final_tracks controls))) (assoc :final_tracks (str/join "," (:final_tracks controls)))
+             (and (:refined controls) (seq (:refinement_tracks controls))) (assoc :refinement_tracks (str/join "," (:refinement_tracks controls)))
              (some? (:rt_window_sec controls)) (assoc :rt_window_sec (:rt_window_sec controls))
              (some? (:rt_overlap_sec controls)) (assoc :rt_overlap_sec (:rt_overlap_sec controls))
              (some? (:rt_emit_every_sec controls)) (assoc :rt_emit_every_sec (:rt_emit_every_sec controls))

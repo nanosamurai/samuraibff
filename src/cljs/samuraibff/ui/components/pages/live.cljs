@@ -2,6 +2,8 @@
   "Record page (live recording)."
   (:require
    [clojure.string :as str]
+   [samuraibff.ui.components.stream-controls :as stream-controls]
+   [samuraibff.ui.output-settings :as output-settings]
    [samuraibff.ui.api :as api]
    [samuraibff.ui.audio :as audio]
    [samuraibff.ui.media-devices :as media.devices]
@@ -71,6 +73,8 @@
         starting?* (react/useState false)
         starting? (aget starting?* 0)
         set-starting! (aget starting?* 1)
+        [start-error set-start-error!] (react/useState nil)
+        effective-controls (output-settings/effective-controls controls (:detail (hooks/use-atom store/auth*)))
 
         mic-options* (react/useState [])
         mic-options (aget mic-options* 0)
@@ -96,6 +100,7 @@
           terminal? (contains? #{:finished :failed :finalized} status)]
 
       (letfn [(start-streaming! [sid] ;; Starting a new capture run; reset transcript time base.
+                (set-start-error! nil)
                 (store/clear-segments!)
                 (store/set-session-status! :active)
                 (store/set-running! true)
@@ -103,7 +108,10 @@
                 (store/append-log! (str "[ui] start session=" sid))
                 (ws/connect-events! sid)
                 (-> (audio/start-audio! sid lang)
-                    (.catch (fn [_]  ;; audio will log; ensure running resets
+                    (.catch (fn [_]
+                              (set-start-error! "Could not start recording. Check microphone access and service availability, then start a new session.")
+                              (store/set-session-status! :failed)
+                              (ws/close-events!)
                               (store/set-running! false)
                               (store/set-recording-status! sid :ready)))))
 
@@ -133,7 +141,8 @@
                   (js/Promise.resolve true)))
 
               (record-now! []
-                (if (or (true? running?) (true? starting?))
+                (if (or (true? running?) (true? starting?)
+                        (not-any? effective-controls [:realtime :refined :final]))
                   (js/Promise.resolve false)
                   (do
                     (set-starting! true)
@@ -177,6 +186,7 @@
                                  (str "[ui] failed finishing session (db): " (shared/safe-http-error e))))))))
 
               (new-session! []
+                (set-start-error! nil)
                 (store/append-log! "[ui] new session")
                                   ;; Defensive: ensure we are not streaming.
                 (store/set-running! false)
@@ -191,6 +201,9 @@
                 (store/set-session-status! nil))]
 
         [:div {:class "controls"}
+         (when start-error [:p {:role "alert" :class "badge bad"} start-error])
+         (when (not-any? effective-controls [:realtime :refined :final])
+           [:p {:role "status" :class "muted"} "Select at least one transcription stage in Session settings."])
          [:div {:class "controls-row"}
           [:div {:class "field"}
            [:div {:class "label"} "Session name"]
@@ -209,12 +222,14 @@
            {:value       (or lang "")
             :options     (langs/language-options)
             :placeholder "Auto"
+            :disabled (stream-controls/locked? session running?)
             :on-change   (fn [new-val]
                            (store/set-lang! new-val))}]]
 
          [:div {:class "field"}
           [:div {:class "label"} "Audio input"]
           [:select {:value     (name audio-source)
+                    :disabled (stream-controls/locked? session running?)
                     :on-change (fn [e]
                                  (let [v (keyword (.. e -target -value))]
                                    (store/set-session-control! :audio_source v)))}
@@ -229,7 +244,7 @@
          [:div {:class "field"}
           [:div {:class "label"} "Microphone"]
           [:select {:value     mic-device-id
-                    :disabled  (= :system audio-source)
+                    :disabled (or (= :system audio-source) (stream-controls/locked? session running?))
                     :on-change (fn [e]
                                  (let [v (.. e -target -value)]
                                    (store/set-session-control!
@@ -262,7 +277,7 @@
 
             :else
             [:button {:class    "btn primary"
-                      :disabled (or running? starting?)
+                      :disabled (or running? starting? (not-any? effective-controls [:realtime :refined :final]))
                       :on-click (fn [_] (record-now!))
                       :title    "Start recording"}
              [:span {:class (str "rec-dot" (when running? " blink"))}]
@@ -276,70 +291,38 @@
                                    (set-settings-open! (not (true? settings-open?)))))}
           "⚙"]]]))))
 
-(declare webhook-routing-panel workflow-routing-panel stream-controls-panel audio-controls-panel)
+(declare webhook-routing-panel workflow-routing-panel audio-controls-panel)
 
 (defn- session-settings-panel
-  "Single settings panel shown from the gear button.
-
-   It contains tabs:
-   - Stream settings
-   - Audio settings
-   - Webhooks
-   - Workflows
-
-  Inputs:
-  - {:keys [open? set-open!]} where:
-    - open?: boolean
-    - set-open!: (fn [boolean])
-
-  Returns: hiccup (or nil when closed)."
+  "Render independent output tabs with direct toggles alongside the existing session tools."
   [{:keys [open? set-open!]}]
-  (let [tab* (react/useState :stream)
-        tab (aget tab* 0)
-        set-tab! (aget tab* 1)
+  (let [[requested-tab set-tab!] (react/useState :realtime)
         runtime-enabled? (store/workflow-webhook-runtime-enabled?)
-        set-open! (when (fn? set-open!) set-open!)]
-    (when (true? open?)
-      [:div {:class "controls stream-controls"}
+        tab (if (and (not runtime-enabled?) (#{:webhooks :workflows} requested-tab)) :realtime requested-tab)]
+    (when open?
+      [:section {:class "controls stream-controls session-settings" :aria-label "Session settings"}
        [:div {:class "stream-controls-header"}
         [:div {:class "stream-controls-title"}
          [:div {:class "stream-controls-title-text"} "Session settings"]
-         [:div {:class "muted" :style {:fontSize "12px"}}
-          "Applies to newly created sessions."]]
-        [:button {:class "btn ghost"
-                  :type "button"
-                  :title "Close"
-                  :on-click (fn [_]
-                              (when set-open!
-                                (set-open! false)))}
-         "Close"]]
-
-       [:div {:class "tabs" :style {:marginBottom "0"}}
-        [:button {:class (str "tab " (when (= tab :stream) "active"))
-                  :type "button"
-                  :on-click (fn [_] (set-tab! :stream))}
-         "Stream"]
-        [:button {:class (str "tab " (when (= tab :audio) "active"))
-                  :type "button"
-                  :on-click (fn [_] (set-tab! :audio))}
-         "Audio"]
-        (when runtime-enabled?
-          [:button {:class (str "tab " (when (= tab :webhooks) "active"))
-                    :type "button"
-                    :on-click (fn [_] (set-tab! :webhooks))}
-           "Webhooks"])
-        (when runtime-enabled?
-          [:button {:class (str "tab " (when (= tab :workflows) "active"))
-                    :type "button"
-                    :on-click (fn [_] (set-tab! :workflows))}
-           "Workflows"])
-        [:div {:class "spacer"}]]
-
-       (case (if runtime-enabled? tab (if (contains? #{:webhooks :workflows} tab) :stream tab))
-         :audio [audio-controls-panel]
-         :webhooks [webhook-routing-panel]
-         :workflows [workflow-routing-panel]
-         [stream-controls-panel])])))
+         [:div {:class "muted"} "Choose outputs and adjust how this session is recorded."]]
+        [:button {:class "btn ghost" :type "button" :on-click #(when set-open! (set-open! false))} "Close"]]
+       [:div {:class "settings-tabs" :role "tablist" :aria-label "Session settings"}
+        (for [[stage label] [[:realtime "Real-time"] [:refined "Refined"] [:final "Final"]]]
+          [stream-controls/tab-header {:key stage :stage stage :label label :active? (= tab stage)
+                                       :on-select #(set-tab! stage)}])
+        (for [[id label] (cond-> [[:recording "Recording"] [:audio "Audio"]]
+                           runtime-enabled? (into [[:webhooks "Webhooks"] [:workflows "Workflows"]]))]
+          [:button {:key id :class (str "settings-tab " (when (= tab id) "active"))
+                    :type "button" :role "tab" :id (str "settings-tab-" (name id))
+                    :aria-controls "session-settings-content" :aria-selected (= tab id)
+                    :on-click #(set-tab! id)} label])]
+       [:div {:class "settings-content" :role "tabpanel" :id "session-settings-content"
+              :aria-labelledby (str "settings-tab-" (name tab))}
+        (case tab
+          :audio [audio-controls-panel]
+          :webhooks [webhook-routing-panel]
+          :workflows [workflow-routing-panel]
+          [stream-controls/panel {:stage tab}])]])))
 
 (defn- audio-controls-panel
   "Audio capture settings.
@@ -348,10 +331,12 @@
 
   Returns: hiccup."
   []
-  (let [controls (get (hooks/use-atom store/session*) :controls {})
+  (let [session (hooks/use-atom store/session*)
+        controls (:controls session)
+        frozen? (stream-controls/locked? session (hooks/use-atom store/running?*))
         electron? (env/electron?)
         audio-source (or (:audio_source controls) :mic)]
-    [:div {:class "stream-controls-body"}
+    [:fieldset {:class "stream-controls-body stage-fieldset" :disabled frozen?}
      [:div {:class "sc-grid"}
       [:div {:class "sc-cell sc-span-2"}
        [:div {:class "label"} "Audio input"]
@@ -692,236 +677,6 @@
      [:div {:class "muted" :style {:marginTop "10px" :fontSize "12px"}}
       "Applies only when creating a new session. Existing sessions keep their routing snapshot."]]))
 
-(defn- stream-controls-panel
-  "Render per-stream output, track selection, and realtime/refined knobs.
-
-  This panel edits `store/session*` fields under `:controls`. Realtime track IDs
-  come from `/api/me`; a missing explicit selection means all advertised tracks.
-
-  Notes:
-  - defaults are backwards compatible (all enabled)
-  - when realtime is disabled, realtime controls are visually disabled
-  - when final is disabled, recording retention is forced off on the backend"
-  []
-  (let [controls (get (hooks/use-atom store/session*) :controls {})
-        auth-state (hooks/use-atom store/auth*)
-        running? (hooks/use-atom store/running?*)
-        available-realtime-tracks (vec (get-in auth-state [:detail :realtime_tracks] []))
-        realtime-track-capabilities (vec (get-in auth-state [:detail :realtime_track_capabilities] []))
-        capabilities-by-track (into {} (map (juxt :id identity) realtime-track-capabilities))
-        requested-realtime-track-set (set (:realtime_tracks controls))
-        selected-realtime-tracks (if (seq requested-realtime-track-set)
-                                   (filterv requested-realtime-track-set available-realtime-tracks)
-                                   available-realtime-tracks)
-        selected-realtime-track-set (set selected-realtime-tracks)
-        realtime? (true? (:realtime controls))
-        track-selection-disabled? (or (not realtime?) (true? running?))
-        refined? (true? (:refined controls))
-        final? (true? (:final controls))
-        outputs-summary (->> [(when realtime? "Real-time")
-                              (when refined? "Refined")
-                              (when final? "Final")]
-                             (remove nil?)
-                             (str/join ", "))
-        retention-summary (if (and final? (true? (:store_recording controls)))
-                            "Stored"
-                            "Not stored")]
-    (letfn [(checkbox-row [{:keys [id label checked disabled? on-change]}]
-              [:div {:class "checkbox-row"}
-               [:input {:id id
-                        :type "checkbox"
-                        :disabled (boolean disabled?)
-                        :checked (boolean checked)
-                        :on-change (fn [e]
-                                     (when (fn? on-change)
-                                       (on-change (.. e -target -checked))))}]
-               [:label {:htmlFor id} label]])
-
-            (number-field [{:keys [label disabled? value placeholder min max step on-change hint]}]
-              [:div {:class "field"}
-               [:div {:class "label"} label]
-               [:input (cond-> {:type "number"
-                                :disabled (boolean disabled?)
-                                :placeholder (or placeholder "")
-                                :value (or value "")
-                                :on-change (fn [e]
-                                             (let [raw (.. e -target -value)]
-                                               (when (fn? on-change)
-                                                 (on-change (when (seq raw) (js/parseFloat raw))))))}
-                         (some? min) (assoc :min min)
-                         (some? max) (assoc :max max)
-                         (some? step) (assoc :step step))]
-               (when (seq (str hint))
-                 [:div {:class "hint"} hint])])
-
-            (set-track-selected! [track-id selected?]
-              (let [next-track-set ((if selected? conj disj) selected-realtime-track-set track-id)
-                    next-tracks (filterv next-track-set available-realtime-tracks)]
-                (when (seq next-tracks)
-                  (store/set-session-control! :realtime_tracks next-tracks))))]
-      [:div {:class "stream-controls-body"}
-       [:div {:class "muted" :style {:fontSize "12px"}}
-        (str "Outputs: " (if (seq outputs-summary) outputs-summary "None")
-             " • Recording: " retention-summary)]
-
-       [:div {:class "sc-grid"}
-        [:div {:class "sc-cell sc-span-2"}
-         [:div {:class "label"} "Transcription"]
-         [:div {:class "checkbox-group"}
-          [checkbox-row {:id "sc-out-realtime"
-                         :label "Real-time"
-                         :checked realtime?
-                         :on-change (fn [v] (store/set-session-control! :realtime v))}]
-          [checkbox-row {:id "sc-out-refined"
-                         :label "Refined"
-                         :checked refined?
-                         :on-change (fn [v] (store/set-session-control! :refined v))}]
-          [checkbox-row {:id "sc-out-final"
-                         :label "Final"
-                         :checked final?
-                         :on-change (fn [v] (store/set-session-control! :final v))}]]]
-
-        [:div {:class "sc-cell"}
-         [:div {:class "field"}
-          [:div {:class "label"} "Recording"]
-          [:select {:value (if (true? (:store_recording controls)) "store" "delete")
-                    :disabled (not final?)
-                    :on-change (fn [e]
-                                 (let [v (.. e -target -value)]
-                                   (store/set-session-control! :store_recording (= v "store"))))}
-           [:option {:value "store"} "Store"]
-           [:option {:value "delete"} "Do not store"]]
-          (when-not final?
-            [:div {:class "hint"} "Enable Final to store the full recording."])]]
-
-        [:div {:class "sc-cell"}
-         [number-field {:label "Refinement window (sec)"
-                        :disabled? (not refined?)
-                        :min 10
-                        :max 600
-                        :step 1
-                        :placeholder "Default"
-                        :value (:refinement_window_sec controls)
-                        :on-change (fn [v] (store/set-session-control! :refinement_window_sec v))
-                        :hint (when-not refined?
-                                "Enable Refined to adjust this setting.")}]]]
-
-       [:div {:class "sc-divider"}]
-
-       [:div {:class "sc-grid"}
-        [:div {:class "sc-cell sc-span-2"}
-         [:div {:class "label"} "Realtime tracks"]
-         (if (seq available-realtime-tracks)
-           [:details {:class (str "track-picker" (when track-selection-disabled? " disabled"))}
-            [:summary {:class "track-picker-summary"
-                       :aria-disabled track-selection-disabled?
-                       :on-click (fn [event]
-                                   (when track-selection-disabled?
-                                     (.preventDefault event)))}
-             [:span (str (count selected-realtime-tracks) " selected")]
-             [:span {:class "muted track-picker-selected"}
-              (str/join ", " selected-realtime-tracks)]]
-            [:div {:class "track-picker-options"}
-             (for [track-id available-realtime-tracks]
-               (let [selected? (contains? selected-realtime-track-set track-id)
-                     capability (get capabilities-by-track track-id)
-                     mode (cond
-                            (:native_streaming capability) "Native streaming"
-                            (:windowed_realtime capability) "Windowed realtime"
-                            :else nil)
-                     maximum-seconds (:maximum_audio_seconds capability)
-                     duration (when (number? maximum-seconds)
-                                (cond
-                                  (zero? maximum-seconds) "No stream cutoff"
-                                  (:windowed_realtime capability) (str maximum-seconds " sec inference window")
-                                  :else (str "Up to " maximum-seconds " sec per stream")))
-                     timestamps (cond
-                                  (:word_timestamps capability) "Word timestamps"
-                                  (:segment_timestamps capability) "Segment timestamps"
-                                  (true? (:available capability)) "No timestamps"
-                                  :else nil)
-                     aligned-languages (:aligned_diarized_languages capability)
-                     speaker-labels
-                     (when (:speaker_labels capability)
-                       (if (seq aligned-languages)
-                         (str "Speaker labels ("
-                              (count aligned-languages)
-                              " aligned languages)")
-                         "Speaker labels"))
-                     concurrency (:maximum_concurrent_sessions capability)
-                     capability-summary
-                     (if (false? (:available capability))
-                       "Capabilities temporarily unavailable"
-                       (->> [(:provider_profile_id capability)
-                             mode
-                             duration
-                             timestamps
-                             speaker-labels
-                             (when (and (number? concurrency) (pos? concurrency))
-                               (str concurrency " concurrent"))
-                             (when (seq (:supported_languages capability))
-                               (str (count (:supported_languages capability)) " languages"))]
-                            (remove nil?)
-                            (str/join " • ")))]
-                 ^{:key (str "track-option-" track-id)}
-                 [:div
-                  [checkbox-row {:id (str "sc-track-" track-id)
-                                 :label track-id
-                                 :checked selected?
-                                 :disabled? (or track-selection-disabled?
-                                                (and selected?
-                                                     (= 1 (count selected-realtime-tracks))))
-                                 :on-change (fn [checked?]
-                                              (set-track-selected! track-id checked?))}]
-                  (when (seq capability-summary)
-                    [:div {:class "hint" :style {:marginLeft "26px"}}
-                     capability-summary])]))]]
-           [:div {:class "hint"} "Track configuration is loading."])
-         [:div {:class "hint"}
-          (if (true? running?)
-            "Track selection is locked once recording starts."
-            "Select one to four operator-configured providers for this session.")]]
-
-        [:div {:class "sc-cell"}
-         [:div {:class "label"} "Real-time"]
-         [:div {:class "checkbox-group"}
-          [checkbox-row {:id "sc-rt-partials"
-                         :label "Show partial text while speaking"
-                         :checked (true? (:rt_partial_enable controls))
-                         :disabled? (not realtime?)
-                         :on-change (fn [v] (store/set-session-control! :rt_partial_enable v))}]]
-         (when-not realtime?
-           [:div {:class "hint"} "Enable Real-time to adjust these settings."])]
-
-        [:div {:class "sc-cell"}
-         [number-field {:label "Update interval (sec)"
-                        :disabled? (not realtime?)
-                        :min 1
-                        :step 0.1
-                        :placeholder "Default"
-                        :value (:rt_emit_every_sec controls)
-                        :on-change (fn [v] (store/set-session-control! :rt_emit_every_sec v))
-                        :hint "Minimum 1 second."}]]
-
-        [:div {:class "sc-cell"}
-         [number-field {:label "Window (sec)"
-                        :disabled? (not realtime?)
-                        :min 1
-                        :max 30
-                        :step 0.1
-                        :placeholder "Default"
-                        :value (:rt_window_sec controls)
-                        :on-change (fn [v] (store/set-session-control! :rt_window_sec v))}]]
-
-        [:div {:class "sc-cell"}
-         [number-field {:label "Overlap (sec)"
-                        :disabled? (not realtime?)
-                        :min 0
-                        :step 0.1
-                        :placeholder "Default"
-                        :value (:rt_overlap_sec controls)
-                        :on-change (fn [v] (store/set-session-control! :rt_overlap_sec v))}]]]])))
-
 (defn- log-view
   "Debug log view."
   []
@@ -1077,13 +832,27 @@
              :empty-hint (str "Waiting for " track-id " events…")}]]))]))
 
 (defn- refined-live-transcript
-  "Refined realtime transcript component bound to the live session store."
+  "Show each selected refinement track's live results independently."
   []
-  [components.transcript/transcript-view
-   {:messages (hooks/use-atom store/refined-segments*)
-    :empty-title "Refined real-time"
-    :empty-hint "No refined events yet…"}])
-
+  (let [session (hooks/use-atom store/session*)
+        detail (:detail (hooks/use-atom store/auth*))
+        entries (output-settings/entries detail :refined)
+        selected (output-settings/selected-ids (:controls session) :refined entries)
+        messages (hooks/use-atom store/refined-segments*)
+        ids (distinct (concat selected (map :track_id messages)))
+        labels (into {} (map (juxt :track_id :display_name) entries))]
+    [:div {:class "realtime-track-grid"
+           :style {:gridTemplateColumns "repeat(auto-fit, minmax(min(280px, 100%), 1fr))"}}
+     (if (false? (get-in session [:controls :refined]))
+       [:p {:class "muted"} "Refined transcription is disabled for this session."]
+       (for [id ids]
+         [:section {:key id :class "realtime-track-panel" :aria-label (str "Refined Transcript (" (get labels id id) ")")}
+          [:div {:class "realtime-track-panel-header"}
+           [:span {:class "realtime-track-label"} (get labels id id)]]
+          [components.transcript/transcript-view
+           {:messages (filterv #(= id (:track_id %)) messages)
+            :empty-title (str "Refined Transcript (" (get labels id id) ")")
+            :empty-hint "No live result available yet."}]]))]))
 (defn live-recording-page
   "Record page."
   []
@@ -1143,6 +912,9 @@
                               :tooltip status-tooltip}]]]
        [:div {:class "muted"} "Capture audio and view the live transcript."]]
       [:div {:class "row"}
+       (when (seq (:id session))
+         [router/link {:route {:page :recording :params {:session_id (:id session)}}
+                       :class "btn"} "View saved transcripts"])
        [router/link {:route {:page :recordings :params {}}
                      :class "btn"}
         "Sessions"]]]
@@ -1181,7 +953,9 @@
       [:div {:class "split-main"}
        (case tab
          :refined [refined-live-transcript]
-         [live-transcript realtime-track-ids highlight-revisions?])]
+         (if (false? (get-in session [:controls :realtime]))
+           [:p {:class "muted"} "Real-time transcription is disabled for this session."]
+           [live-transcript realtime-track-ids highlight-revisions?]))]
       (when show-log?
         [:div {:class "split-side"}
          [right-panel {:highlight-revisions? highlight-revisions?
