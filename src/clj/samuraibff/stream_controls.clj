@@ -126,6 +126,8 @@
   ([params available-realtime-tracks]
    (parse-and-validate params available-realtime-tracks ["whisperx"]))
   ([params available-realtime-tracks available-final-tracks]
+   (parse-and-validate params available-realtime-tracks available-final-tracks ["whisperx"]))
+  ([params available-realtime-tracks available-final-tracks available-refinement-tracks]
    (let [realtime? (parse-bool (or (get params :realtime) (get params "realtime"))
                                (:realtime default-controls))
         refined? (parse-bool (or (get params :refined) (get params "refined"))
@@ -136,6 +138,17 @@
         final-tracks (if (some? final-tracks-raw)
                        (mapv str/trim (str/split (str final-tracks-raw) #"," -1))
                        ["whisperx"])
+         refinement-tracks-raw (or (get params :refinement_tracks) (get params "refinement_tracks"))
+         refinement-tracks (if (some? refinement-tracks-raw)
+                             (mapv str/trim (str/split (str refinement-tracks-raw) #"," -1))
+                             ["whisperx"])
+         _ (when (or (> (count refinement-tracks) 4)
+                     (not= (count refinement-tracks) (count (distinct refinement-tracks)))
+                     (some #(not (contains? (set available-refinement-tracks) %)) refinement-tracks)
+                     (some str/blank? refinement-tracks))
+             (throw (ex-info "Refinement tracks must be a non-empty subset of configured tracks"
+                             {:type :samuraibff.stream-controls/invalid-controls
+                              :reason :invalid-refinement-tracks})))
         _ (when (or (> (count final-tracks) 4)
                     (not= (count final-tracks) (count (distinct final-tracks)))
                     (some #(not (contains? (set available-final-tracks) %)) final-tracks)
@@ -216,6 +229,7 @@
               :refined refined?
               :final final?
               :final_tracks final-tracks
+              :refinement_tracks refinement-tracks
               :store_recording store-recording?
               :rt_partial_enable rt-partial-enable?}
        (seq realtime-tracks) (assoc :realtime_tracks realtime-tracks)
@@ -257,6 +271,7 @@
   [controls]
   (cond-> {"x-outputs" (.getBytes ^String (outputs-header-value controls) "UTF-8")
            "x-final-tracks" (.getBytes ^String (str/join "," (or (:final_tracks controls) ["whisperx"])) "UTF-8")
+           "x-refinement-tracks" (.getBytes ^String (str/join "," (or (:refinement_tracks controls) ["whisperx"])) "UTF-8")
            "x-store-recording" (.getBytes ^String (if (:store_recording controls) "true" "false") "UTF-8")}
     (and (true? (:refined controls)) (some? (:refinement_window_sec controls)))
     (assoc "x-refinement-window-sec"

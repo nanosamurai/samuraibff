@@ -128,7 +128,8 @@
                     available-realtime-tracks (mapv :id (grpc.client/tracks grpc))
                     requested-controls (stream-controls/parse-and-validate
                                         params available-realtime-tracks
-                                        (or (:final-tracks config) ["whisperx"]))
+                                        (or (:final-tracks config) ["whisperx"])
+                                        (or (:refinement-tracks config) ["whisperx"]))
                     ds (:ds db)
                     _ (when-not ds
                         (throw (ex-info "Database unavailable" {:type :samuraibff.ws/db-unavailable})))

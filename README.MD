@@ -250,3 +250,30 @@ Community Edition validation until webhook/workflow consumers are migrated.
 Docker build contexts exclude `.env` files and scratch worktrees. Integration
 fixtures bind test ports to localhost; when running locally set
 `TESTCONTAINERS_RYUK_DISABLED=true` and let fixture cleanup stop containers.
+## Refinement track contract
+
+Refinement tracks add only `RefinedEvent.track_id = 16`; an empty ID means
+`whisperx`. Audio, segment and word message shapes and Kafka keys stay unchanged.
+
+
+`SAMURAIBFF_REFINEMENT_TRACKS` lists up to four configured IDs (default
+`whisperx`). `/ws/audio?refinement_tracks=test-shadow,whisperx` validates the
+ordered selection and stores it beside `final_tracks` in `sessions.stream_controls`
+before accepting audio. Reconnects use the saved snapshot; old sessions default
+to WhisperX. The audio handler copies the same controls to `sessions.meta` and
+sends `x-refinement-tracks` on `audio.raw`. The `refined` stage toggle remains
+authoritative. Final and refinement selections are independent.
+
+Live refined JSON includes `track_id`, `window_sec`, `window_start_s`,
+`window_end_s`, `slice_index` and the existing segment's zero-based
+`segment_index` in the fan-out. These identify the existing window/segment;
+there is no execution ID or new envelope. The tenant-scoped registry and
+BFF-to-BFF callback route remain unchanged. Live buffers keep first deliveries
+per track/window/segment and apply their cap per track, with separate session
+caches. Saved refinement conversion retains the same track/window identity.
+`GET /api/recordings/:session_id?track_id=...` filters both refined and final
+records, retaining tenant checks and the existing text/segments JSON shape.
+
+Selection controls, track labels and browser tabs remain spike 3. Current
+session status is not a per-track success/failure report. See
+`docs/refinement-tracks-spike.md` for validation.

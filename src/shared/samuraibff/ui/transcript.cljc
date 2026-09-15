@@ -74,12 +74,16 @@
         speaker (when-not (str/blank? speaker) speaker)
         lang (some-> (:lang msg) str)
         lang (when-not (str/blank? lang) lang)]
-    ["refined"
+    (if (and (some? (:window_start_s msg)) (some? (:window_end_s msg))
+             (some? (:window_sec msg)) (some? (:segment_index msg)))
+      ["refined" (or (:track_id msg) "whisperx") (:window_sec msg)
+       (:window_start_s msg) (:window_end_s msg) (:segment_index msg)]
+      ["refined" (or (:track_id msg) "whisperx")
      (quantize-cs (:start_s msg))
      (quantize-cs (:end_s msg))
      (-> (str (or (:text msg) "")) str/trim)
      speaker
-     lang]))
+       lang])))
 
 (defn normalize-asr
   "Normalize an incoming WS `asr` event map into a transcript message.
@@ -128,6 +132,11 @@
   - transcript message map (see namespace docstring)."
   [ev]
   {:kind "refined"
+   :track_id (or (not-empty (:track_id ev)) "whisperx")
+   :window_sec (:window_sec ev)
+   :window_start_s (:window_start_s ev)
+   :window_end_s (:window_end_s ev)
+   :segment_index (:segment_index ev)
    :seq (long (or (:seq ev) 0))
    :ts_ms (long (or (:ts_ms ev) 0))
    :start_s (double (or (:start_s ev) 0))
@@ -377,6 +386,7 @@
         msgs' (->> msgs
                    ;; drop duplicates if we re-receive the same refined seq
                    (remove #(and (= "refined" (:kind %))
+                                 (= (or (:track_id %) "whisperx") (:track_id ref))
                                  (= (:seq %) (:seq ref))))
                    (remove (fn [m]
                              (and (= "asr" (:kind m))

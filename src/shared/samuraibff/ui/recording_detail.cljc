@@ -100,6 +100,11 @@
        (reduce
         (fn [events [idx seg]]
           (conj events {:seq (+ base (long idx))
+                        :track_id (or (:track_id r) "whisperx")
+                        :window_sec (:window_length r)
+                        :window_start_s (:segment_start_s r)
+                        :window_end_s (:segment_end_s r)
+                        :segment_index idx
                         :ts_ms 0
                         :start_s (:start_s seg)
                         :end_s (:end_s seg)

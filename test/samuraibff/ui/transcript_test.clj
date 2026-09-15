@@ -228,3 +228,17 @@
   (testing "unchanged text has no highlighted span"
     (is (= {:before "same text" :changed "" :after ""}
            (transcript/revision-text-parts "same text" "same text")))))
+
+(deftest refined-tracks-do-not-deduplicate-each-other
+  (let [event {:start_s 10 :end_s 12 :text "speech" :seq 1
+               :window_sec 10 :window_start_s 10 :window_end_s 20 :segment_index 0}
+        real (transcript/normalize-refined (assoc event :track_id "whisperx"))
+        peer (transcript/normalize-refined (assoc event :track_id "test-shadow"))
+        replay (transcript/normalize-refined (assoc event :track_id "whisperx" :seq 99 :text "retry"))]
+    (is (not= (transcript/refined-dedupe-key real) (transcript/refined-dedupe-key peer)))
+    (is (= (transcript/refined-dedupe-key real) (transcript/refined-dedupe-key replay)))
+    (is (not= (transcript/refined-dedupe-key real)
+              (transcript/refined-dedupe-key (assoc real :segment_index 1))))
+    (is (not= (transcript/refined-dedupe-key real)
+              (transcript/refined-dedupe-key (assoc real :window_end_s 23))))
+    (is (= "whisperx" (:track_id (transcript/normalize-refined event))))))

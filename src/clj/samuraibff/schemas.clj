@@ -107,6 +107,12 @@
    BaseWsEvent
    [:map
     [:type [:= "refined"]]
+    [:track_id {:optional true} :string]
+    [:window_sec {:optional true} Sec]
+    [:window_start_s {:optional true} Sec]
+    [:window_end_s {:optional true} Sec]
+    [:segment_index {:optional true} NonNegInt]
+    [:slice_index {:optional true} NonNegInt]
     [:start_s Sec]
     [:end_s Sec]
     [:text :string]

@@ -16,8 +16,9 @@
           session (UUID/randomUUID)
           config {:features {:ce-mode? true}}
           selected (controls/parse-and-validate
-                    {:final_tracks "test-shadow,whisperx" :realtime "false" :refined "false"}
-                    nil ["whisperx" "test-shadow"])]
+                    {:final_tracks "test-shadow,whisperx" :refinement_tracks "test-shadow,whisperx"
+                     :realtime "false" :refined "true"}
+                    nil ["whisperx" "test-shadow"] ["whisperx" "test-shadow"])]
       (pg/apply-schema! ds)
       (jdbc/execute! ds ["INSERT INTO tenants(id,name) VALUES (?, 'tracks')" tenant])
       (sessions/insert-session! ds {:id session :tenant-id tenant :session-key (str session) :status "created"})
@@ -27,17 +28,20 @@
       (is (thrown? clojure.lang.ExceptionInfo
                    (sessions/activate-session-on-audio-start-with-controls! ds foreign session selected)))
       (is (= (str tenant) (:tenant_id (meta/resolve-sessions-meta config ds tenant session))))
-      (doseq [[track text] [[nil "historical"] ["whisperx" "speech"] ["test-shadow" "synthetic"]]]
+      (doseq [stage ["final" "refined"]
+              [track text] [[nil "historical"] ["whisperx" "speech"] ["test-shadow" "synthetic"]]]
         (jdbc/execute! ds
                        ["INSERT INTO session_transcripts
                           (id,session_id,tenant_id,source,type,model,track_id,full_text,segments)
-                        VALUES (?, ?, ?, 'finalizer_worker', 'final', 'test-model', ?, ?, '[]'::jsonb)"
-                        (UUID/randomUUID) session tenant track text]))
+                        VALUES (?, ?, ?, 'test-worker', ?, 'test-model', ?, ?, '[]'::jsonb)"
+                        (UUID/randomUUID) session tenant stage track text]))
       (let [handler (recordings/get-recording-handler {:db {:ds ds} :config config})
             request {:auth/tenant-id (str tenant) :path-params {:session_id (str session)}}
             all (:body (handler request))
             filtered (:body (handler (assoc request :query-params {"track_id" "test-shadow"})))]
         (is (= 3 (count (get-in all [:transcripts :final]))))
+        (is (= 3 (count (get-in all [:transcripts :refined]))))
+        (is (= ["test-shadow"] (mapv :track_id (get-in filtered [:transcripts :refined]))))
         (is (= ["synthetic"] (mapv :full_text (get-in filtered [:transcripts :final]))))
         (is (= ["test-shadow"] (mapv :track_id (get-in filtered [:transcripts :final]))))
         (is (= selected (get-in all [:session :stream_controls])))

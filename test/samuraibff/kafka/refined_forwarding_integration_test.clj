@@ -79,6 +79,7 @@
              (let [[msg ch] (async/alts!! [out (async/timeout 2000)] :priority true)]
                (is (= out ch) "Expected refined event before timeout")
                (is (= "refined" (:type msg)))
+              (is (= "whisperx" (:track_id msg)))
                (is (= session-id (:session_id msg)))
                (is (= "en" (:lang msg)))
                (is (= "hello" (:text msg)))))
@@ -104,6 +105,7 @@
                           (.setText "hi there")
                           (.setLang "en")
                           (.addSegments seg1)
+                         (.setTrackId "test-shadow")
                           (.addSegments seg2)
                           (.build))
                    url (str "http://localhost:" port "/internal/refined")
@@ -118,6 +120,7 @@
                    [m2 ch2] (async/alts!! [out (async/timeout 2000)] :priority true)]
                (is (= out ch1) "Expected first refined segment before timeout")
                (is (= out ch2) "Expected second refined segment before timeout")
+              (is (= ["test-shadow" "test-shadow"] (mapv :track_id [m1 m2])))
                (is (= ["hi" "there"] (mapv :text [m1 m2])))))
 
           (finally

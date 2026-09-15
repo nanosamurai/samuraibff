@@ -610,12 +610,14 @@
           (if-not session
             (json-response 404 {:ok false :message "not-found"})
             (let [recording (db.recordings/find-latest-recording ds tenant-uuid session-uuid)
-                  refined (db.recordings/list-transcript-records ds tenant-uuid session-uuid {:type "refined" :limit 2000})
+                  track-id (or (get-in req [:parameters :query :track_id])
+                               (get-in req [:query-params "track_id"]))
+                  refined (db.recordings/list-transcript-records ds tenant-uuid session-uuid
+                                                                 {:type "refined" :limit 2000 :track-id track-id})
                   final (db.recordings/list-transcript-records
                          ds tenant-uuid session-uuid
                          {:type "final" :limit 20
-                          :track-id (or (get-in req [:parameters :query :track_id])
-                                        (get-in req [:query-params "track_id"]))})
+                          :track-id track-id})
                   webhook-outcomes (db.wh.outcomes/list-latest-outcomes-for-session ds tenant-uuid session-uuid {:limit 50})
                   workflow-results (db.workflow-results/list-latest-results-for-session ds tenant-uuid session-uuid {:limit 50})
                   has-recording? (boolean recording)
