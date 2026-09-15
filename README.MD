@@ -303,3 +303,5 @@ from selections and actual Postgres rows, preserving missing-result tabs without
 inferring failure. Shared recording playback uses the selected track's existing
 word timing. Text-only results remain readable without fabricated timing or
 speakers. Direct links and reloads preserve the session and nested controls.
+Realtime messages without a speaker label retain the `?` avatar and `Unknown`
+name, keeping partial text aligned with diarized turns.

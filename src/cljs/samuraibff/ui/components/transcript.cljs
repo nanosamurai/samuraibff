@@ -127,10 +127,12 @@
                 actions-node (when (fn? message-actions)
                                (message-actions {:idx idx :msg msg}))]
             [:div {:class "msg" :key k}
-             (when (seq speaker) [:div {:class "avatar"} avatar])
+             (when (or (= "asr" (:kind msg)) (seq speaker))
+               [:div {:class "avatar"} avatar])
              [:div {:class "msgBody"}
               [:div {:class "msgHeader"}
-               (when (seq speaker) [:span {:class "who"} who])
+               (when (or (= "asr" (:kind msg)) (seq speaker))
+                 [:span {:class "who"} who])
                (when (and (number? (:start_s msg)) (number? (:end_s msg)))
                  [:span {:class "ts"} (str start-ts " → " end-ts)])
                (badge msg)]

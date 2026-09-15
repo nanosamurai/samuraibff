@@ -29,6 +29,9 @@ Saved text comes from Postgres. One audio player serves the selected track's
 timings; plain full_text works without segments, timestamps or speakers.
 Direct links, reloads, empty results, and independently arriving results remain
 usable. Realtime history remains a browser cache because it is not persisted.
+Realtime messages retain the `?` avatar and `Unknown` label until a speaker is
+available. Hiding absent speakers applies to saved/refined text-only results;
+it must not shift realtime partial text out of alignment with diarized turns.
 
 ## Validation
 
@@ -53,6 +56,14 @@ qualification; detailed output lives in ignored `.tmp/lean-track-ui/`.
 The final suite passed 129 tests / 982 assertions, plus all eight Electron
 tests. Ordinary realtime/refined/final playback passed after restoring the
 normal Compose configuration and stopping the synthetic workers.
+
+The 2026-09-15 realtime placeholder follow-up reproduced the missing avatar/name
+on the previous image, then passed `smoke-tests/track-ui/realtime.cjs` after
+rebuilding and replacing only BFF. Real Nemotron partials show `Unknown`/`?`
+and align with a diarized final turn. Saved text-only results still omit
+speakers/timing, and aligned WhisperX results retain avatars. Lint, release
+build, 129 backend tests / 982 assertions and eight Electron tests passed again.
+Nemotron endpoint and diarization settings were unchanged.
 
 ## Boundaries
 
