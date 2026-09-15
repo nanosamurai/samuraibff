@@ -4,6 +4,8 @@ on:
   pull_request:
     branches:
       - master
+      - implement-lean-final-tracks
+      - implement-lean-refinement-tracks
   workflow_call:
   workflow_dispatch:
   schedule:
