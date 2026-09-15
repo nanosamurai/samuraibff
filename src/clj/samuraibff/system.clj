@@ -13,6 +13,7 @@
   - Some Integrant keys in system.edn may be present for future PRs (DB/Kafka/Auth).
     You can comment them out in system.edn if they are not yet implemented." 
   (:require
+    [cheshire.core :as json]
     [clojure.java.io :as io]
     [integrant.core :as ig]
     [clojure.string :as str]
@@ -196,6 +197,17 @@
                         :refined (s "SAMURAIBFF_KAFKA_TOPIC_REFINED")
                         :workflow-result (s "SAMURAIBFF_KAFKA_TOPIC_WORKFLOW_RESULT")}}
 
+      :track-labels (when-let [raw (s "SAMURAIBFF_TRACK_LABELS")]
+                      (let [labels (json/parse-string raw true)]
+                        (when-not (and (map? labels)
+                                       (every? #{:final :refined} (keys labels))
+                                       (every? (fn [stage]
+                                                 (and (map? stage) (<= (count stage) 4)
+                                                      (every? #(and (string? %) (<= 1 (count %) 100)
+                                                                    (not (str/blank? %))) (vals stage))))
+                                               (vals labels)))
+                          (throw (ex-info "Invalid SAMURAIBFF_TRACK_LABELS" {})))
+                        labels))
       :final-tracks (when-let [raw (s "SAMURAIBFF_FINAL_TRACKS")]
                       (let [ids (mapv str/trim (str/split raw #"," -1))]
                         (when (or (> (count ids) 4)

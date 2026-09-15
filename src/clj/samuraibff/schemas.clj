@@ -605,6 +605,12 @@
    [:authenticated :boolean]
    [:realtime_tracks [:vector {:min 1 :max 4} NonEmptyString]]
    [:realtime_track_capabilities [:vector {:min 1 :max 4} RealtimeTrackCapability]]
+   [:async_tracks [:vector {:max 8}
+                   [:map
+                    [:stage [:enum "refined" "final"]]
+                    [:track_id NonEmptyString]
+                    [:display_name NonEmptyString]
+                    [:default_selected :boolean]]]]
    [:tenant_id {:optional true} Uuid]
    [:tenant_name {:optional true} :string]
    [:user {:optional true}
@@ -663,7 +669,7 @@
    [:created_at [:maybe :string]]
    ;; Stream controls snapshot (outputs + retention + realtime knobs).
    ;; Stored as JSONB on sessions and returned as a JSON object.
-   [:stream_controls {:optional true} [:maybe [:map-of :keyword :any]]]
+   [:stream_controls {:optional true} [:maybe :any]]
    ;; Flags for UI convenience (used for audio playback gating).
    [:has_recording :boolean]
    [:has_final_transcript :boolean]])

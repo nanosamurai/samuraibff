@@ -92,6 +92,18 @@
       (is (contains? h1 "x-refinement-window-sec"))
       (is (not (contains? h2 "x-refinement-window-sec"))))))
 
+(deftest configured-track-labels-test
+  (let [config {:final-tracks ["alternative"] :refinement-tracks ["alternative" "whisperx"]
+                :track-labels {:final {:alternative "Alternative model"}}}
+        selected (stream-controls/parse-and-validate {} nil ["alternative"] ["alternative"])
+        labeled (stream-controls/with-track-labels selected config)]
+    (is (= ["alternative"] (:final_tracks selected) (:refinement_tracks selected)))
+    (is (= {:final {:alternative "Alternative model"} :refined {:alternative "alternative"}}
+           (:track_labels labeled)))
+    (is (= [true false true] (mapv :default_selected (stream-controls/configured-async-tracks config))))
+    (is (= {} (:track_labels (stream-controls/with-track-labels
+                             (assoc selected :final false :refined false) config))))))
+
 (deftest final-tracks-validation-test
   (let [parse #(stream-controls/parse-and-validate % nil ["whisperx" "test-shadow"])]
     (is (= ["test-shadow" "whisperx"] (:final_tracks (parse {:final_tracks "test-shadow,whisperx"}))))

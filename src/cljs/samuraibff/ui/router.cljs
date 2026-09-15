@@ -46,7 +46,7 @@
   - Unknown paths fall back to {:page :recordings}."
   [path]
   (let [path (or path "/")
-        path (first (str/split path #"\\?"))
+        path (first (str/split path #"[?]"))
         segs (->> (str/split path #"/")
                   (remove str/blank?)
                   vec)]

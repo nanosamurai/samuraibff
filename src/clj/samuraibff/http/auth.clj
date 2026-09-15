@@ -41,6 +41,7 @@
     security flags."
   (:require
     [clojure.string :as str]
+    [samuraibff.stream-controls :as stream-controls]
     [jsonista.core :as json]
     [org.corfield.logging4j2 :as log]
     [ring.util.codec :as codec]
@@ -538,6 +539,7 @@
                              :tenant_id tenant-id-str
                              :tenant_name tenant-name
                              :realtime_tracks (realtime-track-ids config)
+                             :async_tracks (stream-controls/configured-async-tracks config)
                              :realtime_track_capabilities (realtime-track-capabilities config grpc)
                              :features (features/feature-state config)
                             :user (select-keys user [:sub :preferred_username :email])}))
@@ -546,5 +548,6 @@
          (json-response 200 {:ok true
                              :authenticated false
                              :realtime_tracks (realtime-track-ids config)
+                             :async_tracks (stream-controls/configured-async-tracks config)
                              :realtime_track_capabilities (realtime-track-capabilities config grpc)
                              :features (features/feature-state config)})))))
