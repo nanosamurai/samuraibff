@@ -2,7 +2,9 @@
 
 ## Pull request validation
 
-Pull requests targeting `master` run:
+Pull requests targeting `master`, `implement-lean-final-tracks` or
+`implement-lean-refinement-tracks` run the same checks, including while the
+lean track spikes are stacked for review:
 
 - `Clojure tests (PR gate)` via the lightweight `clojure -X:ci` plan
 - `UI build (shadow-cljs release)`

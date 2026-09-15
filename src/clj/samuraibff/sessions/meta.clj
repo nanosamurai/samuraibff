@@ -21,7 +21,12 @@
   Returns:
   - map suitable for JSON encoding and publishing to Kafka topic `sessions.meta`"
   (:require
+   [cheshire.core :as json]
+   [next.jdbc :as jdbc]
+   [next.jdbc.result-set :as rs]
    [samuraibff.features :as features]
+   [samuraibff.webhooks.routing-snapshot :as webhooks.snapshot]
+   [samuraibff.workflows.snapshot :as workflows.snapshot]
    [samuraibff.util.uuid :as util.uuid]))
 
 (def ^:private default-max-bytes
@@ -84,3 +89,27 @@
       (assoc :routing routing-map
              :webhook_routing routing-map
              :workflows {:targets workflow-targets}))))
+
+(defn resolve-sessions-meta
+  "Resolve the existing session snapshot from tenant-scoped DB settings.
+  Accepts config, datasource and tenant/session UUIDs; returns Kafka-ready JSON.
+  Preserves routing/workflow fields when publishing the audio-start selections."
+  [config ds tenant-id session-id]
+  (let [row (jdbc/execute-one!
+             ds
+             ["SELECT session_settings::text, webhook_overrides::text, workflow_overrides::text
+               FROM sessions WHERE tenant_id=? AND id=?" tenant-id session-id]
+             {:builder-fn rs/as-unqualified-lower-maps})
+        settings (some-> (:session_settings row) (json/parse-string true))
+        enabled? (features/workflow-webhook-runtime-enabled? config)
+        routing (when enabled?
+                  (webhooks.snapshot/resolve-routing-snapshot
+                   ds tenant-id session-id (some-> (:webhook_overrides row) (json/parse-string true))))
+        targets (if enabled?
+                  (workflows.snapshot/resolve-targets
+                   ds tenant-id session-id (some-> (:workflow_overrides row) (json/parse-string true)))
+                  [])
+        settings (cond-> (or settings {})
+                   (workflows.snapshot/any-target-requires-refined-consolidation? targets)
+                   (assoc-in [:refined_transcript :consolidation :enabled] true))]
+    (build-sessions-meta config tenant-id session-id routing settings targets)))

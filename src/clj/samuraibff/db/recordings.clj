@@ -142,7 +142,7 @@
 
   Returns:
   - vector of transcript record maps (unqualified keys)."
-  [^DataSource ds ^UUID tenant-id ^UUID session-id {:keys [type limit]
+  [^DataSource ds ^UUID tenant-id ^UUID session-id {:keys [type limit track-id]
                                                     :or {limit 500}}]
   (when-not (and ds (instance? UUID tenant-id) (instance? UUID session-id))
     (throw (ex-info "list-transcript-records missing required params"
@@ -160,6 +160,7 @@
                              :source
                              :type
                              :model
+                             [[:coalesce :track_id "whisperx"] :track_id]
                              :window_length
                              :segment_start_s
                              :segment_end_s
@@ -171,7 +172,8 @@
                    (h/order-by [:created_at :asc])
                    (h/limit (long limit)))
         q (cond-> base-q
-            (some? type) (h/where [:= :type (str type)]))
+            (some? type) (h/where [:= :type (str type)])
+            (some? track-id) (h/where [:= [:coalesce :track_id "whisperx"] track-id]))
         sqlvec (sql/format q)]
     (vec (jdbc/execute! ds sqlvec {:builder-fn rs/as-unqualified-lower-maps}))))
 

@@ -170,6 +170,7 @@
    (let [img (DockerImageName/parse image)
          c (doto (GenericContainer. img)
              (.withExposedPorts (into-array Integer [(int 8080)]))
+             (.setPortBindings ["127.0.0.1::8080"])
              (.withEnv "KEYCLOAK_ADMIN" admin-username)
              (.withEnv "KEYCLOAK_ADMIN_PASSWORD" admin-password)
              (.withEnv "KC_HEALTH_ENABLED" "true")

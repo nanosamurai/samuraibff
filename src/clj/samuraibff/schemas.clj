@@ -657,7 +657,7 @@
    [:created_at [:maybe :string]]
    ;; Stream controls snapshot (outputs + retention + realtime knobs).
    ;; Stored as JSONB on sessions and returned as a JSON object.
-   [:stream_controls {:optional true} [:maybe :map]]
+   [:stream_controls {:optional true} [:maybe [:map-of :keyword :any]]]
    ;; Flags for UI convenience (used for audio playback gating).
    [:has_recording :boolean]
    [:has_final_transcript :boolean]])
@@ -671,6 +671,7 @@
   [:map
    [:id Uuid]
    [:type [:enum "refined" "final"]]
+   [:track_id {:optional true} NonEmptyString]
 
    ;; Pipeline metadata (safe to expose)
    [:source :string]

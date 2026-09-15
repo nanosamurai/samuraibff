@@ -8,6 +8,7 @@
     (is (= {:realtime true
             :refined true
             :final true
+            :final_tracks ["whisperx"]
             :store_recording true
             :rt_partial_enable true}
            (stream-controls/parse-and-validate {})))))
@@ -89,3 +90,15 @@
       (is (not (contains? h0 "x-refinement-window-sec")))
       (is (contains? h1 "x-refinement-window-sec"))
       (is (not (contains? h2 "x-refinement-window-sec"))))))
+
+(deftest final-tracks-validation-test
+  (let [parse #(stream-controls/parse-and-validate % nil ["whisperx" "test-shadow"])]
+    (is (= ["test-shadow" "whisperx"] (:final_tracks (parse {:final_tracks "test-shadow,whisperx"}))))
+    (doseq [value ["" "unknown" "whisperx,whisperx" "whisperx,"]]
+      (is (thrown? clojure.lang.ExceptionInfo (parse {:final_tracks value}))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"require store_recording"
+                          (parse {:final_tracks "whisperx,test-shadow" :store_recording "false"})))
+    (is (false? (:store_recording (parse {:final_tracks "test-shadow" :store_recording "false"}))))
+    (is (= "test-shadow,whisperx"
+           (String. ^bytes (get (stream-controls/kafka-headers
+                                (parse {:final_tracks "test-shadow,whisperx"})) "x-final-tracks") "UTF-8")))))

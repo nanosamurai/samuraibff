@@ -28,6 +28,7 @@
   - LocalStackContainer" 
   []
   (doto (LocalStackContainer. (DockerImageName/parse "localstack/localstack:3.3"))
+    (.setPortBindings ["127.0.0.1::4566"])
     (.withServices (into-array LocalStackContainer$Service
                                [LocalStackContainer$Service/S3]))
     (.start)))

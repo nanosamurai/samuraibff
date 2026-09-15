@@ -46,7 +46,7 @@
 (defn- free-port
   "Find a free local TCP port by binding a temporary ServerSocket." 
   []
-  (with-open [sock (java.net.ServerSocket. 0)]
+  (with-open [sock (java.net.ServerSocket. 0 0 (java.net.InetAddress/getLoopbackAddress))]
     (.getLocalPort sock)))
 
 (defn- start-system!
