@@ -9,7 +9,7 @@
   - decide whether BFF starts rtservice gRPC (realtime)
   - decide whether BFF publishes `audio.raw` to Kafka (refined/final)
   - attach stream snapshot headers to Kafka (`x-outputs`, `x-store-recording`)
-  - attach gRPC metadata (`x-rt-*` headers)
+  - carry per-track realtime settings to the gRPC fan-out
   - persist the controls into Postgres (sessions.stream_controls jsonb)
 
   Security / cost:
@@ -17,23 +17,14 @@
   - invalid combinations are rejected before WS upgrade"
   (:require
    [clojure.string :as str]
-   [samuraibff.grpc.metadata :as grpc.metadata]))
+   [jsonista.core :as json]))
 
 (def ^:private default-controls
   "Default stream controls (backwards compatible)."
   {:realtime true
    :refined true
    :final true
-   :store_recording true
-   :rt_partial_enable true})
-
-(def ^:private rt-window-min-sec 1.0)
-(def ^:private rt-window-max-sec 30.0)
-
-(def ^:private rt-overlap-min-sec 0.0)
-
-;; User requirement: emit_every must have minimum 1s due to perf concerns.
-(def ^:private rt-emit-every-min-sec 1.0)
+   :store_recording true})
 
 ;; How often WhisperX refinement should run (slice window). This is currently
 ;; implemented in xamurai as a default env var (WHISPERX_SLICE_SECONDS=60).
@@ -66,7 +57,7 @@
   (when (some? v)
     (try
       (let [x (Double/parseDouble (str v))]
-        (when (grpc.metadata/finite-double? x)
+        (when (Double/isFinite x)
           (double x)))
       (catch Exception _
         nil))))
@@ -115,11 +106,7 @@
     - final=true|false
   - retention:
     - store_recording=true|false
-  - rtservice knobs:
-    - rt_window_sec (double)
-    - rt_overlap_sec (double)
-    - rt_emit_every_sec (double)
-    - rt_partial_enable=true|false
+  - realtime_settings: JSON object keyed by track ID; service-owned values
 
   Optional refined/WhisperX knob:
   - refinement_window_sec (double)
@@ -129,18 +116,14 @@
   - explicit realtime track IDs must be a non-empty subset of the
     operator-configured allowlist
   - if final=false then store_recording is forced false (no recording needed)
-  - realtime knobs are clamped only when realtime=true
-    - window in [1,30]
-    - overlap in [0, window]
-    - emit_every in [1, window] when partial_enable=true
+  - realtime settings are passed through; the UI uses service-owned boundaries
 
   Returns: map
   {:realtime boolean :refined boolean :final boolean
    :realtime_tracks [string ...]?
    :store_recording boolean
    :refinement_window_sec double?
-   :rt_partial_enable boolean
-   :rt_window_sec double? :rt_overlap_sec double? :rt_emit_every_sec double?}
+   :realtime_settings {track-id {setting value}}}
 
   Throws:
   - ex-info {:type :samuraibff.stream-controls/invalid-controls ...} on invalid.
@@ -157,14 +140,14 @@
   ([params available-realtime-tracks available-final-tracks available-refinement-tracks]
    (let [realtime? (parse-bool (or (get params :realtime) (get params "realtime"))
                                (:realtime default-controls))
-        refined? (parse-bool (or (get params :refined) (get params "refined"))
-                             (:refined default-controls))
-        final? (parse-bool (or (get params :final) (get params "final"))
-                           (:final default-controls))
-        final-tracks-raw (or (get params :final_tracks) (get params "final_tracks"))
-        final-tracks (if (some? final-tracks-raw)
-                       (mapv str/trim (str/split (str final-tracks-raw) #"," -1))
-                       [(first available-final-tracks)])
+         refined? (parse-bool (or (get params :refined) (get params "refined"))
+                              (:refined default-controls))
+         final? (parse-bool (or (get params :final) (get params "final"))
+                            (:final default-controls))
+         final-tracks-raw (or (get params :final_tracks) (get params "final_tracks"))
+         final-tracks (if (some? final-tracks-raw)
+                        (mapv str/trim (str/split (str final-tracks-raw) #"," -1))
+                        [(first available-final-tracks)])
          refinement-tracks-raw (or (get params :refinement_tracks) (get params "refinement_tracks"))
          refinement-tracks (if (some? refinement-tracks-raw)
                              (mapv str/trim (str/split (str refinement-tracks-raw) #"," -1))
@@ -176,28 +159,25 @@
              (throw (ex-info "Refinement tracks must be a non-empty subset of configured tracks"
                              {:type :samuraibff.stream-controls/invalid-controls
                               :reason :invalid-refinement-tracks})))
-        _ (when (or (> (count final-tracks) 4)
-                    (not= (count final-tracks) (count (distinct final-tracks)))
-                    (some #(not (contains? (set available-final-tracks) %)) final-tracks)
-                    (some str/blank? final-tracks))
-            (throw (ex-info "Final tracks must be a non-empty subset of configured tracks"
-                            {:type :samuraibff.stream-controls/invalid-controls
-                             :reason :invalid-final-tracks})))
-        store-recording? (parse-bool (or (get params :store_recording) (get params "store_recording")
-                                         (get params :store-recording) (get params "store-recording"))
-                                     (:store_recording default-controls))
-        rt-partial-enable? (parse-bool (or (get params :rt_partial_enable) (get params "rt_partial_enable")
-                                           (get params :rt-partial-enable) (get params "rt-partial-enable"))
-                                       (:rt_partial_enable default-controls))
-        realtime-tracks-raw (or (get params :realtime_tracks) (get params "realtime_tracks")
-                                (get params :realtime-tracks) (get params "realtime-tracks"))
-        explicit-realtime-tracks? (some? realtime-tracks-raw)
-        requested-realtime-tracks (when explicit-realtime-tracks?
-                                    (mapv str/trim (str/split (str realtime-tracks-raw) #"," -1)))
-        available-realtime-tracks (when (some? available-realtime-tracks)
-                                    (mapv str available-realtime-tracks))
-        available-realtime-track-set (set available-realtime-tracks)
-        invalid-realtime-tracks? (or (and explicit-realtime-tracks?
+         _ (when (or (> (count final-tracks) 4)
+                     (not= (count final-tracks) (count (distinct final-tracks)))
+                     (some #(not (contains? (set available-final-tracks) %)) final-tracks)
+                     (some str/blank? final-tracks))
+             (throw (ex-info "Final tracks must be a non-empty subset of configured tracks"
+                             {:type :samuraibff.stream-controls/invalid-controls
+                              :reason :invalid-final-tracks})))
+         store-recording? (parse-bool (or (get params :store_recording) (get params "store_recording")
+                                          (get params :store-recording) (get params "store-recording"))
+                                      (:store_recording default-controls))
+         realtime-tracks-raw (or (get params :realtime_tracks) (get params "realtime_tracks")
+                                 (get params :realtime-tracks) (get params "realtime-tracks"))
+         explicit-realtime-tracks? (some? realtime-tracks-raw)
+         requested-realtime-tracks (when explicit-realtime-tracks?
+                                     (mapv str/trim (str/split (str realtime-tracks-raw) #"," -1)))
+         available-realtime-tracks (when (some? available-realtime-tracks)
+                                     (mapv str available-realtime-tracks))
+         available-realtime-track-set (set available-realtime-tracks)
+         invalid-realtime-tracks? (or (and explicit-realtime-tracks?
                                            (or (empty? requested-realtime-tracks)
                                                (> (count requested-realtime-tracks) 4)
                                                (some str/blank? requested-realtime-tracks)
@@ -207,62 +187,45 @@
                                            (or (nil? available-realtime-tracks)
                                                (some #(not (contains? available-realtime-track-set %))
                                                      requested-realtime-tracks))))
-        _ (when invalid-realtime-tracks?
-            (throw (ex-info "Realtime tracks must be a non-empty subset of configured tracks"
-                            {:type :samuraibff.stream-controls/invalid-controls
-                             :reason :invalid-realtime-tracks})))
-        realtime-tracks (when (seq available-realtime-tracks)
-                          (if explicit-realtime-tracks?
-                            (let [requested-set (set requested-realtime-tracks)]
-                              (filterv requested-set available-realtime-tracks))
-                            available-realtime-tracks))
-        rt-window (parse-finite-double (or (get params :rt_window_sec) (get params "rt_window_sec")
-                                           (get params :window_sec) (get params "window_sec")))
-        rt-overlap (parse-finite-double (or (get params :rt_overlap_sec) (get params "rt_overlap_sec")
-                                            (get params :overlap_sec) (get params "overlap_sec")))
-        rt-emit-every (parse-finite-double (or (get params :rt_emit_every_sec) (get params "rt_emit_every_sec")
-                                               (get params :emit_every_sec) (get params "emit_every_sec")))
+         _ (when invalid-realtime-tracks?
+             (throw (ex-info "Realtime tracks must be a non-empty subset of configured tracks"
+                             {:type :samuraibff.stream-controls/invalid-controls
+                              :reason :invalid-realtime-tracks})))
+         realtime-tracks (when (seq available-realtime-tracks)
+                           (if explicit-realtime-tracks?
+                             (let [requested-set (set requested-realtime-tracks)]
+                               (filterv requested-set available-realtime-tracks))
+                             available-realtime-tracks))
+         realtime-settings (json/read-value (or (get params :realtime_settings) (get params "realtime_settings") "{}")
+                                            (json/object-mapper {:decode-key-fn keyword}))
 
-        refinement-window (parse-finite-double (or (get params :refinement_window_sec) (get params "refinement_window_sec")
-                                                   (get params :refinement_window) (get params "refinement_window")
-                                                   (get params :refined_window_sec) (get params "refined_window_sec")))
+         refinement-window (parse-finite-double (or (get params :refinement_window_sec) (get params "refinement_window_sec")
+                                                    (get params :refinement_window) (get params "refinement_window")
+                                                    (get params :refined_window_sec) (get params "refined_window_sec")))
 
-        want-any? (or realtime? refined? final?)
-        _ (when-not want-any?
-            (throw (ex-info "At least one output must be enabled"
-                            {:type :samuraibff.stream-controls/invalid-controls
-                             :reason :no-outputs})))
+         want-any? (or realtime? refined? final?)
+         _ (when-not want-any?
+             (throw (ex-info "At least one output must be enabled"
+                             {:type :samuraibff.stream-controls/invalid-controls
+                              :reason :no-outputs})))
 
         ;; Applied semantics.
-        store-recording? (if final? store-recording? false)
-        _ (when (and final? (> (count final-tracks) 1) (not store-recording?))
-            (throw (ex-info "Multiple final tracks require store_recording=true"
-                            {:type :samuraibff.stream-controls/invalid-controls
-                             :reason :multiple-final-tracks-require-recording})))
+         store-recording? (if final? store-recording? false)
+         _ (when (and final? (> (count final-tracks) 1) (not store-recording?))
+             (throw (ex-info "Multiple final tracks require store_recording=true"
+                             {:type :samuraibff.stream-controls/invalid-controls
+                              :reason :multiple-final-tracks-require-recording})))
 
-        ;; Clamp realtime knobs only when realtime is enabled.
-        rt-window (when (and realtime? (some? rt-window))
-                    (clamp rt-window rt-window-min-sec rt-window-max-sec))
-        rt-overlap (when (and realtime? (some? rt-overlap))
-                     (let [w (or rt-window rt-window-max-sec)]
-                       (clamp rt-overlap rt-overlap-min-sec w)))
-
-        refinement-window (when (and refined? (some? refinement-window))
-                            (clamp refinement-window refinement-window-min-sec refinement-window-max-sec))
-        rt-emit-every (when (and realtime? (some? rt-emit-every) rt-partial-enable?)
-                        (let [w (or rt-window rt-window-max-sec)]
-                          (clamp rt-emit-every rt-emit-every-min-sec w)))]
+         refinement-window (when (and refined? (some? refinement-window))
+                             (clamp refinement-window refinement-window-min-sec refinement-window-max-sec))]
      (cond-> {:realtime realtime?
               :refined refined?
               :final final?
               :final_tracks final-tracks
               :refinement_tracks refinement-tracks
               :store_recording store-recording?
-              :rt_partial_enable rt-partial-enable?}
+              :realtime_settings (if realtime? (select-keys realtime-settings (map keyword realtime-tracks)) {})}
        (seq realtime-tracks) (assoc :realtime_tracks realtime-tracks)
-       (some? rt-window) (assoc :rt_window_sec rt-window)
-       (some? rt-overlap) (assoc :rt_overlap_sec rt-overlap)
-       (some? rt-emit-every) (assoc :rt_emit_every_sec rt-emit-every)
 
        (some? refinement-window) (assoc :refinement_window_sec refinement-window)))))
 
@@ -304,21 +267,3 @@
     (assoc "x-refinement-window-sec"
            (.getBytes ^String (str (double (:refinement_window_sec controls))) "UTF-8"))))
 
-(defn grpc-metadata
-  "Return gRPC metadata map for rtservice based on controls.
-
-  Returns: map string->string."
-  [controls]
-  (let [{:keys [rt_window_sec rt_overlap_sec rt_emit_every_sec rt_partial_enable]} controls]
-    (cond-> {}
-      (some? rt_window_sec)
-      (assoc "x-rt-window-sec" (grpc.metadata/header-double rt_window_sec))
-
-      (some? rt_overlap_sec)
-      (assoc "x-rt-overlap-sec" (grpc.metadata/header-double rt_overlap_sec))
-
-      (some? rt_emit_every_sec)
-      (assoc "x-rt-emit-every-sec" (grpc.metadata/header-double rt_emit_every_sec))
-
-      (some? rt_partial_enable)
-      (assoc "x-rt-partial-enable" (if rt_partial_enable "true" "false")))))

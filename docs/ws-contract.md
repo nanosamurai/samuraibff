@@ -45,13 +45,20 @@ Refinement tuning:
 * `refinement_window_sec=<double>` – optional refinement window size.
   * Backend clamps it to **[10, 600]** seconds.
 
-Realtime tuning (forwarded service overrides):
+Realtime tuning:
 
-* `rt_partial_enable=true|false` – whether compatible services should emit partial hypotheses.
-* `rt_window_sec=<double>` (alias: `window_sec`)
-* `rt_overlap_sec=<double>` (alias: `overlap_sec`)
-* `rt_emit_every_sec=<double>` (alias: `emit_every_sec`)
-  * Backend enforces a minimum of **1s**.
+* `realtime_settings=<URL-encoded JSON>` – values keyed by configured track ID,
+  e.g. `{"faster-whisper":{"window_sec":5,"overlap_sec":0.5,"partial_enable":false},"nemotron":{"endpointing_silence_ms":800}}`.
+* Definitions come from each service's `GetCapabilities.session_settings_json` and
+  appear in `/api/me.realtime_track_capabilities[].session_settings`. Each key has
+  `display_name`, `type` (`boolean`, `integer`, `decimal`), `default`, and numeric
+  `min`/`max`. The UI uses steps of 1 or 0.01 and submits resolved defaults.
+* Admission freezes the map in `sessions.stream_controls.realtime_settings` and
+  `sessions.meta.stream_controls`. Reconnects reuse that snapshot. Fanout sends
+  only the selected service's submap in the `x-rt-settings` JSON gRPC header.
+* Unknown settings are ignored by services. Omitted keys use deployment defaults.
+  This spike relies on UI limits and existing engine limits; comprehensive SDK
+  input validation is deferred. The former flat `rt_*` query/header path is removed.
 
 Semantics:
 
@@ -69,7 +76,7 @@ Semantics:
 
 Example (tune realtime only):
 
-`/ws/audio?session_id=<uuid>&lang=en&sample_rate=16000&rt_window_sec=5.0&rt_overlap_sec=0.5&rt_emit_every_sec=1.0`
+`/ws/audio?session_id=<uuid>&lang=en&realtime_settings=%7B%22nemotron%22%3A%7B%22endpointing_silence_ms%22%3A800%7D%7D`
 
 Example (run only the configured Qwen track):
 

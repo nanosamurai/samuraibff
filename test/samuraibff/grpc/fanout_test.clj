@@ -1,6 +1,7 @@
 (ns samuraibff.grpc.fanout-test
   (:require
    [clojure.test :refer [deftest is testing]]
+   [jsonista.core :as json]
    [samuraibff.grpc.client :as grpc]
    [samuraibff.grpc.fanout :as fanout])
   (:import
@@ -9,12 +10,14 @@
 (deftest fanout-labels-and-completes-independent-tracks-test
   (let [clients {:tracks [{:id "faster"} {:id "qwen"}]}
         observed (atom [])
+        metadata (atom {})
         completed (CountDownLatch. 2)]
     (with-redefs [grpc/get-capabilities
                   (fn [client _]
                     {:provider-profile-id (str (:id client) "-profile")})
                   grpc/start-stream!
                   (fn [client handlers]
+                    (swap! metadata assoc (:id client) (get-in handlers [:metadata "x-rt-settings"]))
                     {:track-id (:id client)
                      :send! (fn [chunk]
                               ((:on-next handlers) {:source (:id client) :chunk chunk}))
@@ -27,7 +30,10 @@
                      {:on-next #(swap! observed conj %)
                       :on-error (fn [_ _] nil)
                       :on-complete (fn [_] (.countDown completed))}
-                     {:buffer-size 2})]
+                     {:buffer-size 2 :realtime-settings {:faster {:window_sec 4 :partial_enable false}
+                                                         :qwen {:example 1}}})]
+        (is (= {"faster" {"window_sec" 4 "partial_enable" false} "qwen" {"example" 1}}
+               (update-vals @metadata json/read-value)))
         (is (= [] (fanout/offer! running :audio)))
         (fanout/complete! running)
         (is (.await completed 2 TimeUnit/SECONDS))

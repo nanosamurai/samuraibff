@@ -11,6 +11,7 @@
   Channels use plaintext transport inside the workload network for now."
   (:require
    [clojure.string :as str]
+   [jsonista.core :as json]
    [integrant.core :as ig]
    [org.corfield.logging4j2 :as log])
   (:import
@@ -28,7 +29,7 @@
   Inputs:
   - m: map (string->string)
 
-  Returns: io.grpc.Metadata." 
+  Returns: io.grpc.Metadata."
   ^Metadata [m]
   (let [md (Metadata.)]
     (doseq [[k v] (or m {})]
@@ -46,9 +47,9 @@
   [addr]
   (let [target (if (str/includes? addr ":///") addr (str "dns:///" addr))]
     (-> (ManagedChannelBuilder/forTarget target)
-      (.defaultLoadBalancingPolicy "round_robin")
-      (.usePlaintext)
-      (.build))))
+        (.defaultLoadBalancingPolicy "round_robin")
+        (.usePlaintext)
+        (.build))))
 
 (defn- configured-tracks
   "Return validated realtime track definitions from global configuration.
@@ -97,7 +98,10 @@
    :implementation-revision (.getImplementationRevision capabilities)
    :speaker-labels? (.getSpeakerLabels capabilities)
    :aligned-diarized-languages
-   (vec (.getAlignedDiarizedLanguagesList capabilities))})
+   (vec (.getAlignedDiarizedLanguagesList capabilities))
+   :session-settings (json/read-value (let [value (.getSessionSettingsJson capabilities)]
+                                        (if (str/blank? value) "{}" value))
+                                      (json/object-mapper {:decode-key-fn keyword}))})
 
 (defmethod ig/init-key :samuraibff/grpc-client [_ {:keys [config]}]
   "Initialize one independent gRPC client for each configured realtime track.
@@ -265,7 +269,7 @@
   Notes:
   - The returned operations are safe to call multiple times. In particular,
     `:complete!` is idempotent to avoid noisy `call already half-closed`
-    exceptions during cleanup." 
+    exceptions during cleanup."
   [{:keys [id stub] :as client}
    {:keys [metadata admission-max-attempts] :as handlers}]
   (when-not stub

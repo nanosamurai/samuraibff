@@ -32,11 +32,8 @@
   - `:lang`         string (empty string means auto)
   - `:sample-rate`  int
 
-  - `:rt-window-sec`     double? ; optional rtservice override
-  - `:rt-overlap-sec`    double? ; optional rtservice override
-  - `:rt-emit-every-sec` double? ; optional rtservice override
+  - `:realtime-settings` map ; service-owned settings keyed by track ID
 
-  - `:rt-partial-enable?` boolean? ; optional rtservice control
 
   - `:want-realtime?` boolean ; whether BFF starts rtservice gRPC
   - `:realtime-track-ids` vector of selected operator-configured track IDs
@@ -87,12 +84,11 @@
    [org.corfield.logging4j2 :as log]
    [samuraibff.session-trace :as session-trace]
    [samuraibff.grpc.fanout :as grpc.fanout]
-   [samuraibff.grpc.metadata :as grpc.metadata]
    [samuraibff.kafka.producer :as kafka.producer]
    [samuraibff.schemas :as schemas])
   (:import
    (com.google.protobuf ByteString)
-    (samuraibff.proto AsrType AudioChunk RefinedEvent SessionTranscriptSegment)))
+   (samuraibff.proto AsrType AudioChunk RefinedEvent SessionTranscriptSegment)))
 
 (defn- ensure-bytes-header-map
   "Ensure a kafka header map has string keys and byte[] values.
@@ -345,10 +341,10 @@
         (when (and (seq (str (.getText ev)))
                    (seq segments))
           (log/info "RefinedEvent contains segments; legacy scalar fields will be ignored" {:session-id session-id
-                                                                                           :segments (count segments)
-                                                                                           :slice_index (.getSliceIndex ev)
-                                                                                           :window_sec (.getWindowSec ev)
-                                                                                           :flush_reason (.getFlushReason ev)}))
+                                                                                            :segments (count segments)
+                                                                                            :slice_index (.getSliceIndex ev)
+                                                                                            :window_sec (.getWindowSec ev)
+                                                                                            :flush_reason (.getFlushReason ev)}))
         (mapv (fn [seg]
                 (segment->ws-event seq* ts-ms session-id (.getLang ev) supersedes seg))
               segments))
@@ -413,12 +409,9 @@
 
       ; Optional rtservice per-session override knobs.
       ; When present, these are attached as gRPC metadata headers.
-      :rt-window-sec     double
-      :rt-overlap-sec    double
-      :rt-emit-every-sec double
+      :realtime-settings map
 
       ; Optional realtime control.
-      :rt-partial-enable? boolean
 
       ; Output selection snapshot.
       :want-realtime? boolean
@@ -431,8 +424,7 @@
 
   Returns a session map (see namespace docstring)."
   [tenant-id session-id config {:keys [lang sample-rate
-                                       rt-window-sec rt-overlap-sec rt-emit-every-sec
-                                       rt-partial-enable?
+                                       realtime-settings
                                        want-realtime? want-refined? want-final?
                                        realtime-track-ids
                                        store-recording?
@@ -447,14 +439,7 @@
      :lang lang
      :sample-rate (or sample-rate default-sample-rate)
 
-     ;; Optional per-session rtservice override knobs.
-     ;; NOTE: BFF does not enforce business limits; rtservice does.
-     ;; We only ensure the values are numeric so we can serialize them.
-     :rt-window-sec (when (number? rt-window-sec) (double rt-window-sec))
-     :rt-overlap-sec (when (number? rt-overlap-sec) (double rt-overlap-sec))
-     :rt-emit-every-sec (when (number? rt-emit-every-sec) (double rt-emit-every-sec))
-
-     :rt-partial-enable? (when (some? rt-partial-enable?) (boolean rt-partial-enable?))
+     :realtime-settings (or realtime-settings {})
 
      :want-realtime? (boolean (if (some? want-realtime?) want-realtime? true))
      :realtime-track-ids (when (some? realtime-track-ids) (vec realtime-track-ids))
@@ -544,11 +529,10 @@
   Returns:
   - the (possibly updated) session map, or nil if session not found."
   [{:keys [sessions]} tenant-id session-id {:keys [lang sample-rate
-                                                   rt-window-sec rt-overlap-sec rt-emit-every-sec
-                                                    rt-partial-enable?
-                                                    want-realtime? want-refined? want-final?
-                                                    realtime-track-ids
-                                                    store-recording?
+                                                   realtime-settings
+                                                   want-realtime? want-refined? want-final?
+                                                   realtime-track-ids
+                                                   store-recording?
                                                    kafka-headers]}]
   (let [updated* (atom nil)]
     (swap! sessions
@@ -561,14 +545,10 @@
                  (let [session' (cond-> session
                                   (some? lang) (assoc :lang (str lang))
                                   (some? sample-rate) (assoc :sample-rate (int sample-rate))
-                                  (some? rt-window-sec) (assoc :rt-window-sec (when (number? rt-window-sec) (double rt-window-sec)))
-                                  (some? rt-overlap-sec) (assoc :rt-overlap-sec (when (number? rt-overlap-sec) (double rt-overlap-sec)))
-                                  (some? rt-emit-every-sec) (assoc :rt-emit-every-sec (when (number? rt-emit-every-sec) (double rt-emit-every-sec)))
-
-                                   (some? rt-partial-enable?) (assoc :rt-partial-enable? (boolean rt-partial-enable?))
-                                   (some? want-realtime?) (assoc :want-realtime? (boolean want-realtime?))
-                                   (some? realtime-track-ids) (assoc :realtime-track-ids (vec realtime-track-ids))
-                                   (some? want-refined?) (assoc :want-refined? (boolean want-refined?))
+                                  (some? realtime-settings) (assoc :realtime-settings realtime-settings)
+                                  (some? want-realtime?) (assoc :want-realtime? (boolean want-realtime?))
+                                  (some? realtime-track-ids) (assoc :realtime-track-ids (vec realtime-track-ids))
+                                  (some? want-refined?) (assoc :want-refined? (boolean want-refined?))
                                   (some? want-final?) (assoc :want-final? (boolean want-final?))
                                   (some? store-recording?) (assoc :store-recording? (boolean store-recording?))
                                   (some? kafka-headers) (assoc :kafka-headers (ensure-bytes-header-map kafka-headers)))]
@@ -633,7 +613,7 @@
 
   Notes:
   - We keep this relatively small; the full result is always persisted and can be
-    fetched from DB in the recordings detail page." 
+    fetched from DB in the recordings detail page."
   8000)
 
 (defn- truncate-markdown
@@ -643,7 +623,7 @@
   - s: string?
 
   Returns:
-  - string? (possibly truncated)" 
+  - string? (possibly truncated)"
   [s]
   (let [s (when (some? s) (str s))]
     (when (seq (str s))
@@ -675,7 +655,7 @@
 
   Returns: boolean.
   - true if the session exists locally (even if event is dropped due to backpressure)
-  - false if the session is not present locally or tenant_id is missing." 
+  - false if the session is not present locally or tenant_id is missing."
   [{:keys [sessions] :as ws-registry} {:keys [tenant_id tenant-id session_id session-id workflow_id workflow-id] :as payload}]
   (let [tenant-id (or tenant-id tenant_id)
         tenant-id (when (and tenant-id (not (str/blank? (str tenant-id)))) (str tenant-id))
@@ -812,7 +792,7 @@
   (let [remaining (swap! (:audio-socks* session) (fn [n] (max 0 (dec n))))]
     (when (zero? remaining)
       (log/info "Finishing audio input" {:session-id (:session-id session)
-                                          :tenant-id (:tenant-id session)})
+                                         :tenant-id (:tenant-id session)})
       (async/close! (:audio-ch session))))
   (maybe-close-if-unused! registry session)
   nil)
@@ -856,24 +836,12 @@
         (log/info "Realtime output disabled; not starting gRPC" {:session-id session-id
                                                                  :tenant-id tenant-id}))
 
-      (let [metadata (cond-> {"x-session-id" (str session-id)}
-                       (some? (:rt-window-sec session))
-                       (assoc "x-rt-window-sec" (grpc.metadata/header-double (:rt-window-sec session)))
-
-                       (some? (:rt-overlap-sec session))
-                       (assoc "x-rt-overlap-sec" (grpc.metadata/header-double (:rt-overlap-sec session)))
-
-                       (some? (:rt-emit-every-sec session))
-                       (assoc "x-rt-emit-every-sec" (grpc.metadata/header-double (:rt-emit-every-sec session)))
-
-                       (some? (:rt-partial-enable? session))
-                       (assoc "x-rt-partial-enable" (if (:rt-partial-enable? session) "true" "false")))
-            metadata (into {} (remove (fn [[_k v]] (nil? v)) metadata))
+      (let [metadata {"x-session-id" (str session-id)}
             fanout
             (when (:want-realtime? session)
               (log/info "Starting realtime ASR tracks" {:session-id session-id
-                                                         :tenant-id tenant-id
-                                                         :tracks (:realtime-track-ids session)})
+                                                        :tenant-id tenant-id
+                                                        :tracks (:realtime-track-ids session)})
               (try
                 (grpc.fanout/start!
                  grpc-client
@@ -902,6 +870,7 @@
                   :admission-timeout-ms (get-in (:config registry) [:grpc :admission-timeout-ms])
                   :admission-max-attempts (get-in (:config registry) [:grpc :admission-max-attempts])
                   :metadata metadata
+                  :realtime-settings (:realtime-settings session)
                   :track-ids (:realtime-track-ids session)})
                 (catch Throwable t
                   (reset! (:running?* session) false)
