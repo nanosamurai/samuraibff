@@ -580,6 +580,7 @@
    [:id NonEmptyString]
    [:available :boolean]
    [:provider_profile_id {:optional true} NonEmptyString]
+   [:session_settings {:optional true} [:map-of :keyword :any]]
    [:windowed_realtime {:optional true} :boolean]
    [:native_streaming {:optional true} :boolean]
    [:segment_timestamps {:optional true} :boolean]

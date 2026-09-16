@@ -298,10 +298,20 @@ lock at audio start, while New session retains preferences. Alternative-only
 selections work independently for final and refinement. Multiple final tracks
 require retained audio; refinement alone does not retain recording windows.
 
+Realtime settings are defined by each service through `GetCapabilities`, exposed
+in `/api/me`, and rendered per selected track: booleans, integers, and decimals
+with two decimal places. The UI submits defaults plus edits as `realtime_settings`;
+audio admission freezes these in the existing stream-controls snapshot and
+`sessions.meta`. Each service receives its own values in `x-rt-settings`.
+The old flat Whisper controls are replaced. See [the WebSocket contract](docs/ws-contract.md)
+for the map shape and the deliberately limited SDK validation in this spike.
+
 Live refinement is separated by track. Saved sessions show flat labelled tabs
 from selections and actual Postgres rows, preserving missing-result tabs without
-inferring failure. Shared recording playback uses the selected track's existing
-word timing. Text-only results remain readable without fabricated timing or
+inferring failure. Recording playback appears only on Final Transcript tabs;
+Follow sits beside the Playback title and uses the Record panel checkbox style.
+Playback highlighting uses the selected final track's existing word timing.
+Text-only results remain readable without fabricated timing or
 speakers. Direct links and reloads preserve the session and nested controls.
 Realtime messages without a speaker label retain the `?` avatar and `Unknown`
 name, keeping partial text aligned with diarized turns.

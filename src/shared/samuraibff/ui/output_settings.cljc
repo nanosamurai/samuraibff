@@ -52,11 +52,17 @@
         (and (not checked?) (seq current)) (assoc-in [:remembered_tracks stage] current)))))
 
 (defn effective-controls
-  "Normalize admission switches and required audio retention without sending UI preferences."
+  "Resolve service defaults, admission switches and retention without sending UI preferences."
   [controls detail]
   (let [normalized (reduce (fn [acc stage] (assoc acc stage (enabled? controls stage (entries detail stage))))
                            controls (keys control-keys))
+        selected (when (:realtime normalized) (set (selected-ids controls :realtime (entries detail :realtime))))
+        realtime-settings (into {} (for [{:keys [id session_settings]} (:realtime_track_capabilities detail)
+                                         :when (contains? selected id)]
+                                     [(keyword id) (merge (into {} (map (fn [[k spec]] [k (:default spec)]) session_settings))
+                                                          (select-keys (get-in controls [:realtime_settings (keyword id)])
+                                                                       (keys session_settings)))]))
         retained? (and (:final normalized)
                        (> (count (selected-ids controls :final (entries detail :final))) 1))]
-    (cond-> (dissoc normalized :remembered_tracks)
+    (cond-> (assoc (dissoc normalized :remembered_tracks) :realtime_settings realtime-settings)
       retained? (assoc :store_recording true))))

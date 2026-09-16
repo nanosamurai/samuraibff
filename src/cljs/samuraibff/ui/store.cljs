@@ -58,8 +58,8 @@
           ;; Shape matches schemas/CreateSessionRequest :workflow_overrides.
           ;; {:use_defaults boolean
           ;;  :workflow_ids #{<uuid-string> ...}}
-          :workflow_overrides {:use_defaults true
-                               :workflow_ids #{}}
+         :workflow_overrides {:use_defaults true
+                              :workflow_ids #{}}
 
           ;; Session-level, webhook-agnostic settings.
           ;;
@@ -70,26 +70,23 @@
                     :refined true
                     :final true
                     :store_recording true
-                    :rt_partial_enable true
+                    :realtime_settings {}
 
                      ;; Audio capture source selection (frontend-only).
                      ;; :audio_source is one of:
                      ;; - :mic    (default; getUserMedia)
                      ;; - :system (Electron desktop capture)
                      ;; - :mix    (mic + system mixed to mono)
-                     :audio_source :mic
+                    :audio_source :mic
                      ;; Desktop capture source id (Electron).
                      ;; Example: "screen:0:0" / "window:123:0"
-                     :system_source_id nil
-                     :system_source_name nil
-                     :mic_device_id nil
+                    :system_source_id nil
+                    :system_source_name nil
+                    :mic_device_id nil
                      ;; Input gain knobs (frontend-only)
-                     :mic_gain 1.0
-                     :system_gain 1.0
+                    :mic_gain 1.0
+                    :system_gain 1.0
                     ;; Optional knobs (nil => omit from query params)
-                    :rt_window_sec nil
-                    :rt_overlap_sec nil
-                    :rt_emit_every_sec nil
                     :refinement_window_sec nil}}))
 
 (defn set-session-workflow-overrides-use-defaults!
@@ -98,7 +95,7 @@
   Inputs:
   - use-defaults?: boolean
 
-  Returns: nil." 
+  Returns: nil."
   [use-defaults?]
   (swap! session* assoc-in [:workflow_overrides :use_defaults] (boolean use-defaults?))
   nil)
@@ -110,7 +107,7 @@
   - workflow-id: string UUID
   - selected?: boolean
 
-  Returns: nil." 
+  Returns: nil."
   [workflow-id selected?]
   (let [sid (str (or workflow-id ""))]
     (when (seq sid)
@@ -137,25 +134,25 @@
          :error nil}))
 
 (defn set-workflows-loading!
-  "Set loading flag for workflows list." 
+  "Set loading flag for workflows list."
   [loading?]
   (swap! workflows* assoc :loading? (boolean loading?))
   nil)
 
 (defn set-workflows-error!
-  "Set workflows list error string (nil clears)." 
+  "Set workflows list error string (nil clears)."
   [err]
   (swap! workflows* assoc :error err)
   nil)
 
 (defn set-workflows-items!
-  "Replace workflows list items." 
+  "Replace workflows list items."
   [items]
   (swap! workflows* assoc :items (vec (or items [])))
   nil)
 
 (defn remove-workflow-item!
-  "Remove a workflow item from current list." 
+  "Remove a workflow item from current list."
   [workflow-id]
   (swap! workflows*
          (fn [st]
@@ -168,19 +165,19 @@
   nil)
 
 (defn set-workflow-defaults-loading!
-  "Set loading flag for workflow defaults." 
+  "Set loading flag for workflow defaults."
   [loading?]
   (swap! workflow-defaults* assoc :loading? (boolean loading?))
   nil)
 
 (defn set-workflow-defaults-error!
-  "Set workflow defaults error string (nil clears)." 
+  "Set workflow defaults error string (nil clears)."
   [err]
   (swap! workflow-defaults* assoc :error err)
   nil)
 
 (defn set-workflow-defaults-ids!
-  "Replace default workflow ids." 
+  "Replace default workflow ids."
   [workflow-ids]
   (swap! workflow-defaults* assoc :workflow_ids (vec (or workflow-ids [])))
   nil)
@@ -428,7 +425,7 @@
   - session-id string
 
   Returns:
-  - vector of workflow result maps." 
+  - vector of workflow result maps."
   [session-id]
   (vec (get @workflow-results-by-session* (or session-id "") [])))
 
@@ -738,7 +735,7 @@
       :session_id :workflow_id :status and optionally
       :workflow_name :created_at :trigger_type :render_markdown
 
-  Returns: nil." 
+  Returns: nil."
   [ev]
   (let [sid (or (:session_id ev) (get @session* :id) "")
         wf-id (str (or (:workflow_id ev) ""))
@@ -981,13 +978,13 @@
   Updates the visible buffer only for the current session. Returns nil."
   [ev]
   (let [sid (or (:session_id ev) (:id @session*) "")]
-      (when (seq sid)
-                 (let [msg (transcript/normalize-refined ev)
+    (when (seq sid)
+      (let [msg (transcript/normalize-refined ev)
             messages (->> (conj (vec (get @refined-by-session* sid [])) msg)
-                               (reduce (fn [acc m]
+                          (reduce (fn [acc m]
                                     (let [key (transcript/refined-dedupe-key m)]
                                       (if (contains? acc key) acc (assoc acc key m)))) {})
-                               vals
+                          vals
                           (group-by :track_id)
                           vals
                           (mapcat #(take-last max-segments (sort-by (juxt :start_s :seq) %)))

@@ -42,25 +42,6 @@
          (catch Exception _ default))
     default))
 
-(defn- parse-rt-double
-  "Parse a finite double from a string-like input.
-
-  Inputs:
-  - s: any (typically string)
-
-  Returns:
-  - double when parseable and finite
-  - nil otherwise."
-  [s]
-  (when (some? s)
-    (try
-      (let [x (Double/parseDouble (str s))]
-        (when (and (not (Double/isNaN x))
-                   (not (Double/isInfinite x)))
-          (double x)))
-      (catch Exception _
-        nil))))
-
 (defn- bad-request
   "Return a small JSON 400 response.
 
@@ -96,14 +77,7 @@
   Optional refined knob:
   - refinement_window_sec (double)
 
-  Optional rtservice per-session overrides (passed to rtservice via gRPC metadata):
-  - rt_window_sec      (optional) double
-  - rt_overlap_sec     (optional) double
-  - rt_emit_every_sec  (optional) double
-  - rt_partial_enable  (optional) boolean
-
-  Aliases (accepted for convenience):
-  - window_sec / overlap_sec / emit_every_sec
+  - realtime_settings: JSON object keyed by track ID, forwarded through x-rt-settings
 
   Dependencies:
   - `:config`      (required)
@@ -127,11 +101,11 @@
               (let [_ (ws.tenant/assert-session-access! config ws-registry tenant-id session-id)
                     available-realtime-tracks (mapv :id (grpc.client/tracks grpc))
                     requested-controls (stream-controls/with-track-labels
-                                        (stream-controls/parse-and-validate
-                                         params available-realtime-tracks
-                                         (or (:final-tracks config) ["whisperx"])
-                                         (or (:refinement-tracks config) ["whisperx"]))
-                                        config)
+                                         (stream-controls/parse-and-validate
+                                          params available-realtime-tracks
+                                          (or (:final-tracks config) ["whisperx"])
+                                          (or (:refinement-tracks config) ["whisperx"]))
+                                         config)
                     ds (:ds db)
                     _ (when-not ds
                         (throw (ex-info "Database unavailable" {:type :samuraibff.ws/db-unavailable})))
@@ -139,27 +113,15 @@
                     session-uuid (java.util.UUID/fromString session-id)
                     controls (db.sessions/activate-session-on-audio-start-with-controls!
                               ds tenant-uuid session-uuid requested-controls)
-                    rt-window-sec (parse-rt-double (or (:rt_window_sec controls)
-                                                       (get params :rt_window_sec) (get params "rt_window_sec")
-                                                       (get params :window_sec) (get params "window_sec")))
-                    rt-overlap-sec (parse-rt-double (or (:rt_overlap_sec controls)
-                                                        (get params :rt_overlap_sec) (get params "rt_overlap_sec")
-                                                        (get params :overlap_sec) (get params "overlap_sec")))
-                    rt-emit-every-sec (parse-rt-double (or (:rt_emit_every_sec controls)
-                                                           (get params :rt_emit_every_sec) (get params "rt_emit_every_sec")
-                                                           (get params :emit_every_sec) (get params "emit_every_sec")))
-                    session-opts (cond-> {:lang lang
-                                          :sample-rate sample-rate
-                                          :want-realtime? (:realtime controls)
-                                          :realtime-track-ids (:realtime_tracks controls)
-                                          :want-refined? (:refined controls)
-                                          :want-final? (:final controls)
-                                          :store-recording? (:store_recording controls)
-                                          :rt-partial-enable? (:rt_partial_enable controls)
-                                          :kafka-headers (stream-controls/kafka-headers controls)}
-                                   (some? rt-window-sec) (assoc :rt-window-sec rt-window-sec)
-                                   (some? rt-overlap-sec) (assoc :rt-overlap-sec rt-overlap-sec)
-                                   (some? rt-emit-every-sec) (assoc :rt-emit-every-sec rt-emit-every-sec))
+                    session-opts {:lang lang
+                                  :sample-rate sample-rate
+                                  :want-realtime? (:realtime controls)
+                                  :realtime-track-ids (:realtime_tracks controls)
+                                  :want-refined? (:refined controls)
+                                  :want-final? (:final controls)
+                                  :store-recording? (:store_recording controls)
+                                  :realtime-settings (:realtime_settings controls)
+                                  :kafka-headers (stream-controls/kafka-headers controls)}
                     session (ws.tenant/assert-session-access!
                              config ws-registry tenant-id session-id
                              session-opts)]

@@ -2,6 +2,7 @@
   "Bounded, failure-isolated fan-out to peer RealtimeASR services."
   (:require
    [clojure.core.async :as async]
+   [jsonista.core :as json]
    [org.corfield.logging4j2 :as log]
    [samuraibff.grpc.client :as grpc]))
 
@@ -32,22 +33,22 @@
          (merge
           admission-options
           {:metadata metadata
-          :on-next (fn [event]
-                     (when on-next
-                       (on-next {:track track-id
-                                 :primary? primary?
-                                 :provider-profile-id provider-profile-id
-                                 :event event})))
-          :on-error (fn [error]
-                      (when (compare-and-set! active? true false)
-                        (async/close! input))
-                      (when on-error
-                        (on-error track-id error)))
-          :on-complete (fn []
-                         (reset! active? false)
-                         (async/close! input)
-                         (when on-complete
-                           (on-complete track-id)))}))]
+           :on-next (fn [event]
+                      (when on-next
+                        (on-next {:track track-id
+                                  :primary? primary?
+                                  :provider-profile-id provider-profile-id
+                                  :event event})))
+           :on-error (fn [error]
+                       (when (compare-and-set! active? true false)
+                         (async/close! input))
+                       (when on-error
+                         (on-error track-id error)))
+           :on-complete (fn []
+                          (reset! active? false)
+                          (async/close! input)
+                          (when on-complete
+                            (on-complete track-id)))}))]
     (reset! stream* stream)
     (async/thread
       (loop []
@@ -83,7 +84,7 @@
 
   Returns a fan-out map accepted by `offer!`, `complete!`, and `cancel!`."
   [grpc-component handlers
-   {:keys [buffer-size metadata track-ids admission-timeout-ms admission-max-attempts]}]
+   {:keys [buffer-size metadata track-ids realtime-settings admission-timeout-ms admission-max-attempts]}]
   (let [configured-track-clients (grpc/tracks grpc-component)
         requested-track-ids (when (some? track-ids) (set track-ids))
         configured-track-ids (set (map :id configured-track-clients))
@@ -102,7 +103,10 @@
     {:tracks
      (mapv
       (fn [index track-client]
-        (start-track! track-client (zero? index) size metadata admission-options handlers))
+        (start-track! track-client (zero? index) size
+                      (assoc metadata "x-rt-settings"
+                             (json/write-value-as-string (get realtime-settings (keyword (:id track-client)) {})))
+                      admission-options handlers))
       (range)
       track-clients)}))
 

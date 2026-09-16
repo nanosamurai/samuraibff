@@ -67,6 +67,7 @@
     (with-redefs [grpc.client/get-capabilities
                   (fn [{:keys [id]} _timeout-ms]
                     {:provider-profile-id (str id "-profile")
+                     :session-settings {}
                      :windowed-realtime? (= id "faster")
                      :native-streaming? (= id "qwen")
                      :segment-timestamps? (= id "faster")
@@ -88,6 +89,7 @@
         (is (= {:id "qwen"
                 :available true
                 :provider_profile_id "qwen-profile"
+                :session_settings {}
                 :windowed_realtime false
                 :native_streaming true
                 :segment_timestamps false

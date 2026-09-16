@@ -40,23 +40,23 @@
     `X-Forwarded-Host` to compute browser-facing OIDC redirect URIs and cookie
     security flags."
   (:require
-    [clojure.string :as str]
-    [samuraibff.stream-controls :as stream-controls]
-    [jsonista.core :as json]
-    [org.corfield.logging4j2 :as log]
-    [ring.util.codec :as codec]
-    [ring.util.response :as resp]
-    [samuraibff.auth.oidc :as oidc]
-    [samuraibff.db.tenants :as db.tenants]
-    [samuraibff.features :as features]
-    [samuraibff.grpc.client :as grpc.client])
+   [clojure.string :as str]
+   [samuraibff.stream-controls :as stream-controls]
+   [jsonista.core :as json]
+   [org.corfield.logging4j2 :as log]
+   [ring.util.codec :as codec]
+   [ring.util.response :as resp]
+   [samuraibff.auth.oidc :as oidc]
+   [samuraibff.db.tenants :as db.tenants]
+   [samuraibff.features :as features]
+   [samuraibff.grpc.client :as grpc.client])
   (:import
-    (java.net URI)
-    (java.net.http HttpClient HttpClient$Redirect HttpRequest HttpRequest$BodyPublishers HttpResponse$BodyHandlers)
-    (java.nio.charset StandardCharsets)
-    (java.security MessageDigest SecureRandom)
-    (java.time Duration)
-    (java.util Base64)))
+   (java.net URI)
+   (java.net.http HttpClient HttpClient$Redirect HttpRequest HttpRequest$BodyPublishers HttpResponse$BodyHandlers)
+   (java.nio.charset StandardCharsets)
+   (java.security MessageDigest SecureRandom)
+   (java.time Duration)
+   (java.util Base64)))
 
 (def ^:private http-client
   (-> (HttpClient/newBuilder)
@@ -71,7 +71,7 @@
   - status: int
   - body: map
 
-  Returns: Ring response map." 
+  Returns: Ring response map."
   [status body]
   ;; NOTE: Return a *data* body (map). Muuntaja (installed in router) handles
   ;; JSON encoding. This is required so Reitit response coercion can validate
@@ -85,7 +85,7 @@
   Inputs:
   - req: Ring request
 
-  Returns: " 
+  Returns: "
   [req]
   (or (some-> req :scheme name)
       "http"))
@@ -97,11 +97,11 @@
   - X-Forwarded-Proto: https
   - Forwarded: proto=https;host=...
 
-  Returns: http | https | nil" 
+  Returns: http | https | nil"
   [req]
   (let [h (:headers req)
         xfp (some-> (or (get h "x-forwarded-proto") (get h "X-Forwarded-Proto"))
-                      str/trim str/lower-case not-empty)
+                    str/trim str/lower-case not-empty)
         forwarded (some-> (or (get h "forwarded") (get h "Forwarded"))
                           str/trim not-empty)]
     (cond
@@ -125,7 +125,7 @@
       :else nil)))
 
 (defn- request-host
-  "Return host header (best effort)." 
+  "Return host header (best effort)."
   [req]
   (or (get-in req [:headers "host"])
       (get-in req [:headers "Host"])))
@@ -137,11 +137,11 @@
   - X-Forwarded-Host
   - Forwarded: host=...
 
-  Returns: string or nil" 
+  Returns: string or nil"
   [req]
   (let [h (:headers req)
         xfh (some-> (or (get h "x-forwarded-host") (get h "X-Forwarded-Host"))
-                      str/trim not-empty)
+                    str/trim not-empty)
         forwarded (some-> (or (get h "forwarded") (get h "Forwarded"))
                           str/trim not-empty)]
     (cond
@@ -165,7 +165,7 @@
   3) config [:bff :origin-uri] (may be pod-IP for inter-BFF callbacks)
   4) request-derived {scheme}://{host}
 
-  Returns: string" 
+  Returns: string"
   [config req]
   (or (get-in config [:bff :public-origin-uri])
       (when-let [host (forwarded-host req)]
@@ -178,14 +178,14 @@
           (str scheme "://" host)))))
 
 (defn- base64url
-  "Encode bytes to base64url without padding." 
+  "Encode bytes to base64url without padding."
   [^bytes bs]
   (-> (Base64/getUrlEncoder)
       (.withoutPadding)
       (.encodeToString bs)))
 
 (defn- random-bytes
-  "Return n cryptographically secure random bytes." 
+  "Return n cryptographically secure random bytes."
   [n]
   (let [buf (byte-array n)
         rng (SecureRandom.)]
@@ -193,18 +193,18 @@
     buf))
 
 (defn- pkce-verifier
-  "Generate a PKCE verifier string." 
+  "Generate a PKCE verifier string."
   []
   (base64url (random-bytes 48)))
 
 (defn- sha256
-  "SHA-256 digest of a string, as bytes." 
+  "SHA-256 digest of a string, as bytes."
   [^String s]
   (.digest (MessageDigest/getInstance "SHA-256")
            (.getBytes s StandardCharsets/UTF_8)))
 
 (defn- pkce-challenge
-  "Generate a PKCE code_challenge from a verifier." 
+  "Generate a PKCE code_challenge from a verifier."
   [verifier]
   (base64url (sha256 verifier)))
 
@@ -224,19 +224,19 @@
   - v: value
   - opts: ring cookie opts
 
-  Returns: response" 
+  Returns: response"
   [resp0 k v opts]
   (resp/set-cookie resp0 k v opts))
 
 (defn- clear-cookie
-  "Clear a cookie on a Ring response." 
+  "Clear a cookie on a Ring response."
   [resp0 k]
   (resp/set-cookie resp0 k "" {:max-age 0 :path "/"}))
 
 (defn- api-path?
   "Return true if the request path is under /api.
 
-  Used to avoid blocking /auth/login when a browser has a stale cookie." 
+  Used to avoid blocking /auth/login when a browser has a stale cookie."
   [req]
   (let [uri (or (:uri req) "")]
     (str/starts-with? uri "/api")))
@@ -259,7 +259,7 @@
   - handler: Ring handler
   - config: full config map
 
-  Returns: wrapped handler" 
+  Returns: wrapped handler"
   [handler config]
   (fn [req]
     (let [token (oidc/extract-token config req)
@@ -304,7 +304,7 @@
   - handler: Ring handler
   - config: full config map
 
-  Returns: wrapped handler" 
+  Returns: wrapped handler"
   [handler config]
   (fn [req]
     (if-not (oidc/auth-required? config)
@@ -325,7 +325,7 @@
   Query params:
   - next (optional): where to redirect after login (defaults to /recordings)
 
-  Returns: Ring redirect response." 
+  Returns: Ring redirect response."
   [config]
   (fn [{:keys [params] :as req}]
     (let [issuer (or (get-in config [:auth :issuer])
@@ -343,13 +343,13 @@
           auth-url (str (str/replace issuer #"/+$" "") "/protocol/openid-connect/auth")
           url (str auth-url
                    "?" (codec/form-encode
-                         {:client_id client-id
-                          :response_type "code"
-                          :scope "openid email profile"
-                          :redirect_uri redirect-uri
-                          :code_challenge_method "S256"
-                          :code_challenge challenge
-                          :state state}))
+                        {:client_id client-id
+                         :response_type "code"
+                         :scope "openid email profile"
+                         :redirect_uri redirect-uri
+                         :code_challenge_method "S256"
+                         :code_challenge challenge
+                         :state state}))
           resp0 (resp/redirect url)
           secure? (cookie-secure? req)
           common {:http-only true
@@ -367,12 +367,12 @@
   (str (str/replace issuer #"/+$" "") "/protocol/openid-connect/token"))
 
 (defn- form-body
-  "Encode map as x-www-form-urlencoded string." 
+  "Encode map as x-www-form-urlencoded string."
   [m]
   (codec/form-encode m))
 
 (defn- http-post-form!
-  "POST x-www-form-urlencoded and return {:status int :body string}." 
+  "POST x-www-form-urlencoded and return {:status int :body string}."
   [url params]
   (let [^HttpRequest req (-> (HttpRequest/newBuilder)
                              (.uri (URI/create url))
@@ -394,7 +394,7 @@
   - clears pkce cookies
   - redirects to remembered `post_login_next` cookie (or /recordings)
 
-  Returns: Ring response." 
+  Returns: Ring response."
   [config]
   (fn [{:keys [params cookies] :as req}]
     (let [code (or (get params :code) (get params "code"))
@@ -448,9 +448,9 @@
                 (throw (ex-info "Token response missing access_token" {:token token-json})))
               (-> resp0
                   (set-cookie cookie-name access-token {:http-only true
-                                                       :same-site :lax
-                                                       :secure secure?
-                                                       :path "/"})
+                                                        :same-site :lax
+                                                        :secure secure?
+                                                        :path "/"})
                   (clear-cookie "pkce_verifier")
                   (clear-cookie "pkce_state")
                   (clear-cookie "post_login_next")))))))))
@@ -460,7 +460,7 @@
 
   Clears access token cookie.
 
-  Returns: 204 response." 
+  Returns: 204 response."
   [config]
   (fn [_req]
     (let [cookie-name (token-cookie-name config)]
@@ -497,6 +497,7 @@
            {:id id
             :available true
             :provider_profile_id (:provider-profile-id capabilities)
+            :session_settings (:session-settings capabilities)
             :windowed_realtime (:windowed-realtime? capabilities)
             :native_streaming (:native-streaming? capabilities)
             :segment_timestamps (:segment-timestamps? capabilities)
@@ -523,7 +524,7 @@
   - if not authenticated and auth required: 401
   - if not authenticated and auth not required: {ok true, authenticated false}
 
-  Returns: JSON response." 
+  Returns: JSON response."
   [config grpc]
   (fn [req]
     (if-let [user (:auth/user req)]
@@ -535,19 +536,19 @@
             tenant-name (when (and ds tenant-uuid)
                           (db.tenants/find-tenant-name ds tenant-uuid))]
         (json-response 200 {:ok true
-                             :authenticated true
-                             :tenant_id tenant-id-str
-                             :tenant_name tenant-name
-                             :realtime_tracks (realtime-track-ids config)
-                             :async_tracks (stream-controls/configured-async-tracks config)
-                             :realtime_track_capabilities (realtime-track-capabilities config grpc)
-                             :features (features/feature-state config)
+                            :authenticated true
+                            :tenant_id tenant-id-str
+                            :tenant_name tenant-name
+                            :realtime_tracks (realtime-track-ids config)
+                            :async_tracks (stream-controls/configured-async-tracks config)
+                            :realtime_track_capabilities (realtime-track-capabilities config grpc)
+                            :features (features/feature-state config)
                             :user (select-keys user [:sub :preferred_username :email])}))
       (if (oidc/auth-required? config)
         (json-response 401 {:ok false :authenticated false :message "not-authenticated"})
-         (json-response 200 {:ok true
-                             :authenticated false
-                             :realtime_tracks (realtime-track-ids config)
-                             :async_tracks (stream-controls/configured-async-tracks config)
-                             :realtime_track_capabilities (realtime-track-capabilities config grpc)
-                             :features (features/feature-state config)})))))
+        (json-response 200 {:ok true
+                            :authenticated false
+                            :realtime_tracks (realtime-track-ids config)
+                            :async_tracks (stream-controls/configured-async-tracks config)
+                            :realtime_track_capabilities (realtime-track-capabilities config grpc)
+                            :features (features/feature-state config)})))))

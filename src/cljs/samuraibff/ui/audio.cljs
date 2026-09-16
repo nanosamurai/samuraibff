@@ -147,11 +147,11 @@
   [device-id]
   (.getUserMedia (.-mediaDevices js/navigator)
                  #js {:audio (clj->js
-                             (cond-> {:channelCount 1
-                                      :noiseSuppression false
-                                      :echoCancellation false}
-                               (seq (str device-id))
-                               (assoc :deviceId #js {:exact (str device-id)})))
+                              (cond-> {:channelCount 1
+                                       :noiseSuppression false
+                                       :echoCancellation false}
+                                (seq (str device-id))
+                                (assoc :deviceId #js {:exact (str device-id)})))
                       :video false}))
 
 (defn- get-system-stream!
@@ -168,10 +168,10 @@
                      (throw (js/Error. "Missing desktop source id")))
                    ;; Chromium desktop constraints.
                    (.getUserMedia (.-mediaDevices js/navigator)
-                                 #js {:audio #js {:mandatory #js {:chromeMediaSource "desktop"
-                                                                 :chromeMediaSourceId sid}}
+                                  #js {:audio #js {:mandatory #js {:chromeMediaSource "desktop"
+                                                                   :chromeMediaSourceId sid}}
                                        :video #js {:mandatory #js {:chromeMediaSource "desktop"
-                                                                  :chromeMediaSourceId sid}}})))))))
+                                                                   :chromeMediaSourceId sid}}})))))))
 
 (defn- start-streaming!
   "Start capture from one or more MediaStreams and send frames to WS.
@@ -218,9 +218,9 @@
                 (.send ws (.-buffer i16))))))
 
     (store/append-log!
-      (str "[audio] capture started"
-           " mic=" (boolean mic-stream)
-           " system=" (boolean system-stream)))
+     (str "[audio] capture started"
+          " mic=" (boolean mic-stream)
+          " system=" (boolean system-stream)))
     true))
 
 (defn- start-capture!
@@ -247,7 +247,7 @@
                                              :system-gain system-gain}))))
 
           :mix
-           (-> (get-mic-stream! mic-device-id)
+          (-> (get-mic-stream! mic-device-id)
               (.then (fn [mic]
                        (-> (get-system-stream! system-id)
                            (.then (fn [sys]
@@ -259,13 +259,12 @@
                                                           :system-gain system-gain})))))))
 
           ;; default mic
-           (-> (get-mic-stream! mic-device-id)
+          (-> (get-mic-stream! mic-device-id)
               (.then (fn [mic]
                        (start-streaming! ws {:mic-stream mic
                                              :system-stream nil
                                              :mic-gain mic-gain
-                                             :system-gain system-gain}))))
-          )
+                                             :system-gain system-gain})))))
         (.catch (fn [e]
                   (store/set-ws-status! :audio :error (str e))
                   (store/append-log! (str "[audio] failed to start: " e))
@@ -294,18 +293,14 @@
                     :final (if (false? (:final controls)) "false" "true")
                     :store_recording (if (false? (:store_recording controls)) "false" "true")
 
-                    ;; Realtime knob
-                    :rt_partial_enable (if (false? (:rt_partial_enable controls)) "false" "true")}
+                    :realtime_settings (js/JSON.stringify (clj->js (:realtime_settings controls)))}
 
              ;; Optional numeric knobs (omit when nil)
              (seq (:realtime_tracks controls)) (assoc :realtime_tracks (str/join "," (:realtime_tracks controls)))
              (and (:final controls) (seq (:final_tracks controls))) (assoc :final_tracks (str/join "," (:final_tracks controls)))
              (and (:refined controls) (seq (:refinement_tracks controls))) (assoc :refinement_tracks (str/join "," (:refinement_tracks controls)))
-             (some? (:rt_window_sec controls)) (assoc :rt_window_sec (:rt_window_sec controls))
-             (some? (:rt_overlap_sec controls)) (assoc :rt_overlap_sec (:rt_overlap_sec controls))
-             (some? (:rt_emit_every_sec controls)) (assoc :rt_emit_every_sec (:rt_emit_every_sec controls))
              (some? (:refinement_window_sec controls)) (assoc :refinement_window_sec (:refinement_window_sec controls)))
-         url (util/ws-url "/ws/audio" qp {:backend-base-url (env/backend-base-url)})
+        url (util/ws-url "/ws/audio" qp {:backend-base-url (env/backend-base-url)})
         ws (js/WebSocket. url)]
     (reset! audio-ws* ws)
     (store/set-ws-status! :audio :connecting url)

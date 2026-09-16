@@ -27,8 +27,11 @@ The audio endpoint supports HTTP **Range** requests so the browser can seek.
 Saved transcripts use flat per-track tabs such as `Final Transcript (WhisperX)`.
 Labels are read from the session's frozen `stream_controls.track_labels`; old
 NULL track IDs mean WhisperX. Selected tracks without rows remain visible as
-unavailable, without inferring failure. The shared recording player remains
-available while switching tracks and uses the selected track's existing timing.
+unavailable, without inferring failure. The shared recording player appears only
+on Final Transcript tabs and uses the selected final track's existing timing.
+Follow sits in the Playback header when word timing is available, using the same
+checkbox size and accent as the Record panel. Switching to a non-final tab removes
+the player and stops playback.
 Text-only rows use `full_text` without invented timestamps or speakers. Detail
 feeds keep the latest final row within each track for legacy history and sort
 refined windows by their audio bounds, independent of arrival order. Detail

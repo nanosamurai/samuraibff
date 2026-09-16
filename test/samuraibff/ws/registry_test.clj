@@ -1,9 +1,9 @@
 (ns samuraibff.ws.registry-test
   "Unit tests for `samuraibff.ws.registry`."
   (:require
-    [clojure.core.async :as async]
-    [clojure.test :refer :all]
-    [samuraibff.ws.registry :as reg]))
+   [clojure.core.async :as async]
+   [clojure.test :refer :all]
+   [samuraibff.ws.registry :as reg]))
 
 (deftest ensure-session-idempotent-test
   (testing "ensure-session! creates once and returns the same session on subsequent calls"
@@ -51,15 +51,11 @@
           updated (reg/update-session-controls! registry "t-1" "s-uc" {:lang "cs"
                                                                        :sample-rate 8000
                                                                        :realtime-track-ids ["qwen"]
-                                                                       :rt-window-sec 5.0
-                                                                       :rt-overlap-sec 0.5
-                                                                       :rt-emit-every-sec 0.7})]
+                                                                       :realtime-settings {:qwen {}}})]
       (is (= "cs" (:lang updated)))
       (is (= 8000 (:sample-rate updated)))
       (is (= ["qwen"] (:realtime-track-ids updated)))
-      (is (= 5.0 (:rt-window-sec updated)))
-      (is (= 0.5 (:rt-overlap-sec updated)))
-      (is (= 0.7 (:rt-emit-every-sec updated)))
+      (is (= {:qwen {}} (:realtime-settings updated)))
       ;; also persisted into registry
       (is (= "cs" (:lang (reg/get-session registry "t-1" "s-uc"))))))
 
