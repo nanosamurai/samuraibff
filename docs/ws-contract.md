@@ -58,7 +58,8 @@ Realtime tuning:
   only the selected service's submap in the `x-rt-settings` JSON gRPC header.
 * Unknown settings are ignored by services. Omitted keys use deployment defaults.
   This spike relies on UI limits and existing engine limits; comprehensive SDK
-  input validation is deferred. The former flat `rt_*` query/header path is removed.
+  input validation is deferred. The former flat `rt_*` query/header path and its
+  numeric-header formatting helpers are removed.
 
 Semantics:
 

@@ -13,7 +13,8 @@
   - persist the controls into Postgres (sessions.stream_controls jsonb)
 
   Security / cost:
-  - inputs are treated as untrusted and validated/clamped
+  - output selections and refinement windows are validated/clamped
+  - service-owned settings pass through; UI boundaries apply in this spike
   - invalid combinations are rejected before WS upgrade"
   (:require
    [clojure.string :as str]
@@ -266,4 +267,3 @@
     (and (true? (:refined controls)) (some? (:refinement_window_sec controls)))
     (assoc "x-refinement-window-sec"
            (.getBytes ^String (str (double (:refinement_window_sec controls))) "UTF-8"))))
-
