@@ -47,6 +47,34 @@
                min (assoc :min min) max (assoc :max max) step (assoc :step step))]
      (when hint [:span {:class "hint"} hint])]))
 
+(defn- realtime-settings
+  "Render selected services' boolean and numeric settings using their advertised defaults and limits."
+  []
+  (let [detail (:detail (hooks/use-atom store/auth*))
+        controls (settings/effective-controls (:controls (hooks/use-atom store/session*)) detail)]
+    [:div {:class "stage-options"}
+     (for [{:keys [id session_settings]} (:realtime_track_capabilities detail)
+           :when (and (seq session_settings) (contains? (:realtime_settings controls) (keyword id)))]
+       [:div {:key id}
+        [:h4 id]
+        [:div {:class "stage-number-grid"}
+         (for [[key {:keys [display_name type min max default]}] session_settings
+               :let [path [:realtime_settings (keyword id) key]
+                     value (get-in controls path default)
+                     boolean? (= type "boolean")]]
+           [:label {:key (name key) :class (if boolean? "checkbox-row" "field")}
+            [:span {:class "label"} display_name]
+            [:input (if boolean?
+                      {:type "checkbox" :aria-label (str id ": " display_name) :checked (boolean value)
+                       :on-change #(update-controls! assoc-in path (.. % -target -checked))}
+                      {:type "number" :aria-label (str id ": " display_name) :value value
+                       :min min :max max :step (if (= type "integer") 1 0.01)
+                       :on-change #(let [number (js/parseFloat (.. % -target -value))
+                                         scale (if (= type "integer") 1 100)]
+                                     (when (js/Number.isFinite number)
+                                       (update-controls! assoc-in path
+                                                         (/ (js/Math.round (* scale (-> number (cljs.core/max min) (cljs.core/min max)))) scale))))})]])]])]))
+
 (defn- capability-summary
   "Describe useful realtime behavior without requiring the user to open a second picker."
   [capability]
@@ -137,16 +165,7 @@
         [track-choices stage]
         (case stage
           :realtime
-          [:div {:class "stage-options"}
-           [:label {:class "checkbox-row"}
-            [:input {:type "checkbox" :checked (boolean (get-in session [:controls :rt_partial_enable]))
-                     :disabled (not enabled?) :on-change #(store/set-session-control! :rt_partial_enable (.. % -target -checked))}]
-            "Show partial text while speaking"]
-           [:div {:class "stage-number-grid"}
-            [number-field {:control :rt_emit_every_sec :label "Update interval (sec)" :disabled? (not enabled?) :min 1 :step 0.1 :hint "Minimum 1 second."}]
-            [number-field {:control :rt_window_sec :label "Window (sec)" :disabled? (not enabled?) :min 1 :max 30 :step 0.1
-                           :hint "Default uses the service configuration. Set a value to override it for this session; overlap adds context on both sides."}]
-            [number-field {:control :rt_overlap_sec :label "Overlap (sec)" :disabled? (not enabled?) :min 0 :step 0.1}]]]
+          [realtime-settings]
           :refined [number-field {:control :refinement_window_sec :label "Refinement window (sec)" :disabled? (not enabled?) :min 10 :max 600 :step 1}]
           nil)
         (when (and (not= stage :realtime) (seq (settings/entries detail stage)))
