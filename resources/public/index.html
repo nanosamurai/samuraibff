@@ -254,7 +254,7 @@
     .settings-tabs{display:flex;flex-wrap:wrap;gap:6px;padding-bottom:14px;border-bottom:1px solid var(--line)}
     .output-tab,.settings-tab{display:inline-flex;align-items:center;border:1px solid transparent;border-radius:9px;background:rgba(12,18,27,.45);min-height:40px}
     .output-tab{padding-left:12px;gap:7px}
-    .output-tab input{width:15px;height:15px;min-width:15px;margin:0;accent-color:var(--accent);cursor:pointer}
+    .output-tab input,.checkbox-row input[type="checkbox"]{width:15px;height:15px;min-width:15px;margin:0;accent-color:var(--accent);cursor:pointer}
     .output-tab button,.settings-tab{color:var(--muted);font:inherit;font-size:13px;cursor:pointer}
     .output-tab button{display:flex;align-items:center;gap:8px;padding:10px 12px 10px 0;border:0;background:none}
     .settings-tab{padding:10px 13px}
@@ -307,6 +307,8 @@
 
     .checkbox-row input{min-width:auto}
     .checkbox-row label{cursor:pointer;color:var(--txt);font-size:13px}
+    .playback-header{justify-content:space-between;margin-bottom:10px}
+    .playback-header .card-title{margin-bottom:0}
 
     .track-picker{position:relative;width:min(100%,640px)}
     .track-picker-summary{

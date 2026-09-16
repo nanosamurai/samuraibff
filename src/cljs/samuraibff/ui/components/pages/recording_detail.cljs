@@ -194,6 +194,9 @@
   Inputs:
   - session-id: string
   - enabled?: boolean
+  - follow-enabled?: boolean; show Follow when the selected final has word timing
+  - follow?: boolean; whether playback scrolls the transcript
+  - on-follow: checkbox change callback
   - audio-ref: React ref
   - on-time: (fn [event] ...) (optional)
   - on-play: (fn [event] ...) (optional)
@@ -201,14 +204,20 @@
   - on-ended: (fn [event] ...) (optional)
 
   Returns: hiccup."
-  [{:keys [session-id enabled? audio-ref on-time on-play on-pause on-ended]}]
+  [{:keys [session-id enabled? audio-ref on-time on-play on-pause on-ended
+           follow-enabled? follow? on-follow]}]
   (let [url (api/recording-audio-url session-id)
         on-time (or on-time (fn [_] nil))
         on-play (or on-play (fn [_] nil))
         on-pause (or on-pause (fn [_] nil))
         on-ended (or on-ended (fn [_] nil))]
     [:div {:class "card"}
-     [:div {:class "card-title"} "Playback"]
+     [:div {:class "row playback-header"}
+      [:div {:class "card-title"} "Playback"]
+      (when follow-enabled?
+        [:label {:class "checkbox-row"}
+         [:input {:type "checkbox" :checked follow? :on-change on-follow}]
+         "Follow"])]
      (if (and (true? enabled?) (seq (str session-id)))
        [:audio {:controls true
                 :preload "metadata"
@@ -249,7 +258,7 @@
         rows (:rows selected)
         messages (if (= stage :realtime) cached-asr (recording-detail/record-messages rows stage))
         playback? (true? (get-in detail [:session :has_recording]))
-        karaoke? (and playback? (some #(seq (:words %)) messages))
+        karaoke? (and (= stage :final) playback? (some #(seq (:words %)) messages))
         session (:session detail)
         status (:status session)
         created-at-ms (util/iso->ms (:created_at session))
@@ -310,14 +319,21 @@
       (for [{:keys [id label]} tabs]
         [:button {:key (pr-str id) :class (str "tab " (when (= id (:id selected)) "active"))
                   :type "button" :role "tab" :aria-selected (= id (:id selected))
-                  :on-click #(set-tab! id)} label])
+                  :on-click #(do
+                               (when (not= :final (first id))
+                                 (when-let [audio (.-current audio-ref)] (.pause audio))
+                                 (set-time! 0))
+                               (set-tab! id))} label])
       (when runtime-enabled?
         [:button {:class "btn ghost" :on-click #(set-show-workflows! (not show-workflows?))}
          "Workflows / Webhooks"])]
      [:div {:class "split"}
       [:div {:class "split-main"}
-       [final-audio-player {:session-id session-id :enabled? playback? :audio-ref audio-ref
-                            :on-time #(set-time! (on-time->current-time-s %))}]
+       (when (= stage :final)
+         [final-audio-player {:session-id session-id :enabled? playback? :audio-ref audio-ref
+                              :on-time #(set-time! (on-time->current-time-s %))
+                              :follow-enabled? karaoke? :follow? follow?
+                              :on-follow #(set-follow! (.. % -target -checked))}])
        [:div {:class "card" :role "tabpanel" :aria-label (:label selected)}
         (if selected
           [:div
@@ -326,10 +342,6 @@
                   (empty? rows) "No result available yet. This does not establish whether the track is processing or failed."
                   (= stage :refined) (str (count rows) " saved window(s) available. More windows may still arrive.")
                   :else "Saved result available.")]
-           (when karaoke?
-             [:label {:class "checkbox-row"}
-              [:input {:type "checkbox" :checked follow? :on-change #(set-follow! (.. % -target -checked))}]
-              "Follow"])
            (if karaoke?
              [components.transcript/final-transcript-karaoke
               {:key (pr-str (:id selected)) :messages messages :audio-ref audio-ref
