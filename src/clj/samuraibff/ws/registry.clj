@@ -451,6 +451,8 @@
 
      :events-subs* (atom 0)
      :audio-socks* (atom 0)
+     :audio-ended?* (atom false)
+     :audio-drained?* (atom false)
 
      :seq* (atom 0)
      :chunk-seq* (atom 0)
@@ -764,10 +766,11 @@
   nil)
 
 (defn- maybe-close-if-unused!
-  "Close the session when no WS connections remain."
+  "Close an unused session after its accepted audio has drained."
   [registry session]
   (when (and (zero? @(:events-subs* session))
-             (zero? @(:audio-socks* session)))
+             (zero? @(:audio-socks* session))
+             (or (not @(:running?* session)) @(:audio-drained?* session)))
     (close-session! registry (:tenant-id session) (:session-id session) "no-active-sockets")))
 
 (defn mark-audio-connected!
@@ -786,11 +789,13 @@
   Inputs:
   - registry ws-registry component
   - session  session map
+  - normal-close? boolean; only a normal close marks the recording complete
 
   Returns: nil."
-  [registry session]
+  [registry session normal-close?]
   (let [remaining (swap! (:audio-socks* session) (fn [n] (max 0 (dec n))))]
     (when (zero? remaining)
+      (reset! (:audio-ended?* session) normal-close?)
       (log/info "Finishing audio input" {:session-id (:session-id session)
                                          :tenant-id (:tenant-id session)})
       (async/close! (:audio-ch session))))
@@ -893,8 +898,21 @@
               (nil? v)
               (do
                 (log/info "Audio channel closed" {:session-id session-id :tenant-id tenant-id})
+                (when (and @(:audio-ended?* session)
+                           (pos? @(:chunk-seq* session))
+                           (or (:want-refined? session) (:want-final? session)))
+                  (kafka.producer/send-audio-chunk!
+                   (:kafka-producer registry) session-id
+                   (build-chunk session-id tenant-id (:lang session) (:sample-rate session)
+                                (next-seq! (:chunk-seq* session)) (byte-array 0)
+                                (resolve-bff-origin-uri (:config registry)))
+                   {:tenant-id tenant-id
+                    :headers (assoc (:kafka-headers session) "x-audio-end" (.getBytes "true" "UTF-8"))})
+                  (log/info "Sent ordered audio end" {:session-id session-id :tenant-id tenant-id}))
                 (when fanout
-                  (grpc.fanout/complete! fanout)))
+                  (grpc.fanout/complete! fanout))
+                (reset! (:audio-drained?* session) true)
+                (maybe-close-if-unused! registry session))
 
               :else
               (let [chunk-id (next-seq! (:chunk-seq* session))

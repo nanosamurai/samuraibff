@@ -25,6 +25,7 @@
     [samuraibff.db.sessions :as db.sessions]
     [samuraibff.sessions.meta :as sessions.meta]
     [samuraibff.grpc.client :as grpc]
+    [samuraibff.kafka.producer :as kafka]
     [samuraibff.http.router]
     [samuraibff.http.server]
     [samuraibff.ws.registry :as reg])
@@ -126,6 +127,7 @@
         session-id (str (UUID/randomUUID))
         completed* (atom #{})
         sent-counts* (atom {})
+        kafka-records* (atom [])
         fake-start-stream!
         (fn [client {:keys [on-next on-error on-complete]}]
           {:send! (fn [_audio-chunk]
@@ -148,7 +150,8 @@
                        (on-error error)))})
         cfg {:samuraibff/config {:env :test
                                  :http {:host "127.0.0.1" :port port}}
-             :samuraibff/ws-registry {:config (ig/ref :samuraibff/config)}
+             :samuraibff/ws-registry {:config (ig/ref :samuraibff/config)
+                                      :kafka-producer {:producer nil}}
              :samuraibff/router {:config (ig/ref :samuraibff/config)
                                  :db {:ds :stub}
                                  :ws-registry (ig/ref :samuraibff/ws-registry)
@@ -157,6 +160,8 @@
              :samuraibff/http-server {:config (ig/ref :samuraibff/config)
                                       :handler (ig/ref :samuraibff/router)}}]
     (with-redefs [db.sessions/activate-session-on-audio-start-with-controls! (fn [_ _ _ controls] controls)
+                  kafka/send-audio-chunk! (fn [_ key chunk opts]
+                                           (swap! kafka-records* conj [key chunk opts]))
                   sessions.meta/resolve-sessions-meta (fn [& _] {})
                   grpc/get-capabilities (fn [client _]
                                          {:provider-profile-id (str (:id client) "-profile")})
@@ -203,6 +208,10 @@
                 "Accepted audio should reach only the selected track")
             (is (= #{"qwen"} @completed*)
                 "Closing /ws/audio should half-close the selected request")
+            (is (= [320 320 320 0] (mapv #(.size (.getPcm16Le (second %))) @kafka-records*)))
+            (is (every? #(= session-id (first %)) @kafka-records*))
+            (is (= "true" (String. ^bytes (get-in (last @kafka-records*) [2 :headers "x-audio-end"]) "UTF-8")))
+            (is (every? #(nil? (get-in % [2 :headers "x-audio-end"])) (butlast @kafka-records*)))
             (is (= #{["qwen" "qwen-profile" true]}
                    (->> decoded
                         (filter #(and (= "asr" (:type %)) (true? (:final %))))

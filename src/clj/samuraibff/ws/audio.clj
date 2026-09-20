@@ -159,7 +159,7 @@
                               (log/info "WS /ws/audio closed" {:session-id session-id
                                                                :tenant-id (:tenant-id session)
                                                                :status status})
-                              (ws.registry/mark-audio-disconnected! ws-registry session))}))
+                              (ws.registry/mark-audio-disconnected! ws-registry session (= :normal status)))}))
               (catch clojure.lang.ExceptionInfo e
                 (let [{:keys [type]} (ex-data e)]
                   (case type
