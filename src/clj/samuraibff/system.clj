@@ -197,6 +197,9 @@
                         :refined (s "SAMURAIBFF_KAFKA_TOPIC_REFINED")
                         :workflow-result (s "SAMURAIBFF_KAFKA_TOPIC_WORKFLOW_RESULT")}}
 
+      :default-tracks {:realtime (s "SAMURAIBFF_DEFAULT_REALTIME_TRACK")
+                       :refined (s "SAMURAIBFF_DEFAULT_REFINEMENT_TRACK")
+                       :final (s "SAMURAIBFF_DEFAULT_FINAL_TRACK")}
       :track-labels (when-let [raw (s "SAMURAIBFF_TRACK_LABELS")]
                       (let [labels (json/parse-string raw true)]
                         (when-not (and (map? labels)

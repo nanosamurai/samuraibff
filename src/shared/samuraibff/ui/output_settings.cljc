@@ -9,7 +9,9 @@
   "Return configured track labels for a stage from the existing metadata response."
   [detail stage]
   (if (= stage :realtime)
-    (mapv (fn [id] {:track_id id :display_name id :default_selected true}) (:realtime_tracks detail))
+    (let [default (get-in detail [:default_tracks :realtime])]
+      (mapv (fn [id] {:track_id id :display_name id
+                      :default_selected (or (nil? default) (= id default))}) (:realtime_tracks detail)))
     (filterv #(= (name stage) (:stage %)) (:async_tracks detail))))
 
 (defn selected-ids

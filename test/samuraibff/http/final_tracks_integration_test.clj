@@ -26,6 +26,16 @@
       (pg/apply-schema! ds)
       (is (= {:nemotron {:endpointing_silence_ms 800}} (:realtime_settings selected)))
       (jdbc/execute! ds ["INSERT INTO tenants(id,name) VALUES (?, 'tracks')" tenant])
+      (let [id (UUID/randomUUID)
+            defaults (controls/parse-and-validate {} ["faster" "nemotron"]
+                                                  ["whisperx" "test-shadow"] ["whisperx" "test-shadow"]
+                                                  {:realtime "nemotron" :refined "test-shadow" :final "test-shadow"})]
+        (sessions/insert-session! ds {:id id :tenant-id tenant :session-key (str id) :status "created"})
+        (is (= [["nemotron"] ["test-shadow"] ["test-shadow"]]
+               (mapv defaults [:realtime_tracks :refinement_tracks :final_tracks])))
+        (is (= defaults (sessions/activate-session-on-audio-start-with-controls! ds tenant id defaults)))
+        (is (= defaults (sessions/activate-session-on-audio-start-with-controls!
+                         ds tenant id (controls/parse-and-validate {} ["faster"])))))
       (sessions/insert-session! ds {:id session :tenant-id tenant :session-key (str session) :status "created"})
       (is (= selected (sessions/activate-session-on-audio-start-with-controls! ds tenant session selected)))
       (is (= selected (sessions/activate-session-on-audio-start-with-controls!

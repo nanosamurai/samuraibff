@@ -61,6 +61,8 @@
 
 (deftest me-handler-exposes-sanitized-realtime-track-capabilities-test
   (let [config {:auth {:required? false}
+                :default-tracks {:realtime "qwen" :refined "qwen" :final "whisperx"}
+                :refinement-tracks ["whisperx" "qwen"]
                 :grpc {:realtime-tracks [{:id "faster" :address "rtservice:50052"}
                                          {:id "qwen" :address "qwen-rtservice:50052"}]}}
         grpc {:tracks (get-in config [:grpc :realtime-tracks])}]
@@ -86,6 +88,8 @@
             qwen (second (:realtime_track_capabilities body))]
         (is (= 200 (:status response)))
         (is (= ["faster" "qwen"] (:realtime_tracks body)))
+        (is (= (:default-tracks config) (:default_tracks body)))
+        (is (= [false true true] (mapv :default_selected (:async_tracks body))))
         (is (= {:id "qwen"
                 :available true
                 :provider_profile_id "qwen-profile"
