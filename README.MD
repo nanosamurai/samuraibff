@@ -75,6 +75,14 @@ accepted frames and half-closes every selected realtime request while
 `/ws/events` stays open until each selected track reports completion, allowing
 its terminal ASR event to arrive before the browser disconnects.
 
+After a normal audio close, the same dispatch loop sends an empty `AudioChunk`
+with Kafka header `x-audio-end=true` after the last accepted frame, using the
+same producer, `audio.raw` topic and session key/partition. Producer idempotence
+preserves ordering on retries. This also drains sessions without `/ws/events`.
+The recorder finalizes immediately on this marker; abnormal disconnects and
+older producers retain the 30-second idle fallback. The finish API only updates
+database status. Refinement ignores the empty marker and retains its idle tail.
+
 Operators register one to four fixed realtime services with
 `SAMURAIBFF_GRPC_REALTIME_TRACKS`. The browser receives their stable IDs and a
 sanitized capability summary, never service addresses, runtime versions, model

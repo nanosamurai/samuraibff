@@ -74,6 +74,10 @@ Semantics:
   should keep `/ws/events` connected until each selected track emits its
   `status=stopped` event, and should create a new session before starting
   another audio stream.
+* A normal close (code 1000) sends `x-audio-end=true` on an empty Kafka
+  `AudioChunk` after queued audio, with the same session key and stream-control
+  headers. It is never sent to realtime gRPC. Abnormal closes use the recorder's
+  idle fallback; the finish REST endpoint is not an audio-completion signal.
 
 Example (tune realtime only):
 

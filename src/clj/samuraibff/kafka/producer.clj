@@ -37,6 +37,7 @@
     (.put "bootstrap.servers" (or (:bootstrap-servers kafka-config) "localhost:9092"))
     (.put "client.id" (or (:client-id kafka-config) "samuraibff"))
     (.put "acks" (or (:acks kafka-config) "all"))
+    (.put "enable.idempotence" "true")
     (.put "compression.type" (or (:compression-type kafka-config) "zstd"))
     (.put "security.protocol" (or (:security-protocol kafka-config) "PLAINTEXT"))
     (.put "key.serializer" "org.apache.kafka.common.serialization.StringSerializer")
