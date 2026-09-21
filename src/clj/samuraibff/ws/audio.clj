@@ -104,7 +104,8 @@
                                          (stream-controls/parse-and-validate
                                           params available-realtime-tracks
                                           (or (:final-tracks config) ["whisperx"])
-                                          (or (:refinement-tracks config) ["whisperx"]))
+                                          (or (:refinement-tracks config) ["whisperx"])
+                                          (:default-tracks config))
                                          config)
                     ds (:ds db)
                     _ (when-not ds

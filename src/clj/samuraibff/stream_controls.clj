@@ -79,7 +79,7 @@
           :track_id id
           :display_name (or (get-in config [:track-labels stage (keyword id)])
                             (when (= id "whisperx") "WhisperX") id)
-          :default_selected (= id (first ids))})))
+          :default_selected (= id (or (get-in config [:default-tracks stage]) (first ids)))})))
 
 (defn with-track-labels
   "Snapshot selected deployment labels beside validated controls.
@@ -131,7 +131,8 @@
 
   The one-argument arity preserves legacy parsing without resolving a track
   selection. The two-argument arity accepts the ordered vector of configured
-  track IDs and resolves an omitted selection to all of them."
+  track IDs and resolves an omitted selection to all of them. The fifth argument
+  supplies optional deployment default IDs keyed by :realtime, :refined and :final."
   ([params]
    (parse-and-validate params nil))
   ([params available-realtime-tracks]
@@ -139,6 +140,8 @@
   ([params available-realtime-tracks available-final-tracks]
    (parse-and-validate params available-realtime-tracks available-final-tracks ["whisperx"]))
   ([params available-realtime-tracks available-final-tracks available-refinement-tracks]
+   (parse-and-validate params available-realtime-tracks available-final-tracks available-refinement-tracks {}))
+  ([params available-realtime-tracks available-final-tracks available-refinement-tracks default-tracks]
    (let [realtime? (parse-bool (or (get params :realtime) (get params "realtime"))
                                (:realtime default-controls))
          refined? (parse-bool (or (get params :refined) (get params "refined"))
@@ -148,11 +151,11 @@
          final-tracks-raw (or (get params :final_tracks) (get params "final_tracks"))
          final-tracks (if (some? final-tracks-raw)
                         (mapv str/trim (str/split (str final-tracks-raw) #"," -1))
-                        [(first available-final-tracks)])
+                        [(or (:final default-tracks) (first available-final-tracks))])
          refinement-tracks-raw (or (get params :refinement_tracks) (get params "refinement_tracks"))
          refinement-tracks (if (some? refinement-tracks-raw)
                              (mapv str/trim (str/split (str refinement-tracks-raw) #"," -1))
-                             [(first available-refinement-tracks)])
+                             [(or (:refined default-tracks) (first available-refinement-tracks))])
          _ (when (or (> (count refinement-tracks) 4)
                      (not= (count refinement-tracks) (count (distinct refinement-tracks)))
                      (some #(not (contains? (set available-refinement-tracks) %)) refinement-tracks)
@@ -171,7 +174,8 @@
                                           (get params :store-recording) (get params "store-recording"))
                                       (:store_recording default-controls))
          realtime-tracks-raw (or (get params :realtime_tracks) (get params "realtime_tracks")
-                                 (get params :realtime-tracks) (get params "realtime-tracks"))
+                                 (get params :realtime-tracks) (get params "realtime-tracks")
+                                 (:realtime default-tracks))
          explicit-realtime-tracks? (some? realtime-tracks-raw)
          requested-realtime-tracks (when explicit-realtime-tracks?
                                      (mapv str/trim (str/split (str realtime-tracks-raw) #"," -1)))

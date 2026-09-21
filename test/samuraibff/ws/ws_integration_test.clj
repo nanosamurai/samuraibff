@@ -123,6 +123,9 @@
     (.getLocalPort socket)))
 
 (deftest ws-audio-selected-track-close-flushes-terminal-asr-test
+  (doseq [[selection track batch-track]
+          [["" "qwen" "qwen"]
+           ["&realtime_tracks=faster&refinement_tracks=whisperx&final_tracks=whisperx" "faster" "whisperx"]]]
   (let [port (free-port)
         session-id (str (UUID/randomUUID))
         completed* (atom #{})
@@ -149,6 +152,10 @@
                      (when on-error
                        (on-error error)))})
         cfg {:samuraibff/config {:env :test
+                                 :grpc {:realtime-tracks [{:id "faster"} {:id "qwen"}]}
+                                 :final-tracks ["whisperx" "qwen"]
+                                 :refinement-tracks ["whisperx" "qwen"]
+                                 :default-tracks {:realtime "qwen" :refined "qwen" :final "qwen"}
                                  :http {:host "127.0.0.1" :port port}}
              :samuraibff/ws-registry {:config (ig/ref :samuraibff/config)
                                       :kafka-producer {:producer nil}}
@@ -181,7 +188,7 @@
           (reset! audio*
                   (connect-ws!
                    (ws-url port "/ws/audio" (str "session_id=" session-id
-                                                  "&lang=en&sample_rate=16000&realtime_tracks=qwen"))
+                                                  "&lang=en&sample_rate=16000" selection))
                    {:on-close (fn [_ _] nil)}))
 
           (let [ws-registry (get system :samuraibff/ws-registry)
@@ -189,7 +196,7 @@
             (is (= "en" (:lang session))
                 (str "Expected :lang to be updated, got "
                      (pr-str (select-keys session [:lang :sample-rate]))))
-            (is (= ["qwen"] (:realtime-track-ids session))))
+            (is (= [track] (:realtime-track-ids session))))
 
           (dotimes [_ 3]
             (.sendBinary ^WebSocket @audio* (byte-array 320)))
@@ -204,24 +211,27 @@
                                          (json/read-value message mapper)
                                          (catch Exception _
                                            nil))))))]
-            (is (= {"qwen" 3} @sent-counts*)
+            (is (= {track 3} @sent-counts*)
                 "Accepted audio should reach only the selected track")
-            (is (= #{"qwen"} @completed*)
+            (is (= #{track} @completed*)
                 "Closing /ws/audio should half-close the selected request")
             (is (= [320 320 320 0] (mapv #(.size (.getPcm16Le (second %))) @kafka-records*)))
             (is (every? #(= session-id (first %)) @kafka-records*))
+            (doseq [header ["x-final-tracks" "x-refinement-tracks"]]
+              (is (every? #(= batch-track (String. ^bytes (get-in % [2 :headers header]) "UTF-8"))
+                          @kafka-records*)))
             (is (= "true" (String. ^bytes (get-in (last @kafka-records*) [2 :headers "x-audio-end"]) "UTF-8")))
             (is (every? #(nil? (get-in % [2 :headers "x-audio-end"])) (butlast @kafka-records*)))
-            (is (= #{["qwen" "qwen-profile" true]}
+            (is (= #{[track (str track "-profile") true]}
                    (->> decoded
                         (filter #(and (= "asr" (:type %)) (true? (:final %))))
                         (map (juxt :track :provider_profile_id :primary_track))
                         set))
-                (str "Expected labelled terminal events from both tracks, got " msgs))
+                (str "Expected labelled terminal events from the selected track, got " msgs))
             (is (not-any? #(.startsWith ^String % "CLOSED:") msgs)
                 (str "Events WebSocket should remain open through terminal delivery, got " msgs)))
 
           (finally
             (when-let [^WebSocket audio @audio*] (.disconnect audio))
             (when-let [^WebSocket events @events*] (.disconnect events))
-            (ig/halt! system)))))))
+            (ig/halt! system))))))))

@@ -866,11 +866,9 @@
 
         session (hooks/use-atom store/session*)
         auth-state (hooks/use-atom store/auth*)
-        available-realtime-tracks (vec (get-in auth-state [:detail :realtime_tracks] []))
-        requested-realtime-track-set (set (get-in session [:controls :realtime_tracks]))
-        realtime-track-ids (let [selected (if (seq requested-realtime-track-set)
-                                            (filterv requested-realtime-track-set available-realtime-tracks)
-                                            available-realtime-tracks)]
+        realtime-track-ids (let [selected (output-settings/selected-ids
+                                          (:controls session) :realtime
+                                          (output-settings/entries (:detail auth-state) :realtime))]
                              (if (seq selected) selected ["default"]))
         running? (hooks/use-atom store/running?*)
         session-created-at-ms (or (:created_at_ms session) (util/now-ms))

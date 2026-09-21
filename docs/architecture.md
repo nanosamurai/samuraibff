@@ -82,8 +82,8 @@ failing the entire endpoint. The live track picker renders these limits before
 a session starts.
 
 Each audio session may select a non-empty subset with the `/ws/audio`
-`realtime_tracks` control; omission selects every configured track for
-compatibility. The BFF validates selections against the operator allowlist and
+`realtime_tracks` control; omission selects the configured default, or every
+configured track when no default is set. The BFF validates selections against the operator allowlist and
 never accepts endpoints from a client. Selected clients retain operator order,
 and the first selected track is marked `primary_track=true` for compatibility
 consumers.

@@ -30,9 +30,16 @@ Output selection (all default to `true` when omitted):
 
 * `realtime=true|false` – whether to run configured realtime ASR tracks (gRPC)
 * `realtime_tracks=<track-id>,...` – optional non-empty subset of the one to
-  four operator-configured track IDs; omission selects every configured track
+  four operator-configured track IDs; omission selects `SAMURAIBFF_DEFAULT_REALTIME_TRACK`
+  when set, otherwise every configured track
 * `refined=true|false` – whether to publish audio to the refined pipeline (Kafka)
 * `final=true|false` – whether to produce final transcript artifacts (pipeline)
+
+Omitted `refinement_tracks` and `final_tracks` use
+`SAMURAIBFF_DEFAULT_REFINEMENT_TRACK` and `SAMURAIBFF_DEFAULT_FINAL_TRACK`,
+respectively, falling back to each stage's first configured ID. Explicit
+selections override defaults; stage switches remain authoritative. Resolved
+choices are saved at audio admission and reused on reconnect.
 
 Recording retention:
 

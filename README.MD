@@ -88,8 +88,8 @@ Operators register one to four fixed realtime services with
 sanitized capability summary, never service addresses, runtime versions, model
 revisions, or model digests, and can select any non-empty subset for a session.
 Capability discovery is best-effort: an unavailable provider is marked
-unavailable without failing `GET /api/me`. An omitted selection remains
-compatible and uses every configured track. The live UI shows each provider's
+unavailable without failing `GET /api/me`. An omitted selection uses the configured
+default track, or every configured track when no default is set. The live UI shows each provider's
 mode, duration policy, timestamp and speaker-label support, concurrency, and
 language count before recording, then labels each selected track and renders
 simultaneous results side by side. For enriched providers the summary also
@@ -236,8 +236,8 @@ See:
 
 Set `SAMURAIBFF_FINAL_TRACKS` to a comma-separated allowlist of up to four
 stable lowercase IDs (default `whisperx`). `/ws/audio` accepts `final_tracks`
-as an ordered CSV selection. Omission selects the first configured ID (normally
-`whisperx`); explicit IDs must
+as an ordered CSV selection. Omission selects the configured default, falling
+back to the first configured ID (normally `whisperx`); explicit IDs must
 be configured, unique and nonempty. Multiple final tracks require
 `store_recording=true`, and the `final` stage toggle remains authoritative.
 
@@ -286,6 +286,24 @@ session status is not a per-track success/failure report. See
 `docs/refinement-tracks-spike.md` and `docs/track-selection-ui.md` for validation.
 
 ## Track selection and labels
+
+Optional deployment defaults select one track when the caller enables a stage
+without specifying its tracks:
+
+| Environment variable | Stage | When unset or blank |
+| --- | --- | --- |
+| `SAMURAIBFF_DEFAULT_REALTIME_TRACK` | Real-time | All configured realtime tracks |
+| `SAMURAIBFF_DEFAULT_REFINEMENT_TRACK` | Refined | First `SAMURAIBFF_REFINEMENT_TRACKS` ID, otherwise `whisperx` |
+| `SAMURAIBFF_DEFAULT_FINAL_TRACK` | Final | First `SAMURAIBFF_FINAL_TRACKS` ID, otherwise `whisperx` |
+
+Each value must be one ID in that stage's configured allowlist; BFF rejects
+invalid defaults at startup. Defaults do not register or start workers.
+Explicit selections win, and disabled stages stay disabled. `GET /api/me`
+returns configured IDs in `default_tracks` (`realtime`, `refined`, `final`);
+the browser uses them for preselection and live results. The resolved choices
+are frozen in the existing session controls at audio admission, including on
+reconnect. Changing defaults affects new sessions; existing choices, historical
+WhisperX fallback and `primary_track` event semantics are unchanged.
 
 The existing `GET /api/me` returns `async_tracks`: a small list of configured
 `stage`, `track_id`, `display_name` and `default_selected` values. This is static

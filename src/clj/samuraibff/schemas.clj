@@ -605,6 +605,10 @@
    [:ok :boolean]
    [:authenticated :boolean]
    [:realtime_tracks [:vector {:min 1 :max 4} NonEmptyString]]
+   [:default_tracks [:map
+                     [:realtime {:optional true} NonEmptyString]
+                     [:refined {:optional true} NonEmptyString]
+                     [:final {:optional true} NonEmptyString]]]
    [:realtime_track_capabilities [:vector {:min 1 :max 4} RealtimeTrackCapability]]
    [:async_tracks [:vector {:max 8}
                    [:map

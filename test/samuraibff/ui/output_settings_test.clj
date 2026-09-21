@@ -4,6 +4,7 @@
 
 (deftest service-defaults-and-selected-overrides-test
   (let [detail {:realtime_tracks ["faster" "nemotron"]
+                :default_tracks {:realtime "nemotron"}
                 :realtime_track_capabilities [{:id "faster" :session_settings {:window_sec {:default 10}
                                                                                :overlap_sec {:default 1}
                                                                                :partial_enable {:default true}}}
@@ -11,6 +12,9 @@
         controls {:realtime_tracks ["faster"]
                   :realtime_settings {:faster {:overlap_sec 0 :partial_enable false :unknown 1}
                                       :nemotron {:endpointing_silence_ms 800}}}]
+    (is (= ["nemotron"] (settings/selected-ids {} :realtime (settings/entries detail :realtime))))
+    (is (= {:nemotron {:endpointing_silence_ms 2000}}
+           (:realtime_settings (settings/effective-controls {} detail))))
     (is (= {:faster {:window_sec 10 :overlap_sec 0 :partial_enable false}}
            (:realtime_settings (settings/effective-controls controls detail))))
     (is (= {} (:realtime_settings (settings/effective-controls (assoc controls :realtime false) detail))))))

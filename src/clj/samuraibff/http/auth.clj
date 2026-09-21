@@ -540,6 +540,7 @@
                             :tenant_id tenant-id-str
                             :tenant_name tenant-name
                             :realtime_tracks (realtime-track-ids config)
+                            :default_tracks (or (:default-tracks config) {})
                             :async_tracks (stream-controls/configured-async-tracks config)
                             :realtime_track_capabilities (realtime-track-capabilities config grpc)
                             :features (features/feature-state config)
@@ -549,6 +550,7 @@
         (json-response 200 {:ok true
                             :authenticated false
                             :realtime_tracks (realtime-track-ids config)
+                            :default_tracks (or (:default-tracks config) {})
                             :async_tracks (stream-controls/configured-async-tracks config)
                             :realtime_track_capabilities (realtime-track-capabilities config grpc)
                             :features (features/feature-state config)})))))

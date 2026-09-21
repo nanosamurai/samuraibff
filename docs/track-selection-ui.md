@@ -8,8 +8,10 @@ and Persistor keep their spike 2 workers, events, storage and consumer groups.
 
 `GET /api/me` exposes the deployment's configured async IDs and labels.
 `SAMURAIBFF_TRACK_LABELS` is a small JSON object with `final` and `refined` maps;
-labels default to the ID, with `WhisperX` for `whisperx`. Selections default to
-the first configured ID, so an alternative-only deployment also works.
+labels default to the ID, with `WhisperX` for `whisperx`. Async selections use
+the stage's configured default ID, falling back to its first configured ID.
+Realtime preselection uses `default_tracks.realtime`, or all tracks when unset.
+See the README for the three optional `SAMURAIBFF_DEFAULT_*_TRACK` variables.
 Labels are resolved by BFF at audio admission, stored in
 `sessions.stream_controls.track_labels`, and copied into the existing
 `sessions.meta.stream_controls`. Reconnects preserve that same snapshot.
