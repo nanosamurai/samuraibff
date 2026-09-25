@@ -343,7 +343,8 @@
                                  :description "Returns the tenant-scoped list of recording sessions."
                                  :parameters {:query [:map
                                                       [:limit {:optional true} :int]
-                                                      [:offset {:optional true} :int]]}
+                                                      [:offset {:optional true} :int]
+                                                      [:show_drafts {:optional true} :boolean]]}
                                  :responses {200 {:body schemas/RecordingsListResponse}
                                              400 {:body schemas/ApiErrorResponse}
                                              403 {:body schemas/ApiErrorResponse}
@@ -357,8 +358,8 @@
              ;; method handlers directly at the same node. Put them under an
              ;; empty-path child instead.
             [""
-               {:get {:summary "Get recording detail"
-                      :parameters {:query [:map [:track_id {:optional true} :string]]}
+             {:get {:summary "Get recording detail"
+                    :parameters {:query [:map [:track_id {:optional true} :string]]}
                     :description "Returns recording metadata and transcript records for the given session id."
                     :responses {200 {:body schemas/RecordingDetailResponse}
                                 400 {:body schemas/ApiErrorResponse}

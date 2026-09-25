@@ -46,11 +46,12 @@
   - opts: map of optional keys:
       :limit int (default 200)
       :offset int (default 0)
+      :show-drafts? boolean (default true; false excludes created sessions)
 
   Returns:
   - vector of maps with unqualified lower-case keys."
-  [^DataSource ds ^UUID tenant-id {:keys [limit offset]
-                                   :or {limit 200 offset 0}}]
+  [^DataSource ds ^UUID tenant-id {:keys [limit offset show-drafts?]
+                                   :or {limit 200 offset 0 show-drafts? true}}]
   (when-not (and ds (instance? UUID tenant-id))
     (throw (ex-info "list-sessions-for-tenant missing required params"
                     {:tenant-id tenant-id})))
@@ -77,15 +78,33 @@
          "            AND st.type = 'final') AS has_final_transcript\n"
          "FROM sessions s\n"
          "LEFT JOIN latest_recording lr ON lr.session_id = s.id\n"
-         "WHERE s.tenant_id = ?\n"
-         "ORDER BY s.created_at DESC\n"
+         "WHERE s.tenant_id = ? AND (? OR s.status IS DISTINCT FROM 'created')\n"
+         "ORDER BY s.created_at DESC, s.id DESC\n"
          "LIMIT ? OFFSET ?")
-        sqlvec [sqlstr tenant-id (long limit) (long offset)]]
+        sqlvec [sqlstr tenant-id show-drafts? (long limit) (long offset)]]
     (try
       (vec (jdbc/execute! ds sqlvec {:builder-fn rs/as-unqualified-lower-maps}))
       (catch Exception e
         (log/error e "DB query failed (list-sessions-for-tenant)" {:tenant-id (str tenant-id)})
         (throw e)))))
+
+(defn count-sessions-for-tenant
+  "Count sessions for an authenticated tenant UUID using a DataSource.
+
+  show-drafts? is a boolean matching the list filter. Returns a map with
+  :total (matching sessions) and :drafts_count (all drafts in this tenant),
+  both non-negative integers. Throws on invalid inputs or database errors."
+  [^DataSource ds ^UUID tenant-id show-drafts?]
+  (when-not (and ds (instance? UUID tenant-id) (boolean? show-drafts?))
+    (throw (ex-info "count-sessions-for-tenant missing required params"
+                    {:tenant-id tenant-id})))
+  (jdbc/execute-one!
+   ds
+   [(str "SELECT count(*) FILTER (WHERE ? OR status IS DISTINCT FROM 'created') AS total, "
+         "count(*) FILTER (WHERE status = 'created') AS drafts_count "
+         "FROM sessions WHERE tenant_id = ?")
+    show-drafts? tenant-id]
+   {:builder-fn rs/as-unqualified-lower-maps}))
 
 (defn find-session-by-id
   "Find a session row by id, scoped to tenant.

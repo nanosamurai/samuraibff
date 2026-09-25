@@ -515,9 +515,12 @@
   Query params:
   - limit (optional, default 200)
   - offset (optional, default 0)
+  - show_drafts (optional boolean, default true)
 
   Response body:
-  - {:items [ ... ]}
+  - {:items [ ... ] :total integer :drafts_count integer}
+
+  Total respects the draft filter; drafts_count counts all tenant drafts.
 
   Each item contains session metadata and best-effort recording flags.
 
@@ -535,7 +538,12 @@
         (let [tenant-uuid (tenant-id-uuid req)
               limit (parse-int (or (get-in req [:params :limit]) (get-in req [:params "limit"])) 200)
               offset (parse-int (or (get-in req [:params :offset]) (get-in req [:params "offset"])) 0)
-              rows (db.recordings/list-sessions-for-tenant ds tenant-uuid {:limit limit :offset offset})
+              query (merge (:params req) (get-in req [:parameters :query]))
+              show-drafts? (not= "false" (str (get query :show_drafts (get query "show_drafts" true))))
+              counts (db.recordings/count-sessions-for-tenant ds tenant-uuid show-drafts?)
+              rows (db.recordings/list-sessions-for-tenant ds tenant-uuid {:limit limit
+                                                                           :offset offset
+                                                                           :show-drafts? show-drafts?})
               items (mapv (fn [r]
                             {:session_id (str (:id r))
                              :session_key (:session_key r)
@@ -553,6 +561,8 @@
                           rows)
               body {:ok true
                     :tenant_id (str tenant-uuid)
+                    :total (:total counts)
+                    :drafts_count (:drafts_count counts)
                     :items items}]
           ;; Validate in dev/test.
           (when (#{:dev :test} (:env config))
@@ -628,7 +638,7 @@
                     {:id (str (:id r))
                      :type (:type r)
                      :source (:source r)
-                    :model (:model r)
+                     :model (:model r)
                      :track_id (or (:track_id r) "whisperx")
                      :window_length (:window_length r)
                      :segment_start_s (:segment_start_s r)
