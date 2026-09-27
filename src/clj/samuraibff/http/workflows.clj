@@ -57,7 +57,8 @@
      :tenant_id (str (:tenant_id row))
      :name (:name row)
      :enabled (boolean (:enabled row))
-     :trigger {:type (:trigger_type row)}
+     :trigger (cond-> {:type (:trigger_type row)}
+                (some? (:trigger_track_id row)) (assoc :track_id (:trigger_track_id row)))
      :provider {:type (:provider_type row)
                 :model_id (:provider_model_id row)
                 :params (or (:provider_params row) {})}
@@ -114,6 +115,7 @@
                    :name (str/trim (str name))
                    :enabled (boolean (if (contains? body :enabled) enabled true))
                    :trigger-type (get trigger :type)
+                   :trigger-track-id (:track_id trigger)
                    :prompt-text (get prompt :text)
                    :provider-type (get provider :type)
                    :provider-model-id (get provider :model_id)
@@ -161,7 +163,8 @@
               patch (cond-> {}
                       (some? name) (assoc :name (str/trim (str name)))
                       (some? enabled) (assoc :enabled (boolean enabled))
-                      (some? trigger) (assoc :trigger_type (get trigger :type))
+                      (some? trigger) (assoc :trigger_type (get trigger :type)
+                                            :trigger_track_id (:track_id trigger))
                       (some? prompt) (assoc :prompt_text (get prompt :text))
                       (some? provider) (assoc :provider_type (get provider :type)
                                               :provider_model_id (get provider :model_id)
