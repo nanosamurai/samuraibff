@@ -22,6 +22,12 @@ Counts remain available on empty pages. Existing callers retain their defaults.
 Offset pages reflect current data; creating or deleting sessions can shift rows
 between requests.
 
+Items and both counts are read in one parameterized HoneySQL statement and share
+one PostgreSQL statement snapshot. The counts aggregate is left-joined to the
+limited session page, so empty pages still return counts. Latest-recording and
+final-transcript lookups run only for the page; recording ties use `id DESC`.
+See [query measurements and indexing considerations](sessions-pagination-query.md).
+
 Important:
 
 * The backend **must not** expose internal `recording_url` values (`file://`,

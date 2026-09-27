@@ -152,6 +152,10 @@ shows the row range, First/Previous/Next/Last controls, and a **Rows** selector 
 **Show drafts** filters before pagination; changing it or the page size returns
 to page one. Refresh keeps the current page, and deleting the last row on a
 page moves back to the last available page. Failed requests show a retry message.
+Each page and its counts come from one parameterized HoneySQL statement, including
+empty pages. Recording and transcript lookups apply only to the selected page.
+See [the pagination query measurements](docs/sessions-pagination-query.md) for
+the query design, performance limits, and an optional indexing follow-up.
 
 Install npm deps once:
 
