@@ -19,6 +19,11 @@ For the data model, see `resources/proto/stream.proto` and the Malli schemas in
   smaller logical namespaces.
 - Use structured logging for important business operations, including the
   operation's start and successful completion, without logging sensitive data.
+- Build application database queries with HoneySQL, format them with
+  `honey.sql/format`, and execute the parameterized statements with `next.jdbc`.
+  Do not introduce handcrafted SQL strings for application queries. SQL migration
+  files and standalone database diagnostics (for example, EXPLAIN benchmarks)
+  may use SQL directly. Keep runtime values in bound parameters.
 
 ## Clojure / ClojureScript editing rules
 
