@@ -540,8 +540,7 @@
               offset (parse-int (or (get-in req [:params :offset]) (get-in req [:params "offset"])) 0)
               query (merge (:params req) (get-in req [:parameters :query]))
               show-drafts? (not= "false" (str (get query :show_drafts (get query "show_drafts" true))))
-              counts (db.recordings/count-sessions-for-tenant ds tenant-uuid show-drafts?)
-              rows (db.recordings/list-sessions-for-tenant ds tenant-uuid {:limit limit
+              page (db.recordings/list-sessions-for-tenant ds tenant-uuid {:limit limit
                                                                            :offset offset
                                                                            :show-drafts? show-drafts?})
               items (mapv (fn [r]
@@ -558,11 +557,11 @@
                                          :duration_s (:duration_s r)
                                          :sample_rate (:sample_rate r)
                                          :lang (:lang r)}})
-                          rows)
+                          (:items page))
               body {:ok true
                     :tenant_id (str tenant-uuid)
-                    :total (:total counts)
-                    :drafts_count (:drafts_count counts)
+                    :total (:total page)
+                    :drafts_count (:drafts_count page)
                     :items items}]
           ;; Validate in dev/test.
           (when (#{:dev :test} (:env config))

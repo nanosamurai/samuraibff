@@ -9,12 +9,13 @@
   - session_transcripts (append-only transcript records)
 
   Public API:
+  - `sessions-page-query`
   - `list-sessions-for-tenant`
   - `find-session-by-id`
   - `list-transcript-records`
   - `delete-session!`
 
-  All functions accept a next.jdbc datasource, typically provided by the
+  Query execution functions accept a next.jdbc datasource, typically provided by the
   Integrant `:samuraibff/db` component as `(:ds db)`.
 
   Security:
@@ -30,81 +31,72 @@
    (java.util UUID)
    (javax.sql DataSource)))
 
+(defn sessions-page-query
+  "Build a parameterized HoneySQL page query for an authenticated tenant UUID.
+
+  Options are :limit (integer, default 200), :offset (integer, default 0), and
+  :show-drafts? (boolean, default true). Returns a HoneySQL map. Counts and rows
+  share one statement snapshot. A counts-only row survives an empty page;
+  recording and transcript lookups run only for sessions on the selected page."
+  [tenant-id {:keys [limit offset show-drafts?]
+              :or {limit 200 offset 0 show-drafts? true}}]
+  (let [visible-status [:is-distinct-from :status "created"]
+        counts {:select [[(if show-drafts?
+                            [:count :*]
+                            [:filter [:count :*] {:where visible-status}]) :total]
+                         [[:filter [:count :*] {:where [:= :status "created"]}] :drafts_count]]
+                :from [:sessions]
+                :where [:= :tenant_id tenant-id]}
+        page {:select [:id :tenant_id :session_key :title :status :started_at :ended_at :created_at]
+              :from [:sessions]
+              :where (cond-> [:and [:= :tenant_id tenant-id]]
+                       (not show-drafts?) (conj visible-status))
+              :order-by [[:created_at :desc] [:id :desc]]
+              :limit (long limit)
+              :offset (long offset)}
+        recording {:select [:session_id [:created_at :recording_created_at] :duration_s :sample_rate :lang]
+                   :from [:recordings]
+                   :where [:= :session_id :s.id]
+                   :order-by [[:created_at :desc] [:id :desc]]
+                   :limit 1}
+        final-transcript {:select [:session_id]
+                          :from [:session_transcripts]
+                          :where [:and [:= :session_id :s.id]
+                                  [:= :tenant_id tenant-id]
+                                  [:= :type "final"]]
+                          :limit 1}]
+    {:select [:counts.total :counts.drafts_count
+              :s.id :s.session_key :s.title :s.status :s.started_at :s.ended_at :s.created_at
+              :lr.recording_created_at :lr.duration_s :lr.sample_rate :lr.lang
+              [[:is-not :lr.session_id nil] :has_recording]
+              [[:is-not :ft.session_id nil] :has_final_transcript]]
+     :from [[counts :counts]]
+     :left-join [[page :s] true
+                 [[:lateral recording] :lr] true
+                 [[:lateral final-transcript] :ft] true]
+     :order-by [[:s.created_at :desc] [:s.id :desc]]}))
+
 (defn list-sessions-for-tenant
-  "List sessions for a tenant, newest first.
+  "Fetch one page and both counts for an authenticated tenant UUID.
 
-  Output items include:
-  - session fields (id, status, started_at, ended_at, created_at)
-  - best-effort recording metadata (recording_created_at, duration_s, lang)
-  - boolean flags:
-      :has_recording
-      :has_final_transcript
-
-  Inputs:
-  - ds: javax.sql.DataSource
-  - tenant-id: UUID
-  - opts: map of optional keys:
-      :limit int (default 200)
-      :offset int (default 0)
-      :show-drafts? boolean (default true; false excludes created sessions)
-
-  Returns:
-  - vector of maps with unqualified lower-case keys."
-  [^DataSource ds ^UUID tenant-id {:keys [limit offset show-drafts?]
-                                   :or {limit 200 offset 0 show-drafts? true}}]
+  Accepts a DataSource and options documented by sessions-page-query. Returns
+  {:items [session maps], :total integer, :drafts_count integer}, with unqualified
+  lower-case keys. Items include session fields, latest recording metadata, and
+  :has_recording / :has_final_transcript booleans. Empty pages retain counts.
+  Throws for a missing datasource, invalid tenant UUID, or database errors."
+  [^DataSource ds ^UUID tenant-id opts]
   (when-not (and ds (instance? UUID tenant-id))
     (throw (ex-info "list-sessions-for-tenant missing required params"
                     {:tenant-id tenant-id})))
-  ;; Strategy:
-  ;; - left join latest recording per session (if any)
-  ;; - left join existence of final transcript per session (if any)
-  ;;
-  ;; We use DISTINCT ON for latest recording selection.
-  (let [sqlstr
-        (str
-         "WITH latest_recording AS (\n"
-         "  SELECT DISTINCT ON (session_id)\n"
-         "    session_id, created_at AS recording_created_at, duration_s, sample_rate, lang\n"
-         "  FROM recordings\n"
-         "  ORDER BY session_id, created_at DESC\n"
-         ")\n"
-         "SELECT\n"
-         "  s.id, s.session_key, s.title, s.status, s.started_at, s.ended_at, s.created_at,\n"
-         "  lr.recording_created_at, lr.duration_s, lr.sample_rate, lr.lang,\n"
-         "  (lr.session_id IS NOT NULL) AS has_recording,\n"
-         "  EXISTS (SELECT 1 FROM session_transcripts st\n"
-         "          WHERE st.session_id = s.id\n"
-         "            AND st.tenant_id = s.tenant_id\n"
-         "            AND st.type = 'final') AS has_final_transcript\n"
-         "FROM sessions s\n"
-         "LEFT JOIN latest_recording lr ON lr.session_id = s.id\n"
-         "WHERE s.tenant_id = ? AND (? OR s.status IS DISTINCT FROM 'created')\n"
-         "ORDER BY s.created_at DESC, s.id DESC\n"
-         "LIMIT ? OFFSET ?")
-        sqlvec [sqlstr tenant-id show-drafts? (long limit) (long offset)]]
-    (try
-      (vec (jdbc/execute! ds sqlvec {:builder-fn rs/as-unqualified-lower-maps}))
-      (catch Exception e
-        (log/error e "DB query failed (list-sessions-for-tenant)" {:tenant-id (str tenant-id)})
-        (throw e)))))
-
-(defn count-sessions-for-tenant
-  "Count sessions for an authenticated tenant UUID using a DataSource.
-
-  show-drafts? is a boolean matching the list filter. Returns a map with
-  :total (matching sessions) and :drafts_count (all drafts in this tenant),
-  both non-negative integers. Throws on invalid inputs or database errors."
-  [^DataSource ds ^UUID tenant-id show-drafts?]
-  (when-not (and ds (instance? UUID tenant-id) (boolean? show-drafts?))
-    (throw (ex-info "count-sessions-for-tenant missing required params"
-                    {:tenant-id tenant-id})))
-  (jdbc/execute-one!
-   ds
-   [(str "SELECT count(*) FILTER (WHERE ? OR status IS DISTINCT FROM 'created') AS total, "
-         "count(*) FILTER (WHERE status = 'created') AS drafts_count "
-         "FROM sessions WHERE tenant_id = ?")
-    show-drafts? tenant-id]
-   {:builder-fn rs/as-unqualified-lower-maps}))
+  (try
+    (let [rows (jdbc/execute! ds (sql/format (sessions-page-query tenant-id opts))
+                              {:builder-fn rs/as-unqualified-lower-maps})]
+      (assoc (select-keys (first rows) [:total :drafts_count])
+             :items (into [] (comp (filter :id)
+                                   (map #(dissoc % :total :drafts_count))) rows)))
+    (catch Exception e
+      (log/error e "DB query failed (list-sessions-for-tenant)" {:tenant-id (str tenant-id)})
+      (throw e))))
 
 (defn find-session-by-id
   "Find a session row by id, scoped to tenant.
