@@ -67,6 +67,16 @@
           trigger (aget trigger* 0)
           set-trigger! (aget trigger* 1)
 
+          track-id* (react/useState (or (get-in initial [:trigger :track_id]) ""))
+          track-id (aget track-id* 0)
+          set-track-id! (aget track-id* 1)
+          auth (hooks/use-atom store/auth*)
+          track-stage (case trigger
+                        "transcript.refined.segment" "refined"
+                        "transcript.final.ready" "final"
+                        nil)
+          track-options (filterv #(= track-stage (:stage %)) (get-in auth [:detail :async_tracks]))
+
           model-id* (react/useState (or (get-in initial [:provider :model_id]) ""))
           model-id (aget model-id* 0)
           set-model-id! (aget model-id* 1)
@@ -112,7 +122,8 @@
                                       (js/parseInt s 10)))
                           payload {:name (str/trim (str name))
                                    :enabled (boolean enabled?)
-                                   :trigger {:type trigger}
+                                   :trigger (cond-> {:type trigger}
+                                              track-stage (assoc :track_id track-id))
                                    :provider {:type "bedrock"
                                               :model_id (str/trim (str model-id))
                                               :params params}
@@ -155,10 +166,24 @@
                    :value name
                    :on-change (fn [e] (set-name! (.. e -target -value)))}]
           [:select {:value trigger
-                    :on-change (fn [e] (set-trigger! (.. e -target -value)))}
+                    :on-change (fn [e]
+                                 (set-trigger! (.. e -target -value))
+                                 (set-track-id! ""))}
            (for [{:keys [value label]} trigger-types]
              ^{:key (str "tr-" value)}
              [:option {:value value} label])]]
+
+          (when track-stage
+            [:label {:class "row" :style {:marginTop "10px"}}
+             "Source track"
+             [:select {:value track-id
+                       :on-change (fn [e] (set-track-id! (.. e -target -value)))}
+              [:option {:value ""} "Choose a track"]
+              (when (and (seq track-id) (not (some #(= track-id (:track_id %)) track-options)))
+                [:option {:value track-id :disabled true} (str track-id " (unavailable)")])
+              (for [{:keys [track_id display_name]} track-options]
+                ^{:key track_id}
+                [:option {:value track_id} (str display_name " (" track_id ")")])]])
 
           (when (= trigger refined-trigger-type)
             [:div {:style {:marginTop "10px"}}
@@ -223,7 +248,7 @@
                    :on-click (fn [_] (when (fn? on-close) (on-close)))}
           "Cancel"]
          [:button {:class "btn primary"
-                   :disabled saving?
+                   :disabled (or saving? (and track-stage (not (some #(= track-id (:track_id %)) track-options))))
                    :on-click (fn [_] (save!))}
           (if saving? "Saving…" "Save")]]]])))
 
@@ -369,7 +394,8 @@
                            :on-change (fn [checked?]
                                         (toggle-default! id checked?))}]]
               [:td (if enabled "Yes" "No")]
-              [:td [:span {:class "mono"} (or (get trigger :type) "")]]
+              [:td [:span {:class "mono"}
+                    (str (get trigger :type) (when-let [track (:track_id trigger)] (str " / " track)))]]
               [:td [:span {:class "mono"} (or (get provider :model_id) "")]]
               [:td
                [:div {:class "row"}

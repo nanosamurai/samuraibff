@@ -33,7 +33,8 @@
     samuraibff.ui.urls-test
     samuraibff.ws.registry-test
     samuraibff.ws.ws-auth-required-integration-test
-    samuraibff.ws.ws-tenant-isolation-integration-test])
+    samuraibff.ws.ws-tenant-isolation-integration-test
+    samuraibff.workflows.track-test])
 
 (defn run
   "Run the lightweight CI test plan.
