@@ -254,14 +254,23 @@
         (for [size pagination/page-sizes]
           ^{:key size} [:option {:value size} size])]]
       [:span {:class "muted sessions-page-number"} (str (inc page) " / " pages)]
-      [:button {:class "btn ghost" :aria-label "Previous page" :title "Previous page"
-                :disabled (or loading? (not previous?))
-                :on-click (fn [_] (set-page! (dec page)))}
-       "‹"]
-      [:button {:class "btn ghost" :aria-label "Next page" :title "Next page"
-                :disabled (or loading? error (not next?))
-                :on-click (fn [_] (set-page! (inc page)))}
-       "›"]]]))
+      [:div {:class "sessions-page-buttons"}
+       [:button {:class "btn ghost" :aria-label "First page" :title "First page"
+                 :disabled (or loading? (not previous?))
+                 :on-click (fn [_] (set-page! 0))}
+        "«"]
+       [:button {:class "btn ghost" :aria-label "Previous page" :title "Previous page"
+                 :disabled (or loading? (not previous?))
+                 :on-click (fn [_] (set-page! (dec page)))}
+        "‹"]
+       [:button {:class "btn ghost" :aria-label "Next page" :title "Next page"
+                 :disabled (or loading? error (not next?))
+                 :on-click (fn [_] (set-page! (inc page)))}
+        "›"]
+       [:button {:class "btn ghost" :aria-label "Last page" :title "Last page"
+                 :disabled (or loading? error (not next?))
+                 :on-click (fn [_] (set-page! (dec pages)))}
+        "»"]]]]))
 
 (defn recordings-table
   "Render a page of sessions as a table or mobile cards from pagination hook state."
