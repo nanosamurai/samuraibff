@@ -102,6 +102,8 @@ claims retain the same response shape. Authentication requirements are unchanged
 Rejected WebSocket handshakes return `Connection: close`. This prevents an HTTP
 load balancer from reusing a rejected upgrade connection for a subsequent
 request, which http-kit would otherwise interpret as an invalid WebSocket frame.
+The raw-socket regression verifies the close header using a generated handshake
+nonce, so public-tree secret scanning remains enabled without a fixture exception.
 
 While following the live transcript, the feed scrolls before painting each
 message revision, including partials that grow inside an existing bubble.

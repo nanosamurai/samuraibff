@@ -22,8 +22,9 @@
     (java.io BufferedReader InputStreamReader)
     (java.net Socket)
     (java.nio.charset StandardCharsets)
+    (java.security SecureRandom)
     (com.neovisionaries.ws.client WebSocketAdapter WebSocketException WebSocketFactory)
-    (java.util UUID)
+    (java.util Base64 UUID)
     (java.util.concurrent CountDownLatch TimeUnit)))
 
 (defn- ws-url
@@ -65,6 +66,9 @@
 (deftest ws-auth-required-rejects-missing-token
   (let [port 8091
         session-id (str (UUID/randomUUID))
+        nonce (byte-array 16)
+        _ (.nextBytes (SecureRandom.) nonce)
+        handshake-key (.encodeToString (Base64/getEncoder) nonce)
         cfg {:samuraibff/config {:env :test
                                  :http {:host "127.0.0.1" :port port}
                                  :auth {:required? true
@@ -86,7 +90,7 @@
                 (.getBytes (str "GET /ws/events?session_id=" session-id " HTTP/1.1\r\n"
                                 "Host: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n"
                                 "Sec-WebSocket-Version: 13\r\n"
-                                "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n")
+                                "Sec-WebSocket-Key: " handshake-key "\r\n\r\n")
                            StandardCharsets/US_ASCII))
         (let [reader (BufferedReader. (InputStreamReader. (.getInputStream socket) StandardCharsets/UTF_8))
               headers (loop [lines []]
