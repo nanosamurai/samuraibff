@@ -99,6 +99,11 @@ The Community Edition consists of:
 
 This file is **not** a changelog.
 
+Keep task-specific investigation notes, benchmark results, and implementation
+history in the PR description. Do not commit one-off reports or benchmark
+utilities. Repository documentation should describe current behavior and durable
+development guidance.
+
 * **README.MD** is the canonical source of truth for:
   * current product scope / features (endpoints, auth, OpenAPI, refined transcripts, etc.)
   * operational behavior and configuration notes
