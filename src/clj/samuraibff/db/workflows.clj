@@ -102,7 +102,7 @@
   (->> (jdbc/execute!
         ds
         ["SELECT id, tenant_id, name, enabled,
-                 trigger_type,
+                 trigger_type, trigger_track_id,
                  prompt_text,
                  provider_type, provider_model_id, provider_params,
                  incremental_enabled, incremental_min_interval_sec,
@@ -125,7 +125,7 @@
   (some-> (jdbc/execute-one!
            ds
            ["SELECT id, tenant_id, name, enabled,
-                    trigger_type,
+                    trigger_type, trigger_track_id,
                     prompt_text,
                     provider_type, provider_model_id, provider_params,
                     incremental_enabled, incremental_min_interval_sec,
@@ -143,7 +143,7 @@
   - ds: DataSource
   - workflow map with keys:
       :id :tenant-id :name :enabled
-      :trigger-type :prompt-text
+      :trigger-type :trigger-track-id :prompt-text
       :provider-type :provider-model-id
       and optional:
       :provider-params (map)
@@ -151,7 +151,7 @@
 
   Returns:
   - {:id uuid}"
-  [^DataSource ds {:keys [id tenant-id name enabled trigger-type prompt-text
+  [^DataSource ds {:keys [id tenant-id name enabled trigger-type trigger-track-id prompt-text
                           provider-type provider-model-id]
                    :as wf}]
   (when-not (and ds (instance? UUID id) (instance? UUID tenant-id)
@@ -168,6 +168,7 @@
                   :name (str name)
                   :enabled (boolean enabled)
                   :trigger_type (str trigger-type)
+                  :trigger_track_id trigger-track-id
                   :prompt_text (str prompt-text)
                   :provider_type (str provider-type)
                   :provider_model_id (str provider-model-id)
@@ -189,7 +190,7 @@
   - workflow-id UUID
   - patch map with allowed keys (snake_case DB keys):
       :name :enabled
-      :trigger_type :prompt_text
+      :trigger_type :trigger_track_id :prompt_text
       :provider_type :provider_model_id :provider_params
       :incremental_enabled :incremental_min_interval_sec
 
@@ -200,7 +201,7 @@
     (throw (ex-info "update-workflow! missing required params" {:tenant-id tenant-id :workflow-id workflow-id})))
   (let [allowed0 (select-keys patch
                               [:name :enabled
-                               :trigger_type :prompt_text
+                               :trigger_type :trigger_track_id :prompt_text
                                :provider_type :provider_model_id :provider_params
                                :incremental_enabled :incremental_min_interval_sec])
         allowed (cond-> allowed0

@@ -66,7 +66,8 @@
        {:workflow_id (str (:id w))
        :name (str (or (:name w) ""))
        :enabled (boolean (:enabled w))
-       :trigger {:type trigger-type}
+       :trigger (cond-> {:type trigger-type}
+                  (some? (:trigger_track_id w)) (assoc :track_id (:trigger_track_id w)))
        :prompt {:text (str (:prompt_text w))}
        :provider {:type (or provider-type "bedrock")
                   :model_id (str (:provider_model_id w))

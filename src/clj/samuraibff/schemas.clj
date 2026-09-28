@@ -315,12 +315,13 @@
    "transcript.final.ready"])
 
 (def WorkflowTrigger
-  "Workflow trigger configuration.
-
-  Shape:
-  - {:type <WorkflowTriggerType>}"
-  [:map
-   [:type WorkflowTriggerType]])
+  "Workflow source: transcript triggers require one track ID; recording events have none."
+  [:or
+   [:map {:closed true}
+    [:type [:enum "transcript.refined.segment" "transcript.final.ready"]]
+    [:track_id [:and NonEmptyString [:re #"^\S+$"]]]]
+   [:map {:closed true}
+    [:type [:= "recording.finished"]]]])
 
 (def WorkflowProvider
   "Workflow provider configuration.
@@ -367,7 +368,7 @@
   Shape:
   - {:name <string>
      :enabled <boolean?>
-     :trigger {:type <WorkflowTriggerType>}
+     :trigger {:type <WorkflowTriggerType> :track_id <transcript-track-id>}
      :provider {:type bedrock :model_id <string> :params <map?>}
      :prompt {:text <string>}
      :incremental {:enabled <boolean?> :min_interval_sec <int?>}?}"

@@ -503,7 +503,8 @@
                          (when-not enabled?
                            [:span {:class "muted" :style {:marginLeft "6px"}} "(disabled)"])
                          [:span {:class "muted" :style {:marginLeft "8px"}}
-                          (or (get-in trigger [:type]) "")]]]
+                          (str (:type trigger)
+                               (when-let [track (:track_id trigger)] (str " / " track)))]]]
               [:div {:key (str "wf-ov-" id)}
                [checkbox-row {:id (str "wf-ov-" id)
                               :label label
