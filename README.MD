@@ -95,6 +95,10 @@ language count before recording, then labels each selected track and renders
 simultaneous results side by side. For enriched providers the summary also
 shows how many languages support aligned, diarized finals.
 
+`GET /api/me` omits absent optional identity claims and tenant names. Machine
+accounts can discover tracks without an email claim; populated browser-user
+claims retain the same response shape. Authentication requirements are unchanged.
+
 While following the live transcript, the feed scrolls before painting each
 message revision, including partials that grow inside an existing bubble.
 Scrolling up pauses following until the reader returns near the bottom.
