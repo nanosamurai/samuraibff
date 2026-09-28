@@ -9,14 +9,19 @@
   Note: nv-websocket-client hides HTTP status details; we treat failure to
   connect / immediate disconnect as success." 
   (:require
-    [clojure.test :refer :all]
+    [clojure.string :as str]
+    [clojure.test :refer [deftest is]]
     [integrant.core :as ig]
     [samuraibff.config]
     [samuraibff.grpc.client]
     [samuraibff.http.router]
     [samuraibff.http.server]
+    [samuraibff.ws.auth :as ws.auth]
     [samuraibff.ws.registry])
   (:import
+    (java.io BufferedReader InputStreamReader)
+    (java.net Socket)
+    (java.nio.charset StandardCharsets)
     (com.neovisionaries.ws.client WebSocketAdapter WebSocketException WebSocketFactory)
     (java.util UUID)
     (java.util.concurrent CountDownLatch TimeUnit)))
@@ -75,6 +80,21 @@
                                       :handler (ig/ref :samuraibff/router)}}
         system (ig/init cfg)]
     (try
+      (with-open [socket (Socket. "127.0.0.1" port)]
+        (.setSoTimeout socket 2000)
+        (.write (.getOutputStream socket)
+                (.getBytes (str "GET /ws/events?session_id=" session-id " HTTP/1.1\r\n"
+                                "Host: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n"
+                                "Sec-WebSocket-Version: 13\r\n"
+                                "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n")
+                           StandardCharsets/US_ASCII))
+        (let [reader (BufferedReader. (InputStreamReader. (.getInputStream socket) StandardCharsets/UTF_8))
+              headers (loop [lines []]
+                        (let [line (.readLine reader)]
+                          (if (str/blank? line) lines (recur (conj lines line)))))]
+          (is (str/starts-with? (first headers) "HTTP/1.1 403"))
+          (is (some #(= "connection: close" (str/lower-case %)) headers))))
+
       (is (true?
             (connect-fails? (ws-url port "/ws/events" (str "session_id=" session-id))))
           "Expected /ws/events to reject missing auth token")
@@ -85,3 +105,14 @@
 
       (finally
         (ig/halt! system)))))
+
+(deftest rejected-upgrade-middleware-preserves-other-responses
+  (doseq [status [400 403 503]]
+    (let [response {:status status :body "rejected"}
+          handler (ws.auth/wrap-rejected-upgrade (constantly response))]
+      (is (= "close" (get-in (handler {:headers {"upgrade" "WebSocket"}})
+                              [:headers "connection"])))
+      (is (= response (handler {:headers {}})))))
+  (let [response {:status 101 :body :channel}]
+    (is (= response ((ws.auth/wrap-rejected-upgrade (constantly response))
+                     {:headers {"upgrade" "websocket"}})))))
