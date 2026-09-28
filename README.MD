@@ -146,6 +146,13 @@ commercial/full deployment.
 
 The browser UI uses the nanosamur.ai logo as its favicon.
 
+Sessions loads one server-side page at a time, newest first. A compact footer
+shows the row range, First/Previous/Next/Last controls, and a **Rows** selector for 20
+(default), 30, or 50 sessions. The same controls work with mobile cards.
+**Show drafts** filters before pagination; changing it or the page size returns
+to page one. Refresh keeps the current page, and deleting the last row on a
+page moves back to the last available page. Failed requests show a retry message.
+
 Install npm deps once:
 
 ```bash

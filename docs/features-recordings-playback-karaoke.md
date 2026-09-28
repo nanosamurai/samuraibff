@@ -13,6 +13,18 @@ For the original implementation plan, see:
 * `GET /api/recordings/{session_id}` — details including stored transcript records
 * `GET /api/recordings/{session_id}/audio` — streams recorded audio
 
+The list accepts `limit` (default 200), `offset` (default 0), and `show_drafts`
+(boolean, default true). Set `show_drafts=false` to exclude sessions whose status
+is `created` before applying pagination. Results sort by `created_at DESC, id DESC`
+so tied timestamps have a stable order. The response includes `items`, `total`
+(matching sessions), and `drafts_count` (all drafts for the authenticated tenant).
+Counts remain available on empty pages. Existing callers retain their defaults.
+Offset pages reflect current data; creating or deleting sessions can shift rows
+between requests.
+
+Items and both counts share one database snapshot. Latest-recording ties use
+`id DESC` after `created_at DESC`.
+
 Important:
 
 * The backend **must not** expose internal `recording_url` values (`file://`,

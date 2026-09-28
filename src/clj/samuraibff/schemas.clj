@@ -657,10 +657,12 @@
      [:lang [:maybe :string]]]]])
 
 (def RecordingsListResponse
-  "Response body for GET /api/recordings."
+  "Response body for GET /api/recordings with tenant-scoped pagination counts."
   [:map
    [:ok :boolean]
    [:tenant_id Uuid]
+   [:total NonNegInt]
+   [:drafts_count NonNegInt]
    [:items [:sequential RecordingItem]]])
 
 (def RecordingDetailSession

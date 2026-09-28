@@ -272,17 +272,21 @@
 (defn list-recordings!
   "List sessions/recordings for the authenticated tenant.
 
+  Options: :limit/:offset integers and :show-drafts? boolean (default true).
+
   Returns:
   - Promise resolving to response map with keys:
-      :items (vector)
+        :items (vector)
+        :total and :drafts_count (non-negative integers)
 
   Throws on non-2xx."
   ([]
    (list-recordings! {}))
-  ([{:keys [limit offset]}]
+  ([{:keys [limit offset show-drafts?]}]
    (let [params (cond-> {}
                   (some? limit) (assoc "limit" (str limit))
-                  (some? offset) (assoc "offset" (str offset)))
+                  (some? offset) (assoc "offset" (str offset))
+                  (some? show-drafts?) (assoc "show_drafts" (str show-drafts?)))
          qs (when (seq params)
               (->> params
                    (map (fn [[k v]] (str (js/encodeURIComponent k)

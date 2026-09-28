@@ -7,11 +7,12 @@
    [samuraibff.ui.api :as api]
    [samuraibff.ui.components.shared :as shared]
    [samuraibff.ui.hooks :as hooks]
+   [samuraibff.ui.pagination :as pagination]
+   [samuraibff.ui.recordings-page :as recordings-page]
    [samuraibff.ui.router :as router]
    [samuraibff.ui.session-request :as session.req]
    [samuraibff.ui.store :as store]
-   [samuraibff.ui.util :as util]
-   ["react" :as react]))
+   [samuraibff.ui.util :as util]))
 
 (def ^:private mobile-breakpoint-query
   "CSS media query used as the threshold for mobile layout.
@@ -82,9 +83,10 @@
 
   Inputs:
   - rec: a map from /api/recordings
+  - on-deleted!: no-argument callback that refreshes the current page
 
   Returns: hiccup <tr>"
-  [{:keys [session_id title started_at created_at] :as rec}]
+  [{:keys [session_id title started_at created_at] :as rec} on-deleted!]
   (let [{:keys [label badge-class tooltip]
          icon-glyph :icon} (rec->display-status rec)
         session-status (str (or (:status rec) ""))
@@ -148,7 +150,8 @@
                                                       "?\n\nThis will remove recordings and transcripts."))
                                  (-> (api/delete-recording! session_id)
                                      (.then (fn [_]
-                                              (store/remove-recording-db! session_id)))
+                                              (store/remove-recording-db! session_id)
+                                              (on-deleted!)))
                                      (.catch (fn [e]
                                                (store/append-log!
                                                 (str "[ui] failed deleting session: " e)))))))}
@@ -159,9 +162,10 @@
 
   Inputs:
   - rec: a map from /api/recordings
+  - on-deleted!: no-argument callback that refreshes the current page
 
   Returns: hiccup <div>."
-  [{:keys [session_id title started_at created_at] :as rec}]
+  [{:keys [session_id title started_at created_at] :as rec} on-deleted!]
   (let [{:keys [label badge-class tooltip]
          icon-glyph :icon} (rec->display-status rec)
         session-status (str (or (:status rec) ""))
@@ -226,48 +230,79 @@
                                                      "?\n\nThis will remove recordings and transcripts."))
                                 (-> (api/delete-recording! session_id)
                                     (.then (fn [_]
-                                             (store/remove-recording-db! session_id)))
+                                             (store/remove-recording-db! session_id)
+                                             (on-deleted!)))
                                     (.catch (fn [e]
                                               (store/append-log!
                                                (str "[ui] failed deleting session: " e)))))))}
          (shared/icon "×" {:title "Delete"})])]]))
 
+(defn- pagination-footer
+  "Render compact pagination from use-recordings-page state; return footer Hiccup."
+  [{:keys [total page-info loading? error set-page! set-page-size!]}]
+  (let [{:keys [page page-size pages from to previous? next?]} page-info]
+    [:nav {:class "sessions-pagination" :aria-label "Sessions pagination"}
+     [:span {:class "muted sessions-range" :role "status" :aria-live "polite"}
+      (cond loading? "Loading sessions…"
+            error "Sessions unavailable"
+            :else (str from "–" to " of " total))]
+     [:div {:class "sessions-pagination-controls"}
+      [:label {:class "sessions-page-size muted"}
+       "Rows"
+       [:select {:aria-label "Sessions per page" :value page-size :disabled loading?
+                 :on-change (fn [e] (set-page-size! (js/parseInt (.. e -target -value) 10)))}
+        (for [size pagination/page-sizes]
+          ^{:key size} [:option {:value size} size])]]
+      [:span {:class "muted sessions-page-number"} (str (inc page) " / " pages)]
+      [:div {:class "sessions-page-buttons"}
+       [:button {:class "btn ghost" :aria-label "First page" :title "First page"
+                 :disabled (or loading? (not previous?))
+                 :on-click (fn [_] (set-page! 0))}
+        "«"]
+       [:button {:class "btn ghost" :aria-label "Previous page" :title "Previous page"
+                 :disabled (or loading? (not previous?))
+                 :on-click (fn [_] (set-page! (dec page)))}
+        "‹"]
+       [:button {:class "btn ghost" :aria-label "Next page" :title "Next page"
+                 :disabled (or loading? error (not next?))
+                 :on-click (fn [_] (set-page! (inc page)))}
+        "›"]
+       [:button {:class "btn ghost" :aria-label "Last page" :title "Last page"
+                 :disabled (or loading? error (not next?))
+                 :on-click (fn [_] (set-page! (dec pages)))}
+        "»"]]]]))
+
 (defn recordings-table
-  "Table of DB-backed recordings."
-  []
-  (let [recs0 (->> (hooks/use-atom store/recordings-db*)
-                   (sort-by :created_at)
-                   reverse)
-        mobile? (hooks/use-media-query mobile-breakpoint-query)
-        show-drafts?* (react/useState false)
-        show-drafts? (aget show-drafts?* 0)
-        set-show-drafts! (aget show-drafts?* 1)
-        recs (if show-drafts?
-               (vec recs0)
-               (vec (remove (fn [r] (= "created" (:status r))) recs0)))
-        drafts-count (count (filter (fn [r] (= "created" (:status r))) recs0))]
-    [:div {:class "card"}
-     [:div {:class "row" :style {:alignItems "center"}}
+  "Render a page of sessions as a table or mobile cards from pagination hook state."
+  [{:keys [items drafts-count show-drafts? loading? error set-show-drafts! refresh!] :as state}]
+  (let [mobile? (hooks/use-media-query mobile-breakpoint-query)]
+    [:div {:class "card" :aria-busy (boolean loading?)}
+     [:div {:class "row sessions-table-header"}
       [:div {:class "card-title"} "Sessions"]
       [:div {:class "spacer"}]
-      (when (pos? drafts-count)
-        [:label {:class "muted"
-                 :style {:display "inline-flex" :gap "8px" :alignItems "center"}}
-         [:input {:type "checkbox"
-                  :checked (boolean show-drafts?)
-                  :on-change (fn [e]
-                               (set-show-drafts! (.. e -target -checked)))}]
+      (when (or show-drafts? (pos? drafts-count))
+        [:label {:class "muted sessions-drafts"}
+         [:input {:type "checkbox" :checked (boolean show-drafts?) :disabled loading?
+                  :on-change (fn [e] (set-show-drafts! (.. e -target -checked)))}]
          (str "Show drafts (" drafts-count ")")])]
-
      (cond
-       (empty? recs)
-       [:div {:class "muted"} "No sessions yet."]
+       loading?
+       [:div {:class "muted sessions-list-message"} "Loading sessions…"]
+
+       error
+       [:div {:class "muted sessions-list-message" :role "alert"} error]
+
+       (empty? items)
+       [:div {:class "muted sessions-list-message"}
+        (if (and (not show-drafts?) (pos? drafts-count))
+          "No recorded sessions yet. Enable Show drafts to see your drafts."
+          "No sessions yet.")]
 
        mobile?
        [:div {:class "list"}
-        (for [{:keys [session_id] :as rec} recs]
+        (for [{:keys [session_id] :as rec} items]
           ^{:key (str "rec-card-" session_id)}
-          [recordings-card rec])]
+          [recordings-card rec refresh!])]
 
        :else
        [:table {:class "table"}
@@ -279,27 +314,17 @@
           [:th "Status"]
           [:th {:style {:textAlign "right"}} "Actions"]]]
         [:tbody
-         (for [{:keys [session_id] :as rec} recs]
+         (for [{:keys [session_id] :as rec} items]
            ^{:key (str "rec-" session_id)}
-           [recordings-row rec])]])]))
+           [recordings-row rec refresh!])]])
+     [pagination-footer state]]))
 
 (defn recordings-page
-  "Sessions page."
+  "Render Sessions with server pagination and the existing create/record actions."
   []
-  (let [loading?* (react/useState false)
-        loading? (aget loading?* 0)
-        set-loading! (aget loading?* 1)
-        refresh! (fn []
-                   (set-loading! true)
-                   (-> (api/list-recordings!)
-                       (.then (fn [resp]
-                                (store/set-recordings-db! (:items resp))))
-                       (.catch (fn [e]
-                                 (store/append-log! (str "[ui] failed loading recordings: " e))))
-                       (.finally (fn [] (set-loading! false)))))
+  (let [{:keys [loading? refresh!] :as state} (recordings-page/use-recordings-page)
         new-draft! (fn []
                      (store/append-log! "[ui] creating session draft...")
-                     ;; Do not inherit previous live session title (bug).
                      (let [req (session.req/create-session-request-body
                                 (assoc @store/session* :title ""))]
                        (-> (api/create-session! req)
@@ -311,38 +336,23 @@
                                     (store/add-recording! {:session_id session_id
                                                            :created_at_ms (util/now-ms)
                                                            :status :ready})
-                                    ;; Refresh list so the draft is visible immediately.
-                                    (refresh!)
-                                    ;; Navigate to Record page so user can start immediately.
                                     (router/navigate! {:page :live :params {}})
                                     (store/append-log! (str "[ui] new draft session " session_id))))
                            (.catch (fn [e]
                                      (store/append-log!
                                       (str "[ui] failed creating session draft: "
                                            (shared/safe-http-error e))))))))
-
-        go-record! (fn []
-                     (router/navigate! {:page :live :params {}}))]
-    (react/useEffect
-     (fn []
-       (refresh!)
-       js/undefined)
-     #js [])
+        go-record! (fn [] (router/navigate! {:page :live :params {}}))]
     [:div {:class "page"}
      [:div {:class "page-header"}
       [:div
        [:div {:class "page-title"} "Sessions"]
        [:div {:class "muted"} "All sessions (drafts and recordings)."]]
       [:div {:class "row"}
-       [:button {:class "btn"
-                 :disabled loading?
-                 :on-click (fn [_] (refresh!))}
+       [:button {:class "btn" :disabled loading? :on-click (fn [_] (refresh!))}
         (if loading? "Refreshing…" "Refresh")]
-       [:button {:class "btn"
-                 :disabled loading?
-                 :on-click (fn [_] (new-draft!))}
+       [:button {:class "btn" :disabled loading? :on-click (fn [_] (new-draft!))}
         "New session (draft)"]
-       [:button {:class "btn primary"
-                 :on-click (fn [_] (go-record!))}
+       [:button {:class "btn primary" :on-click (fn [_] (go-record!))}
         "Record"]]]
-     [recordings-table]]))
+     [recordings-table state]]))
