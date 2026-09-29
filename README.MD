@@ -95,6 +95,16 @@ language count before recording, then labels each selected track and renders
 simultaneous results side by side. For enriched providers the summary also
 shows how many languages support aligned, diarized finals.
 
+`GET /api/me` omits absent optional identity claims and tenant names. Machine
+accounts can discover tracks without an email claim; populated browser-user
+claims retain the same response shape. Authentication requirements are unchanged.
+
+Rejected WebSocket handshakes return `Connection: close`. This prevents an HTTP
+load balancer from reusing a rejected upgrade connection for a subsequent
+request, which http-kit would otherwise interpret as an invalid WebSocket frame.
+The raw-socket regression verifies the close header using a generated handshake
+nonce, so public-tree secret scanning remains enabled without a fixture exception.
+
 While following the live transcript, the feed scrolls before painting each
 message revision, including partials that grow inside an existing bubble.
 Scrolling up pauses following until the reader returns near the bottom.

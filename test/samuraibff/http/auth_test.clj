@@ -2,9 +2,11 @@
   "Unit tests for HTTP authentication middleware."
   (:require
    [clojure.test :refer [deftest is testing]]
+   [malli.core :as m]
    [samuraibff.auth.oidc :as oidc]
    [samuraibff.grpc.client :as grpc.client]
-   [samuraibff.http.auth :as auth]))
+   [samuraibff.http.auth :as auth]
+   [samuraibff.schemas :as schemas]))
 
 (def ^:private guest-tenant-id
   "Guest tenant used by auth-disabled test configurations."
@@ -58,6 +60,24 @@
                    {:auth {:required? false}}
                    {:uri "/api/recordings"})]
       (is (nil? (:auth/tenant-id request))))))
+
+(deftest me-handler-omits-absent-optional-identity-fields
+  (let [config {:auth {:required? true}
+                :default-tracks {:realtime "faster-whisper" :refined "whisperx" :final "whisperx"}
+                :refinement-tracks ["whisperx"]
+                :final-tracks ["whisperx"]
+                :grpc {:realtime-tracks [{:id "faster-whisper" :address "rtservice:50052"}]}}]
+    (doseq [user [{:sub "service-account" :preferred_username "sdk" :email nil}
+                  {:sub "person" :preferred_username "person" :email "person@example.test"}]]
+      (let [response ((auth/me-handler config nil)
+                      {:auth/user (assoc user :private-claim "must-not-be-returned")
+                       :auth/tenant-id guest-tenant-id})
+            body (:body response)]
+        (is (= 200 (:status response)))
+        (is (m/validate schemas/ApiMeResponse body))
+        (is (= (into {} (remove (comp nil? val)) user) (:user body)))
+        (is (not (contains? body :tenant_name)))))
+    (is (= 401 (:status ((auth/me-handler config nil) {}))))))
 
 (deftest me-handler-exposes-sanitized-realtime-track-capabilities-test
   (let [config {:auth {:required? false}

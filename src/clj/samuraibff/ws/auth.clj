@@ -19,6 +19,22 @@
 (def ^:private json-mapper
   (json/object-mapper {:encode-key-fn name}))
 
+(defn wrap-rejected-upgrade
+  "Mark rejected WebSocket HTTP connections as non-reusable for proxies.
+
+  Accepts a Ring handler and returns one that adds Connection: close to failed
+  upgrade responses. http-kit has already switched its decoder for an Upgrade
+  request, so another HTTP request on that socket would be read as WS frames.
+  Successful upgrades and ordinary HTTP responses are preserved."
+  [handler]
+  (fn [request]
+    (let [response (handler request)]
+      (if (and (= "websocket" (some-> (get-in request [:headers "upgrade"]) str/lower-case))
+               (number? (:status response))
+               (>= (:status response) 400))
+        (assoc-in response [:headers "connection"] "close")
+        response))))
+
 (defn- guest-tenant-id
   "Return configured guest tenant id when auth is disabled.
 

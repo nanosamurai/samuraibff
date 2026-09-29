@@ -22,6 +22,7 @@
    [samuraibff.features :as features]
    [samuraibff.grpc.client :as grpc.client]
    [samuraibff.ws.audio :as ws.audio]
+   [samuraibff.ws.auth :as ws.auth]
    [samuraibff.ws.events :as ws.events]
    [samuraibff.http.auth :as http.auth]
    [samuraibff.http.recordings :as http.recordings]
@@ -682,7 +683,8 @@
                  :coercion reitit.coercion.malli/coercion
                  :malli/options {:error-keys #(mu/keys schemas/HealthCheckResponse)}
                  :swagger {:id ::api}
-                 :middleware [parameters/parameters-middleware ; decoding query & form params
+                 :middleware [ws.auth/wrap-rejected-upgrade
+                              parameters/parameters-middleware ; decoding query & form params
                               wrap-cookies
                               (fn [handler]
                                 (fn [req]
