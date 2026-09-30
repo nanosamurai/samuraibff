@@ -188,6 +188,10 @@ Run the full unit + integration test suite:
 clojure -X:test
 ```
 
+Application startup failures exit with status 1 and log bounded exception classes
+and code locations. Throwable messages and resolved Integrant configuration are
+excluded because they can contain database or identity-provider credentials.
+
 See `docs/dev-runbook.md` for the lightweight CI test plan (`clojure -X:ci`),
 WS integration test prerequisites, proto generation, and nREPL.
 
