@@ -15,18 +15,11 @@ lean track spikes are stacked for review:
 The Docker build uses `npm ci` with the committed lockfile, matching the UI
 dependency graph checked by CI.
 
-The UI job audits the locked dependencies before compilation. Its lockfile
-uses `fast-uri` 3.1.7 and `@xmldom/xmldom` 0.8.15 to clear the dependency
-advisories encountered while validating the realtime routing PR; the audit
-remains enabled.
-
-The 2026-09-09 lockfile refresh also resolves `joi` to 18.2.8 and `js-yaml`
-to 4.3.2 for the newly reported
-[Joi custom-message](https://github.com/advisories/GHSA-6w3j-5fw6-r9vr),
-[Joi rename](https://github.com/advisories/GHSA-gg4h-3hg2-grpc), and
-[YAML merge CPU-use](https://github.com/advisories/GHSA-2883-xcg3-v3hh)
-advisories. These are compatible transitive build-tool updates; direct
-dependency versions and the audit threshold are unchanged.
+The UI job runs `npm audit --audit-level=high` against the locked dependencies
+before compilation. When addressing advisories, update the affected direct
+dependency pins and compatible transitive versions in `package-lock.json`,
+including nested copies. Validate with `npm ci`, `npm audit`, `npm test`, and
+`npm run ui:release`; keep the audit gate enabled.
 
 The repository ruleset for `master` must require all four checks before merge,
 require the branch to be up to date, and prevent routine bypass. Workflow

@@ -14,8 +14,9 @@
   ```"
   (:gen-class)
   (:require
-    [org.corfield.logging4j2 :as log]
-    [samuraibff.system :as system]))
+   [org.corfield.logging4j2 :as log]
+   [samuraibff.startup :as startup]
+   [samuraibff.system :as system]))
 
 (defn -main
   "Start the Integrant system and block the main thread.
@@ -30,13 +31,14 @@
   Returns: never (unless interrupted)."
   [& _args]
   (log/info "Starting samuraibff" {})
-  (system/start!)
+  (when-not (startup/start! system/start!)
+    (System/exit 1))
   (.addShutdownHook
-    (Runtime/getRuntime)
-    (Thread.
-      (fn []
-        (log/info "Shutdown hook triggered" {})
-        (system/stop!))))
+   (Runtime/getRuntime)
+   (Thread.
+    (fn []
+      (log/info "Shutdown hook triggered" {})
+      (system/stop!))))
   ;; Keep process alive.
   (loop []
     (Thread/sleep 600000)
