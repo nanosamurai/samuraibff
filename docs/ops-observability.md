@@ -9,15 +9,16 @@ This repo provides basic observability primitives (logs/metrics/tracing).
 
 ### Readiness semantics
 
-Readiness returns **200** only when critical dependencies are reachable.
+Readiness returns **200** when Postgres and Kafka are reachable, even if all realtime tracks are unavailable.
 
 Current checks:
 
 * Postgres (`select 1`)
 * Kafka (TCP reachability to at least one bootstrap host:port)
-* every configured realtime track (successful `GetCapabilities` gRPC call)
+* every configured realtime track (successful `GetCapabilities` gRPC call; diagnostic only)
 
-If any dependency is down, `/ready` returns **503** and includes per-dependency flags:
+If Postgres or Kafka is down, `/ready` returns **503**. The response includes per-dependency flags;
+`grpc.up?` reports whether all realtime tracks are available and does not affect readiness:
 
 ```json
 {
