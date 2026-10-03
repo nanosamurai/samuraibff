@@ -196,11 +196,11 @@
 (defn- readiness-route
   "Create readiness route definition.
 
-  Readiness returns 200 only when critical dependencies are available.
-  Currently we check:
+  Readiness returns 200 only when these critical dependencies are available:
   - Postgres
   - Kafka (TCP reachability to bootstrap)
-  - rtservice (gRPC) (TCP reachability)
+
+  Realtime track availability is reported in :grpc for diagnostics only.
 
   Returns a Reitit route vector."
   [deps]
@@ -213,7 +213,7 @@
                      (let [db-ok? (db-up? deps)
                            kafka-ok? (kafka-up? deps)
                            grpc-ok? (grpc-up? deps)
-                           ok? (and db-ok? kafka-ok? grpc-ok?)
+                           ok? (and db-ok? kafka-ok?)
                            status (if ok? 200 503)
                            body {:status (if ok? "ok" "degraded")
                                  :timestamp (java.util.Date.)

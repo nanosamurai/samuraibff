@@ -21,6 +21,16 @@ dependency pins and compatible transitive versions in `package-lock.json`,
 including nested copies. Validate with `npm ci`, `npm audit`, `npm test`, and
 `npm run ui:release`; keep the audit gate enabled.
 
+The `@electron/get` override pins Electron's downloader to 5.1.0, including
+the copy used by `electron-builder`. Its native-fetch downloader removes the
+`got` / `cacheable-request` / `http-cache-semantics` chain affected by
+[GHSA-ch52-4w7c-c8xp](https://github.com/advisories/GHSA-ch52-4w7c-c8xp).
+It uses the project's existing Node >=22.12 requirement. Keep the override
+until the builder's dependency range also selects a safe downloader.
+For proxy downloads, set `ELECTRON_GET_USE_PROXY=true` with `HTTP_PROXY`,
+`HTTPS_PROXY`, and `NO_PROXY` as needed; legacy `GLOBAL_AGENT_*` variables and
+Got-specific download options are no longer supported by the downloader.
+
 The repository ruleset for `master` must require all four checks before merge,
 require the branch to be up to date, and prevent routine bypass. Workflow
 triggers make checks run; the repository ruleset makes them merge
