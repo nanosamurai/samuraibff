@@ -152,6 +152,12 @@ If you add/modify user-facing behavior, update **README.MD**.
 
 ### Style & readability
 
+* Write default UI copy for business users: describe the recording, transcript,
+  or next action in plain language. Keep implementation details (event names,
+  provider profiles, storage internals, and processing windows) in explicitly
+  opened technical settings or diagnostics. Do not infer processing, failure,
+  or completion from an absent result. Keep multiple outputs distinguishable.
+
 * Follow: https://guide.clojure.style/
 * Crucial additions we want to enforce:
 
