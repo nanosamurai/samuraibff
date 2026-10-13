@@ -105,9 +105,7 @@
         ;; Language flag hint (best-effort). Blank => omit.
         (when (seq (str lang))
           [shared/lang-flag lang])
-        [:span session-title-display]]
-       [:div {:class "hint"}
-        [:span {:class "mono"} session_id]]]]
+        [:span session-title-display]]]]
      [:td {:class "muted"} (or (shared/iso->local created_at) "")]
      [:td {:class "muted"} (or (shared/iso->local started_at) "")]
      [:td
@@ -136,17 +134,17 @@
                                    (store/set-session-status! (:status rec)))}
           (shared/icon "●" {:title "Record"})]
          [:span {:class "btn ghost disabled"
-                 :title "Recording is not available for this session status"}
+                 :title "Start a new session to make another recording"}
           (shared/icon "●" {:title "Not available"})])
 
        (if active?
          [:span {:class "btn ghost disabled"
-                 :title "Active sessions cannot be deleted"}
+                 :title "Stop recording before deleting this session"}
           (shared/icon "×" {:title "Delete"})]
          [:button {:class "btn ghost"
                    :title "Delete session"
                    :on-click (fn [_]
-                               (when (js/confirm (str "Delete session " session_id
+                               (when (js/confirm (str "Delete session “" session-title-display "”"
                                                       "?\n\nThis will remove recordings and transcripts."))
                                  (-> (api/delete-recording! session_id)
                                      (.then (fn [_]
@@ -185,7 +183,6 @@
          (when (seq (str lang))
            [shared/lang-flag lang])]
         [:span session-title-display]]
-       [:div {:class "list-item-sub mono"} session_id]
        [:div {:class "list-item-meta"}
         [:span (str "Created: " (or (shared/iso->local created_at) "—"))]
         [:span (str "Started: " (or (shared/iso->local started_at) "—"))]]]
@@ -216,17 +213,17 @@
                                   (store/set-session-status! (:status rec)))}
          (shared/icon "●" {:title "Record"})]
         [:span {:class "btn ghost icon disabled"
-                :title "Recording is not available for this session status"}
+                :title "Start a new session to make another recording"}
          (shared/icon "●" {:title "Not available"})])
 
       (if active?
         [:span {:class "btn ghost icon disabled"
-                :title "Active sessions cannot be deleted"}
+                :title "Stop recording before deleting this session"}
          (shared/icon "×" {:title "Delete"})]
         [:button {:class "btn ghost icon"
                   :title "Delete session"
                   :on-click (fn [_]
-                              (when (js/confirm (str "Delete session " session_id
+                              (when (js/confirm (str "Delete session “" session-title-display "”"
                                                      "?\n\nThis will remove recordings and transcripts."))
                                 (-> (api/delete-recording! session_id)
                                     (.then (fn [_]

@@ -66,7 +66,7 @@
   - on-close: (fn [] ...)
 
   Returns:
-  - hiccup nodes (overlay + drawer) or nil when closed." 
+  - hiccup nodes (overlay + drawer) or nil when closed."
   [{:keys [route open? on-close]}]
   (when (true? open?)
     (let [on-close (or on-close (fn [] nil))
@@ -76,8 +76,8 @@
        [:div {:class "drawer-overlay"
               :on-click (fn [_] (on-close))}]
        [:aside {:class "drawer open"
-               :role "dialog"
-               :aria-modal true}
+                :role "dialog"
+                :aria-modal true}
         [:div {:class "drawer-header"}
          [:div {:style {:display "flex" :gap "10px" :alignItems "center"}}
           [:img {:class "logo" :src logo-src :alt "nanosamur.ai"}]
@@ -101,7 +101,7 @@
   Inputs:
   - route: {:page keyword :params map}
 
-  Returns: hiccup." 
+  Returns: hiccup."
   [route]
   (let [page (:page route)
         items (nav-items page)]
@@ -118,7 +118,7 @@
   Inputs:
   - route: {:page keyword :params map}
 
-  Returns: hiccup." 
+  Returns: hiccup."
   [route]
   (let [{:keys [page params]} route
         crumbs (case page
@@ -130,7 +130,7 @@
                  :speakers [{:label "Speakers" :route {:page :speakers :params {}}}]
                  :api-credentials [{:label "API Credentials" :route {:page :api-credentials :params {}}}]
                  :recording [{:label "Sessions" :route {:page :recordings :params {}}}
-                             {:label (or (:session_id params) "Recording")
+                             {:label "Recording"
                               :route {:page :recording :params params}}]
                  [{:label "Sessions" :route {:page :recordings :params {}}}])]
     [:div {:class "breadcrumbs"}
@@ -147,7 +147,7 @@
   Inputs:
   - route: {:page keyword :params map}
 
-  Returns: hiccup." 
+  Returns: hiccup."
   [{:keys [route on-open-menu]}]
   (let [{:keys [status detail]} (hooks/use-atom store/auth*)
         user (get detail :user)

@@ -1,5 +1,5 @@
 (ns samuraibff.ui.components.pages.speakers
-  "Speakers (enrollment) management page." 
+  "Speakers (enrollment) management page."
   (:require
    [clojure.string :as str]
    [samuraibff.ui.api :as api]
@@ -35,7 +35,7 @@
   - speaker: {:id string :label string :created_at? string :created_at_ms? number}
   - on-delete: (fn [speaker-id])
 
-  Returns: hiccup." 
+  Returns: hiccup."
   [{:keys [id label created_at created_at_ms]} on-delete]
   (let [created (or created_at
                     (when created_at_ms (.toLocaleString (js/Date. created_at_ms)))
@@ -54,7 +54,7 @@
         "Delete"]]]]))
 
 (defn speakers-page
-  "Enrolled speakers management page." 
+  "Enrolled speakers management page."
   []
   (let [items (hooks/use-atom store/speakers*)
         mobile? (hooks/use-media-query mobile-breakpoint-query)
@@ -91,7 +91,7 @@
      [:div {:class "page-header"}
       [:div
        [:div {:class "page-title"} "Speakers"]
-       [:div {:class "muted"} "Manage enrolled speakers for diarization."]]
+       [:div {:class "muted"} "Add voice samples to help recognize speakers in your transcripts."]]
       [:div {:class "row"}
        [:button {:class "btn"
                  :on-click (fn [_] (refresh!))}
@@ -100,7 +100,7 @@
      [:div {:class "card"}
       [:div {:class "card-title"} "Add speaker"]
       [:div {:class "row"}
-       [:input {:placeholder "Label (e.g. Dr Novak)"
+       [:input {:placeholder "Speaker name (e.g. Dr Novak)"
                 :value label
                 :on-change (fn [e]
                              (set-label! (.. e -target -value)))}]
@@ -123,7 +123,7 @@
                                           (set-sample! nil)))
                                  (.catch (fn [e]
                                            (store/append-log! (str "[ui] failed creating speaker: " e))))
-                                 (.finally (fn [] (set-loading! false))))) }
+                                 (.finally (fn [] (set-loading! false)))))}
         "Upload"]]]
 
      [:div {:class "card"}
@@ -139,7 +139,7 @@
            [:thead
             [:tr
              [:th "Id"]
-             [:th "Label"]
+             [:th "Name"]
              [:th "Created"]
              [:th {:style {:textAlign "right"}} "Actions"]]]
            [:tbody

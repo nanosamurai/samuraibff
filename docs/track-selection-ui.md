@@ -25,8 +25,12 @@ Recording settings require retention only for multiple final tracks. The
 realtime maximum inference input remains distinct from its processing window.
 
 Live refinement panels separate tracks. Saved-result tabs use the selected ID
-order and include selected tracks with no row yet. They show available saved
-results/windows, never infer a failure or all-track success from session status.
+order and include selected tracks with no row yet. Single-track views show only
+the transcript type; multiple tracks keep their labels. Missing results say
+“No transcript available yet,” without inferring processing, failure or all-track
+success from session status. Empty saved results say “No speech was detected.”
+The normal UI omits saved-window counts and storage terminology. Live diagnostics,
+provider capabilities and advanced realtime controls start collapsed.
 Saved text comes from Postgres. One audio player serves the selected track's
 timings; plain full_text works without segments, timestamps or speakers.
 Direct links, reloads, empty results, and independently arriving results remain

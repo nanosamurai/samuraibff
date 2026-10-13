@@ -106,19 +106,23 @@
      (if (seq catalog)
        [:div {:class "track-choice-grid"}
         (for [{:keys [track_id display_name]} catalog]
-          [:label {:key track_id :class (str "track-choice " (when (contains? selected track_id) "selected"))}
-           [:input {:type "checkbox" :checked (contains? selected track_id)
-                    :aria-label (str (str/capitalize (name stage)) " track: " display_name)
-                    :on-change #(update-controls! settings/select-track stage catalog track_id (.. % -target -checked))}]
-           [:span {:class "track-choice-copy"}
-            [:strong display_name]
-            (when (= stage :realtime)
-              (let [summary (capability-summary (get capabilities track_id))]
-                (when (seq summary) [:span {:class "hint"} summary])))]])]
+          [:div {:key track_id}
+           [:label {:class (str "track-choice " (when (contains? selected track_id) "selected"))}
+            [:input {:type "checkbox" :checked (contains? selected track_id)
+                     :aria-label (str (str/capitalize (name stage)) " track: " display_name)
+                     :on-change #(update-controls! settings/select-track stage catalog track_id (.. % -target -checked))}]
+            [:span {:class "track-choice-copy"}
+             [:strong display_name]]]
+           (when (= stage :realtime)
+             (let [summary (capability-summary (get capabilities track_id))]
+               (when (seq summary)
+                 [:details {:class "hint"}
+                  [:summary "Technical details"]
+                  [:span summary]])))])]
        [:p {:class "muted"}
-        (if (= stage :realtime) "Track configuration is loading." "This deployment uses its default transcription provider.")])
+        (if (= stage :realtime) "Loading transcript options…" "Your organization's default transcription service will be used.")])
      (when (seq catalog)
-       [:p {:class "hint"} "Select the outputs you want. Clearing all tracks turns this stage off."])]))
+       [:p {:class "hint"} "Choose the transcripts you want. Clear all choices to turn this option off."])]))
 
 (defn- recording-controls
   "Render recording retention, required only for multiple final tracks."
@@ -131,19 +135,19 @@
     [:div {:class "stage-settings"}
      [:div {:class "stage-heading"}
       [:h3 "Recording"]
-      [:p {:class "muted"} "Choose whether audio is kept after processing."]]
+      [:p {:class "muted"} "Choose whether to keep audio for playback."]]
      [:label {:class "field retention-field"}
-      [:span {:class "label"} "Recording retention"]
-      [:select {:aria-label "Recording retention"
+      [:span {:class "label"} "Keep audio for playback"]
+      [:select {:aria-label "Keep audio for playback"
                 :value (if (:store_recording controls) "store" "delete")
                 :disabled (boolean (or multiple? (not (:final controls))))
                 :on-change #(store/set-session-control! :store_recording (= "store" (.. % -target -value)))}
-       [:option {:value "store"} "Store"]
-       [:option {:value "delete"} "Do not store"]]]
+       [:option {:value "store"} "Keep audio"]
+       [:option {:value "delete"} "Do not keep audio"]]]
      [:p {:class "hint"}
-      (cond multiple? "Multiple final tracks require stored audio so each worker can finish. One shared recording is kept for playback."
-            (not (:final controls)) "Enable Final to store a full recording for playback."
-            :else "Stored recordings remain available for playback in session details.")]]))
+      (cond multiple? "Audio is kept for playback when you choose more than one final transcript."
+            (not (:final controls)) "Turn on Final transcription to keep audio for playback."
+            :else "You can play back saved audio in session details.")]]))
 
 (defn panel
   "Render only the selected settings stage, locked after audio admission."
@@ -160,14 +164,16 @@
          [:h3 (case stage :realtime "Real-time transcription" :refined "Refined transcription" "Final transcription")]
          [:p {:class "muted"}
           (case stage :realtime "Text appears as you speak."
-                :refined "More accurate transcripts arrive in regular audio windows."
-                "A complete transcript is processed after recording stops.")]]
+                :refined "The transcript is reviewed and updated in sections as you record."
+                "A complete transcript is prepared after recording stops.")]]
         [track-choices stage]
         (case stage
           :realtime
-          [realtime-settings]
-          :refined [number-field {:control :refinement_window_sec :label "Refinement window (sec)" :disabled? (not enabled?) :min 10 :max 600 :step 1}]
+          [:details
+           [:summary "Advanced settings"]
+           [realtime-settings]]
+          :refined [number-field {:control :refinement_window_sec :label "Review audio in sections (seconds)" :disabled? (not enabled?) :min 10 :max 600 :step 1}]
           nil)
         (when (and (not= stage :realtime) (seq (settings/entries detail stage)))
-          [:p {:class "hint"} "Each selected track produces a separate transcript. Results appear as they become available."])])
-     (when frozen? [:p {:class "hint" :role "status"} "Settings are locked for this session. Start a new session to make changes."])]))
+          [:p {:class "hint"} "Each choice creates a separate transcript. Transcripts appear as they become available."])])
+     (when frozen? [:p {:class "hint" :role "status"} "These settings cannot be changed after recording starts. Start a new session to use different settings."])]))

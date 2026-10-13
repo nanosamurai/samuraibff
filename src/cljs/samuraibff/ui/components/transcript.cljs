@@ -86,7 +86,7 @@
      (if (empty? msgs)
        [:div {:class "empty"}
         [:div {:class "empty-title"} (or empty-title "Transcript")]
-        [:div {:class "muted"} (or empty-hint "No events yet…")]]
+        [:div {:class "muted"} (or empty-hint "No transcript available yet.")]]
        [:div (cond-> {:class "transcript-feed"
                       :ref container-ref}
                auto-scroll?
