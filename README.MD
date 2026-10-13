@@ -370,16 +370,3 @@ Text-only results remain readable without fabricated timing or
 speakers. Direct links and reloads preserve the session and nested controls.
 Realtime messages without a speaker label retain the `?` avatar and `Unknown`
 name, keeping partial text aligned with diarized turns.
-
-The recording UI uses plain-language messages for everyday use. Session settings
-and the live technical-details panel start closed; provider capabilities and
-advanced realtime controls are available through collapsed disclosures. Session
-IDs are available under Technical details on the recording and saved-session
-pages, rather than in the session list. Single-transcript views show the
-transcript type without a provider suffix; multiple transcripts retain their
-labels so users can distinguish them.
-
-Missing saved results say “No transcript available yet.” An available result
-without speech says “No speech was detected.” Neither missing results nor the
-session status imply that an individual transcript is processing or failed.
-The live preview explains that it is available on the current device only.
