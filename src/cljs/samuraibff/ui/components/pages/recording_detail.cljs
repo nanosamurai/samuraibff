@@ -65,7 +65,7 @@
                                (close!)))
                       (.catch (fn [e]
                                 (store/append-log! (str "[ui] failed enrolling speaker from recording: " (shared/safe-http-error e)))
-                                (set-error! (shared/safe-http-error e))))
+                                (set-error! "Could not add this speaker. Please try again.")))
                       (.finally (fn []
                                   (set-saving! false)))))]
     (when open?
@@ -73,10 +73,10 @@
              :on-click (fn [_] (close!))}
        [:div {:class "modal"
               :on-click (fn [e] (.stopPropagation e))}
-        [:div {:class "modal-title"} "Enroll speaker"]
+        [:div {:class "modal-title"} "Add speaker"]
         [:div {:class "muted" :style {:marginBottom "10px"}}
-         (str "This will clip audio from the recording (" (util/fmt-sec start-s)
-              " → " (util/fmt-sec end-s) ") and create a new enrolled speaker.")]
+         (str "Use the audio from " (util/fmt-sec start-s)
+              " to " (util/fmt-sec end-s) " to help recognize this speaker in future transcripts.")]
 
         [:div {:class "row" :style {:marginBottom "10px"}}
          [:input {:placeholder "Speaker name (e.g. Dr Novak)"
@@ -87,7 +87,7 @@
          [:button {:class "btn primary"
                    :disabled (or saving? (str/blank? (str label)))
                    :on-click (fn [_] (submit!))}
-          (if saving? "Saving…" "Enroll")]
+          (if saving? "Saving…" "Add speaker")]
          [:button {:class "btn"
                    :disabled saving?
                    :on-click (fn [_] (close!))}
@@ -149,8 +149,7 @@
                              (set-editing! false)))
                     (.catch (fn [e]
                               (store/append-log! (str "[ui] failed renaming session: " e))
-                              (set-error! (or (some-> e .-message str)
-                                              "Failed renaming session"))))
+                              (set-error! "Could not save the title. Please try again.")))
                     (.finally (fn []
                                 (set-saving! false)))))]
 
@@ -234,7 +233,7 @@
                 :on-ended on-ended
                 :style {:width "100%"}}]
        [:div {:class "muted"}
-        "Audio playback not available (no stored recording)."])]))
+        "No audio is available for playback."])]))
 
 (defn recording-detail-page
   "Render flat per-track Postgres results and shared recording playback for a session ID."
@@ -268,22 +267,24 @@
                    (set-error! nil)
                    (-> (api/get-recording! session-id)
                        (.then set-detail!)
-                       (.catch #(set-error! (shared/safe-http-error %)))))
+                       (.catch (fn [_] (set-error! "Could not load this recording. Use Refresh to try again.")))))
         enroll-action (fn [{:keys [msg]}]
                         (when (and playback? (seq (:speaker msg))
                                    (number? (:start_s msg)) (number? (:end_s msg))
                                    (< (:start_s msg) (:end_s msg)))
                           [:div {:class "bubble-actions"}
-                           [:button {:class "bubble-action-btn" :title "Enroll speaker from this segment"
+                           [:button {:class "bubble-action-btn" :title "Recognize this speaker in future transcripts"
                                      :on-click #(do (.stopPropagation %) (set-enroll! msg))}
-                            (shared/icon "＋" {:title "Enroll"})]]))]
+                            (shared/icon "＋" {:title "Add speaker"})]]))]
     (react/useEffect
      (fn []
        (let [active? (atom true)
              load! (fn []
                      (-> (api/get-recording! session-id)
                          (.then #(when @active? (set-detail! %)))
-                         (.catch #(when @active? (set-error! (shared/safe-http-error %))))))
+                         (.catch (fn [_]
+                                   (when @active?
+                                     (set-error! "Could not load this recording. Use Refresh to try again."))))))
              timer (js/setInterval load! 4000)]
          (set-detail! nil)
          (set-tab! nil)
@@ -300,8 +301,10 @@
        [:div {:class "page-title"} title
         [:span {:style {:marginLeft "10px"}}
          [shared/status-pill {:label (if (= status "active") "Recording" (str/capitalize (or status "Loading")))
-                              :kind :muted :tooltip "Session status does not describe every track's outcome."}]]]
-       [:div {:class "mono muted"} session-id]]
+                              :kind :muted}]]]
+       [:details {:class "muted"}
+        [:summary "Technical details"]
+        [:div {:class "mono"} (str "Session ID: " session-id)]]]
       [:div {:class "row"}
        [router/link {:route {:page :recordings :params {}} :class "btn"} "Back to recordings"]
        (when (= status "created")
@@ -337,11 +340,9 @@
        [:div {:class "card" :role "tabpanel" :aria-label (:label selected)}
         (if selected
           [:div
-           [:p {:class "muted" :role "status"}
-            (cond (= stage :realtime) "Live results cached in this browser; realtime text is not stored."
-                  (empty? rows) "No result available yet. This does not establish whether the track is processing or failed."
-                  (= stage :refined) (str (count rows) " saved window(s) available. More windows may still arrive.")
-                  :else "Saved result available.")]
+           (when (= stage :realtime)
+             [:p {:class "muted" :role "status"}
+              "This live preview is available on this device only."])
            (if karaoke?
              [components.transcript/final-transcript-karaoke
               {:key (pr-str (:id selected)) :messages messages :audio-ref audio-ref
@@ -349,9 +350,9 @@
              [components.transcript/transcript-view
               {:key (pr-str (:id selected)) :messages messages :auto-scroll? false :initial-scroll :top
                :empty-title (:label selected)
-               :empty-hint (if (seq rows) "The stored result contains no speech." "No result available yet.")
+               :empty-hint (if (seq rows) "No speech was detected." "No transcript available yet.")
                :message-actions enroll-action}])]
-          [:p {:class "muted"} (if detail "No saved transcript tracks for this session." "Loading…")])]]
+          [:p {:class "muted"} (if detail "No transcripts available for this session." "Loading transcripts…")])]]
       (when (and runtime-enabled? show-workflows?)
         [:div {:class "split-side"}
          [:div {:class "right-panel"}

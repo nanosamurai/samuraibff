@@ -109,7 +109,7 @@
                 (ws/connect-events! sid)
                 (-> (audio/start-audio! sid lang)
                     (.catch (fn [_]
-                              (set-start-error! "Could not start recording. Check microphone access and service availability, then start a new session.")
+                              (set-start-error! "Could not start recording. Check your microphone permissions and connection, then try a new session.")
                               (store/set-session-status! :failed)
                               (ws/close-events!)
                               (store/set-running! false)
@@ -203,7 +203,7 @@
         [:div {:class "controls"}
          (when start-error [:p {:role "alert" :class "badge bad"} start-error])
          (when (not-any? effective-controls [:realtime :refined :final])
-           [:p {:role "status" :class "muted"} "Select at least one transcription stage in Session settings."])
+           [:p {:role "status" :class "muted"} "Choose at least one transcript option in Session settings to start recording."])
          [:div {:class "controls-row"}
           [:div {:class "field"}
            [:div {:class "label"} "Session name"]
@@ -213,51 +213,52 @@
                     :on-change   (fn [e]
                                    (store/set-session-title! (.. e -target -value)))}]
            (when (seq (str id))
-             [:div {:class "hint"}
-              [:span {:class "mono"} id]])]
+             [:details {:class "hint"}
+              [:summary "Technical details"]
+              [:span {:class "mono"} (str "Session ID: " id)]])]
 
-         [:div {:class "field"}
-          [:div {:class "label"} "Language"]
-          [shared/searchable-dropdown
-           {:value       (or lang "")
-            :options     (langs/language-options)
-            :placeholder "Auto"
-            :disabled (stream-controls/locked? session running?)
-            :on-change   (fn [new-val]
-                           (store/set-lang! new-val))}]]
+          [:div {:class "field"}
+           [:div {:class "label"} "Language"]
+           [shared/searchable-dropdown
+            {:value       (or lang "")
+             :options     (langs/language-options)
+             :placeholder "Auto"
+             :disabled (stream-controls/locked? session running?)
+             :on-change   (fn [new-val]
+                            (store/set-lang! new-val))}]]
 
-         [:div {:class "field"}
-          [:div {:class "label"} "Audio input"]
-          [:select {:value     (name audio-source)
-                    :disabled (stream-controls/locked? session running?)
-                    :on-change (fn [e]
-                                 (let [v (keyword (.. e -target -value))]
-                                   (store/set-session-control! :audio_source v)))}
-           [:option {:value "mic"} "Microphone"]
-           [:option {:value "system" :disabled (not electron?)} "System output (Electron)"]
-           [:option {:value "mix" :disabled (not electron?)} "Mix mic + system (Electron)"]]
+          [:div {:class "field"}
+           [:div {:class "label"} "Audio input"]
+           [:select {:value     (name audio-source)
+                     :disabled (stream-controls/locked? session running?)
+                     :on-change (fn [e]
+                                  (let [v (keyword (.. e -target -value))]
+                                    (store/set-session-control! :audio_source v)))}
+            [:option {:value "mic"} "Microphone"]
+            [:option {:value "system" :disabled (not electron?)} "Computer audio (desktop app)"]
+            [:option {:value "mix" :disabled (not electron?)} "Microphone + computer audio (desktop app)"]]
 
-          (when (and electron? (not= :mic audio-source))
-            [:div {:class "hint" :style {:marginTop "8px"}}
-             "System source is auto-selected when you start recording."])]
+           (when (and electron? (not= :mic audio-source))
+             [:div {:class "hint" :style {:marginTop "8px"}}
+              "Computer audio is selected automatically when you start recording."])]
 
-         [:div {:class "field"}
-          [:div {:class "label"} "Microphone"]
-          [:select {:value     mic-device-id
-                    :disabled (or (= :system audio-source) (stream-controls/locked? session running?))
-                    :on-change (fn [e]
-                                 (let [v (.. e -target -value)]
-                                   (store/set-session-control!
-                                    :mic_device_id
-                                    (when (seq (str v)) (str v)))))}
-           [:option {:value ""} "Default"]
-           (for [{:keys [id label]} (vec (or mic-options []))]
-             ^{:key (str "mic-" id)}
-             [:option {:value id} (or label id)])]
-          (when (seq (str mic-error))
-            [:div {:class "hint"} mic-error])]
+          [:div {:class "field"}
+           [:div {:class "label"} "Microphone"]
+           [:select {:value     mic-device-id
+                     :disabled (or (= :system audio-source) (stream-controls/locked? session running?))
+                     :on-change (fn [e]
+                                  (let [v (.. e -target -value)]
+                                    (store/set-session-control!
+                                     :mic_device_id
+                                     (when (seq (str v)) (str v)))))}
+            [:option {:value ""} "Default"]
+            (for [{:keys [id label]} (vec (or mic-options []))]
+              ^{:key (str "mic-" id)}
+              [:option {:value id} (or label id)])]
+           (when (seq (str mic-error))
+             [:div {:class "hint"} mic-error])]
 
-         [:div {:class "spacer"}]
+          [:div {:class "spacer"}]
 
           (cond
             terminal?
@@ -282,14 +283,14 @@
                       :title    "Start recording"}
              [:span {:class (str "rec-dot" (when running? " blink"))}]
              (if starting? "Starting…" "Record now")])
-         [:button {:class      "btn icon"
-                   :type       "button"
-                   :aria-label "Session settings"
-                   :title      "Session settings"
-                   :on-click   (fn [_]
-                                 (when set-settings-open!
-                                   (set-settings-open! (not (true? settings-open?)))))}
-          "⚙"]]]))))
+          [:button {:class      "btn icon"
+                    :type       "button"
+                    :aria-label "Session settings"
+                    :title      "Session settings"
+                    :on-click   (fn [_]
+                                  (when set-settings-open!
+                                    (set-settings-open! (not (true? settings-open?)))))}
+           "⚙"]]]))))
 
 (declare webhook-routing-panel workflow-routing-panel audio-controls-panel)
 
@@ -304,7 +305,7 @@
        [:div {:class "stream-controls-header"}
         [:div {:class "stream-controls-title"}
          [:div {:class "stream-controls-title-text"} "Session settings"]
-         [:div {:class "muted"} "Choose outputs and adjust how this session is recorded."]]
+         [:div {:class "muted"} "Choose your transcripts and recording preferences."]]
         [:button {:class "btn ghost" :type "button" :on-click #(when set-open! (set-open! false))} "Close"]]
        [:div {:class "settings-tabs" :role "tablist" :aria-label "Session settings"}
         (for [[stage label] [[:realtime "Real-time"] [:refined "Refined"] [:final "Final"]]]
@@ -341,20 +342,20 @@
       [:div {:class "sc-cell sc-span-2"}
        [:div {:class "label"} "Audio input"]
        [:div {:class "hint" :style {:marginBottom "6px"}}
-        "Microphone works in all browsers. System/mix requires Electron (Windows-first)."]
+        "Use your microphone in the browser. To include meeting or other computer audio, use the desktop app."]
        [:select {:value (name audio-source)
                  :on-change (fn [e]
                               (let [v (keyword (.. e -target -value))]
                                 (store/set-session-control! :audio_source v)))}
         [:option {:value "mic"} "Microphone"]
-        [:option {:value "system" :disabled (not electron?)} "System output (Electron)"]
-        [:option {:value "mix" :disabled (not electron?)} "Mix mic + system (Electron)"]]
+        [:option {:value "system" :disabled (not electron?)} "Computer audio (desktop app)"]
+        [:option {:value "mix" :disabled (not electron?)} "Microphone + computer audio (desktop app)"]]
        (when (and electron? (not= :mic audio-source))
          [:div {:class "hint" :style {:marginTop "8px"}}
-          "System source is auto-selected when you start recording (no manual picker yet). "])]
+          "Computer audio is selected automatically when you start recording."])]
 
       [:div {:class "sc-cell"}
-       [:div {:class "label"} "Mic gain"]
+       [:div {:class "label"} "Microphone volume"]
        [:input {:type "number"
                 :min 0
                 :max 3
@@ -366,10 +367,10 @@
                                    v (when (seq raw) (js/parseFloat raw))]
                                (store/set-session-control! :mic_gain v)))}]
        (when (= :system audio-source)
-         [:div {:class "hint"} "Mic is disabled in System-only mode."])]
+         [:div {:class "hint"} "Your microphone is off when recording computer audio only."])]
 
       [:div {:class "sc-cell"}
-       [:div {:class "label"} "System gain"]
+       [:div {:class "label"} "Computer audio volume"]
        [:input {:type "number"
                 :min 0
                 :max 3
@@ -381,9 +382,9 @@
                                    v (when (seq raw) (js/parseFloat raw))]
                                (store/set-session-control! :system_gain v)))}]
        (when (and electron? (= :mic audio-source))
-         [:div {:class "hint"} "Select System/Mix to enable."])
+         [:div {:class "hint"} "Choose an input that includes computer audio to adjust its volume."])
        (when-not electron?
-         [:div {:class "hint"} "System audio capture is only available in Electron."])]]]))
+         [:div {:class "hint"} "Recording computer audio requires the desktop app."])]]]))
 
 (defn- workflow-routing-panel
   "Advanced panel for per-session workflow routing overrides.
@@ -464,7 +465,7 @@
        [:div {:class "error" :style {:marginBottom "8px"}} defaults-error])
 
      [checkbox-row {:id "wf-use-defaults"
-                    :label "Use tenant default workflows"
+                    :label "Use organization default workflows"
                     :checked (true? use-defaults?)
                     :on-change (fn [v] (store/set-session-workflow-overrides-use-defaults! v))}]
 
@@ -514,7 +515,7 @@
                                            (store/set-session-workflow-id-selected! id v))}]]))]))
 
      [:div {:class "muted" :style {:marginTop "10px" :fontSize "12px"}}
-      "Applies only when creating a new session. Existing sessions keep their routing snapshot."]]))
+      "Applies to new sessions. Existing sessions keep their original settings."]]))
 
 (defn- webhook-routing-panel
   "Advanced panel for per-session webhook routing overrides.
@@ -621,7 +622,7 @@
        [:div {:class "error" :style {:marginBottom "8px"}} defaults-error])
 
      [checkbox-row {:id "wh-use-defaults"
-                    :label "Use tenant default webhooks"
+                    :label "Use organization default webhooks"
                     :checked (true? use-defaults?)
                     :on-change (fn [v] (store/set-session-webhook-overrides-use-defaults! v))}]
 
@@ -668,7 +669,7 @@
           [:div {:class "label" :style {:marginBottom "6px"}}
            "Refined transcript delivery"]
           [checkbox-row {:id "wh-refined-consolidation"
-                         :label "Send cumulative refined transcript (rolling tail)"
+                         :label "Include earlier transcript text in each update"
                          :checked enabled?
                          :on-change (fn [v]
                                       (store/set-session-refined-consolidation-enabled! v))}]
@@ -676,7 +677,7 @@
            "Only applies to webhooks subscribed to transcript.refined.segment."]]))
 
      [:div {:class "muted" :style {:marginTop "10px" :fontSize "12px"}}
-      "Applies only when creating a new session. Existing sessions keep their routing snapshot."]]))
+      "Applies to new sessions. Existing sessions keep their original settings."]]))
 
 (defn- log-view
   "Debug log view."
@@ -799,7 +800,7 @@
          {:items workflow-results
           :title "Workflow results (live)"
           :fill? true
-          :empty-hint "No workflow results streamed yet."}]
+          :empty-hint "No workflow results available yet."}]
         [log-view])]]))
 
 (defn- live-transcript
@@ -818,19 +819,17 @@
      (for [[index track-id] (map-indexed vector track-ids)]
        (let [track-messages (filterv #(or (= track-id (:track %))
                                           (and (zero? index) (nil? (:track %))))
-                                     messages)
-             profile-id (some :provider_profile_id (rseq track-messages))]
+                                     messages)]
          ^{:key (str "realtime-panel-" track-id)}
          [:section {:class "realtime-track-panel"}
-          [:div {:class "realtime-track-panel-header"}
-           [:span {:class "realtime-track-label"} track-id]
-           (when (seq profile-id)
-             [:span {:class "muted realtime-track-profile"} profile-id])]
-           [components.transcript/transcript-view
-            {:messages track-messages
-             :highlight-revisions? highlight-revisions?
-             :empty-title "Real-time transcript"
-             :empty-hint (str "Waiting for " track-id " events…")}]]))]))
+          (when (> (count track-ids) 1)
+            [:div {:class "realtime-track-panel-header"}
+             [:span {:class "realtime-track-label"} track-id]])
+          [components.transcript/transcript-view
+           {:messages track-messages
+            :highlight-revisions? highlight-revisions?
+            :empty-title "Real-time transcript"
+            :empty-hint "No transcript available yet."}]]))]))
 
 (defn- refined-live-transcript
   "Show each selected refinement track's live results independently."
@@ -845,15 +844,18 @@
     [:div {:class "realtime-track-grid"
            :style {:gridTemplateColumns "repeat(auto-fit, minmax(min(280px, 100%), 1fr))"}}
      (if (false? (get-in session [:controls :refined]))
-       [:p {:class "muted"} "Refined transcription is disabled for this session."]
-       (for [id ids]
-         [:section {:key id :class "realtime-track-panel" :aria-label (str "Refined Transcript (" (get labels id id) ")")}
-          [:div {:class "realtime-track-panel-header"}
-           [:span {:class "realtime-track-label"} (get labels id id)]]
+       [:p {:class "muted"} "Refined transcription is turned off for this session."]
+       (for [id ids
+             :let [label (str "Refined Transcript"
+                              (when (> (count ids) 1) (str " (" (get labels id id) ")")))]]
+         [:section {:key id :class "realtime-track-panel" :aria-label label}
+          (when (> (count ids) 1)
+            [:div {:class "realtime-track-panel-header"}
+             [:span {:class "realtime-track-label"} (get labels id id)]])
           [components.transcript/transcript-view
            {:messages (filterv #(= id (:track_id %)) messages)
-            :empty-title (str "Refined Transcript (" (get labels id id) ")")
-            :empty-hint "No live result available yet."}]]))]))
+            :empty-title label
+            :empty-hint "No transcript available yet."}]]))]))
 (defn live-recording-page
   "Record page."
   []
@@ -868,8 +870,8 @@
         session (hooks/use-atom store/session*)
         auth-state (hooks/use-atom store/auth*)
         realtime-track-ids (let [selected (output-settings/selected-ids
-                                          (:controls session) :realtime
-                                          (output-settings/entries (:detail auth-state) :realtime))]
+                                           (:controls session) :realtime
+                                           (output-settings/entries (:detail auth-state) :realtime))]
                              (if (seq selected) selected ["default"]))
         running? (hooks/use-atom store/running?*)
         session-created-at-ms (or (:created_at_ms session) (util/now-ms))
@@ -880,7 +882,7 @@
         status-label (cond
                        (true? running?) "Recording"
                        (keyword? session-status) (-> session-status name str/capitalize)
-                       :else "Unknown")
+                       :else "Ready")
         status-kind (cond
                       (true? running?) :warn
                       (= session-status :active) :warn
@@ -888,15 +890,11 @@
                       (= session-status :finished) :ok
                       (= session-status :created) :muted
                       :else :muted)
-        status-tooltip (str "Session status: " (if (keyword? session-status)
-                                                  (name session-status)
-                                                  "unknown"))
-
         settings-open?* (react/useState false)
         settings-open? (aget settings-open?* 0)
         set-settings-open! (aget settings-open?* 1)
 
-        show-log?* (react/useState true)
+        show-log?* (react/useState false)
         show-log? (aget show-log?* 0)
         set-show-log! (aget show-log?* 1)]
     [:div {:class "page"}
@@ -907,8 +905,7 @@
         [:span {:style {:marginLeft "10px"}}
          [shared/status-pill {:label status-label
                               :kind status-kind
-                              :blink? (true? running?)
-                              :tooltip status-tooltip}]]]
+                              :blink? (true? running?)}]]]
        [:div {:class "muted"} "Capture audio and view the live transcript."]]
       [:div {:class "row"}
        (when (seq (:id session))
@@ -931,29 +928,29 @@
        "Real-time transcript"]
       [:button {:class (str "tab " (when (= tab :refined) "active"))
                 :on-click (fn [_] (set-tab! :refined))}
-       "Refined real-time"]
-       [:div {:class "spacer"}]
-       [:button {:class "btn ghost icon"
+       "Refined transcript"]
+      [:div {:class "spacer"}]
+      [:button {:class "btn ghost icon"
                 :type "button"
                 :aria-label (if show-log?
-                              "Hide log panel"
-                              "Show log panel")
+                              "Hide technical details"
+                              "Show technical details")
                 :title (if show-log?
-                         "Hide log panel"
-                         "Show log panel")
+                         "Hide technical details"
+                         "Show technical details")
                 :on-click (fn [_]
                             (set-show-log! (not show-log?)))}
        (shared/icon (if show-log? "❯" "❮")
                     {:title (if show-log?
-                              "Hide log panel"
-                              "Show log panel")})]]
+                              "Hide technical details"
+                              "Show technical details")})]]
 
      [:div {:class "split"}
       [:div {:class "split-main"}
        (case tab
          :refined [refined-live-transcript]
          (if (false? (get-in session [:controls :realtime]))
-           [:p {:class "muted"} "Real-time transcription is disabled for this session."]
+           [:p {:class "muted"} "Real-time transcription is turned off for this session."]
            [live-transcript realtime-track-ids highlight-revisions?]))]
       (when show-log?
         [:div {:class "split-side"}

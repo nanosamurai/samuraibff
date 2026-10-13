@@ -24,6 +24,7 @@ For the data model, see `resources/proto/stream.proto` and the Malli schemas in
   Do not introduce handcrafted SQL strings for application queries. SQL migration
   files and standalone database diagnostics (for example, EXPLAIN benchmarks)
   may use SQL directly. Keep runtime values in bound parameters.
+- README.MD or random md file you find is not your changelog! You do not need to tell about this amazing yet mundane code change you are doing to everyone and place its elaborate description on the first like of README.MD in the root folder. Each documentation file has its purpose (with REAMDE.MD in root folder being the first thing even business users may see) and it is not wise to pollute them with irrelevant implementation details one can easily read from the code. Changelog should not be committed into normal documentation; if the change you did makes existing documentation untrue, then (in a lean fashion and using Simplified Technical English) change/update the documentation.
 
 ## Clojure / ClojureScript editing rules
 
@@ -151,6 +152,12 @@ If you add/modify user-facing behavior, update **README.MD**.
 * If a change affects an API contract or message semantics, update tests accordingly.
 
 ### Style & readability
+
+* Write default UI copy for business users: describe the recording, transcript,
+  or next action in plain language. Keep implementation details (event names,
+  provider profiles, storage internals, and processing windows) in explicitly
+  opened technical settings or diagnostics. Do not infer processing, failure,
+  or completion from an absent result. Keep multiple outputs distinguishable.
 
 * Follow: https://guide.clojure.style/
 * Crucial additions we want to enforce:

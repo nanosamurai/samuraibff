@@ -6,19 +6,22 @@
 (defn track-tabs
   "Build flat saved-result tabs from selected IDs and actual Postgres rows.
   Accepts a recording response; returns ordered {:id [stage track], :label, :rows}
-  maps. Historical labels win, NULL track IDs mean WhisperX, and missing rows
-  remain visible without inferring a worker outcome."
+  maps. A single track uses only the transcript type; multiple tracks retain
+  historical labels. NULL track IDs mean WhisperX, and missing rows remain
+  visible without inferring a worker outcome."
   [detail]
   (let [controls (get-in detail [:session :stream_controls])]
     (vec (for [[stage selection] [[:refined :refinement_tracks] [:final :final_tracks]]
                :let [rows (get-in detail [:transcripts stage])
                      selected (when (get controls stage) (get controls selection))
-                     ids (distinct (concat selected (map #(or (:track_id %) "whisperx") rows)))]
+                     ids (distinct (concat selected (map #(or (:track_id %) "whisperx") rows)))
+                     multiple? (> (count ids) 1)]
                id ids
                :let [label (or (get-in controls [:track_labels stage (keyword id)])
                                (when (= id "whisperx") "WhisperX") id)]]
            {:id [stage id]
-            :label (str (if (= stage :final) "Final Transcript" "Refined Transcript") " (" label ")")
+            :label (str (if (= stage :final) "Final Transcript" "Refined Transcript")
+                        (when multiple? (str " (" label ")")))
             :rows (filterv #(= id (or (:track_id %) "whisperx")) rows)}))))
 
 (defn record-messages
