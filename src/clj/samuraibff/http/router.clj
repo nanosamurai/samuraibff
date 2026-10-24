@@ -226,6 +226,34 @@
 
 ;; --- Router ---
 
+(defn- safe-error-response
+  "Convert failures to fixed JSON without exposing request/response coercion data.
+
+  Request validation and JSON decoding failures remain HTTP 400. All other
+  exceptions become HTTP 500. Successful endpoint responses are not changed."
+  [failure request]
+  (let [type (:type (ex-data failure))
+        invalid-request? (contains? #{:reitit.coercion/request-coercion :muuntaja/decode} type)
+        status (if invalid-request? 400 500)]
+    (when-not (= :samuraibff.http/internal-error type)
+      (http.obs/log-failure! request failure status))
+    {:status status
+     :headers {"content-type" "application/json; charset=utf-8"}
+     :body (if invalid-request?
+             "{\"ok\":false,\"message\":\"invalid-request\"}"
+             "{\"ok\":false,\"message\":\"internal-error\"}")}))
+
+(defn- wrap-safe-errors
+  "Catch errors outside route coercion, including parameter, auth and static middleware.
+
+  Return the same bounded JSON error contract without rethrowing remote data."
+  [handler]
+  (fn [request]
+    (try
+      (handler request)
+      (catch Throwable failure
+        (safe-error-response failure request)))))
+
 (defn create-router
   "Create and return a Reitit router with all routes.
 
@@ -684,6 +712,7 @@
                  :malli/options {:error-keys #(mu/keys schemas/HealthCheckResponse)}
                  :swagger {:id ::api}
                  :middleware [ws.auth/wrap-rejected-upgrade
+                              wrap-safe-errors
                               parameters/parameters-middleware ; decoding query & form params
                               wrap-cookies
                               (fn [handler]
@@ -691,9 +720,10 @@
                                   (handler (assoc req :samuraibff/deps deps*))))
                               wrap-authenticate
                               http.obs/wrap-observability
+                              (exception/create-exception-middleware
+                               {::exception/default safe-error-response})
                               openapi/openapi-feature
                               muuntaja/format-middleware       ; content negotiation
-                              exception/exception-middleware   ; converting exceptions to HTTP responses
                               rrc/coerce-request-middleware
                               rrc/coerce-response-middleware]}})
 
@@ -722,11 +752,12 @@
                            (wrap-resource "public")
                            (wrap-content-type)
                            (wrap-no-cache))]
-    (ring/ring-handler
-     router
-     (ring/routes
-      static-handler
-      (ring/create-default-handler)))))
+    (wrap-safe-errors
+     (ring/ring-handler
+      router
+      (ring/routes
+       static-handler
+       (ring/create-default-handler))))))
 
 ;; --- Integrant Component ---
 

@@ -28,9 +28,13 @@
     samuraibff.auth.oidc-security-test
     samuraibff.auth.jwks-http-test
     samuraibff.http.auth-test
+    samuraibff.http.auth-privacy-test
+    samuraibff.http.error-security-test
     samuraibff.http.readiness-integration-test
     samuraibff.http.server-integration-test
     samuraibff.http.server-test
+    samuraibff.keycloak.admin-privacy-test
+    samuraibff.observability.diagnostics-test
     samuraibff.ui.transcript-test
     samuraibff.ui.urls-test
     samuraibff.ui.pagination-test
