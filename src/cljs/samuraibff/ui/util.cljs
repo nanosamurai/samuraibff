@@ -2,7 +2,8 @@
   "Small UI helpers (pure).
 
   This namespace contains helpers that are easier to test or reason about
-  when kept pure.")
+  when kept pure."
+  (:require [clojure.string :as str]))
 
 (defn- trim-trailing-slash
   "Trim trailing slashes from a URL-like string.
@@ -19,7 +20,7 @@
         x))))
 
 (defn now-ms
-  "Return current epoch time in milliseconds." 
+  "Return current epoch time in milliseconds."
   []
   (.now js/Date))
 
@@ -85,15 +86,16 @@
            "(untitled)")))
 
 (defn ws-url
-  "Build a ws/wss URL from current location.
+  "Build a ws/wss transport URL without browser-storage credentials.
 
   Inputs:
   - path: string, e.g. \"/ws/events\"
   - query-params: map string->string
 
   Behavior:
-  - If sessionStorage.access_token is present, it is appended as `token=`.
-    This supports non-cookie clients / dev usage.
+  - Browser and Electron authentication uses the HttpOnly cookie.
+  - Ignore known credential parameter names, including token/access_token.
+  - Preserve transport parameters and an optional explicit backend origin.
 
   Returns: string (absolute ws://... URL)."
   ([path query-params]
@@ -102,8 +104,6 @@
    (let [qs (js/URLSearchParams.)
          backend-base-url (some-> backend-base-url trim-trailing-slash)
          loc (.-location js/window)
-         ;; When backend-base-url is provided (Electron), derive ws/wss from it.
-         ;; Otherwise fall back to current location.
          proto (cond
                  (and (string? backend-base-url)
                       (not (empty? backend-base-url))
@@ -124,13 +124,12 @@
                        (not (empty? backend-base-url)))
                 (.-host (js/URL. backend-base-url))
                 (.-host loc))]
-    (doseq [[k v] query-params]
-      (.set qs (name k) (str v)))
-
-    (when-let [t (.getItem (.-sessionStorage js/window) "access_token")]
-      (when (and (string? t) (not (empty? t)))
-        (.set qs "token" t)))
-
+     (doseq [[k v] query-params
+             :let [key-name (name k)]
+             :when (not (contains? #{"token" "access_token" "refresh_token" "id_token"
+                                     "client_secret" "authorization" "cookie"}
+                                   (str/lower-case key-name)))]
+       (.set qs key-name (str v)))
      (str proto "//" host path "?" (.toString qs)))))
 
 (defn fmt-sec
@@ -139,7 +138,7 @@
   Inputs:
   - sec: number
 
-  Returns: string." 
+  Returns: string."
   [sec]
   (if-not (and (number? sec) (js/isFinite sec))
     "—"

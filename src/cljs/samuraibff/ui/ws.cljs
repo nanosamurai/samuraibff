@@ -11,9 +11,9 @@
   - connect-events!
   - close-events!"
   (:require
-    [samuraibff.ui.env :as env]
-    [samuraibff.ui.store :as store]
-    [samuraibff.ui.util :as util]))
+   [samuraibff.ui.env :as env]
+   [samuraibff.ui.store :as store]
+   [samuraibff.ui.util :as util]))
 
 (defonce ^:private events-ws*
   (atom nil))
@@ -98,18 +98,18 @@
     "refined" (do
                 ;; Helpful debugging: refined timing must be present and sane.
                 (store/append-log!
-                  (str "[events] refined raw start=" (pr-str (:start_s ev))
-                       " end=" (pr-str (:end_s ev))
-                       (when-let [xs (:supersedes_seq ev)] (str " supersedes=" (pr-str xs)))))
+                 (str "[events] refined raw start=" (pr-str (:start_s ev))
+                      " end=" (pr-str (:end_s ev))
+                      (when-let [xs (:supersedes_seq ev)] (str " supersedes=" (pr-str xs)))))
 
                 (store/append-refined! ev))
     "workflow_result" (do
                          ;; Do not log markdown body.
-                         (store/append-log!
-                          (str "[events] workflow_result wf=" (pr-str (:workflow_id ev))
-                               " status=" (pr-str (:status ev))
-                               (when-let [t (:trigger_type ev)] (str " trigger=" (pr-str t)))))
-                         (store/upsert-workflow-result! ev))
+                        (store/append-log!
+                         (str "[events] workflow_result wf=" (pr-str (:workflow_id ev))
+                              " status=" (pr-str (:status ev))
+                              (when-let [t (:trigger_type ev)] (str " trigger=" (pr-str t)))))
+                        (store/upsert-workflow-result! ev))
     (store/append-log! (str "[events] unknown event: " (pr-str ev)))))
 
 (defn connect-events!
@@ -128,12 +128,12 @@
                            {:backend-base-url (env/backend-base-url)})
           ws (js/WebSocket. url)]
       (reset! events-ws* ws)
-      (store/set-ws-status! :events :connecting url)
+      (store/set-ws-status! :events :connecting "/ws/events")
 
       (set! (.-onopen ws)
             (fn [_]
               (store/set-ws-status! :events :connected nil)
-              (store/append-log! (str "[events] connected " url))))
+              (store/append-log! "[events] connected")))
 
       (set! (.-onclose ws)
             (fn [e]
