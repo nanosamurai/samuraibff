@@ -9,6 +9,12 @@ The WebSocket surface is intentionally **not** part of OpenAPI.
 
 ## Authentication lifetime
 
+Authenticate with the same-origin HttpOnly cookie or an
+`Authorization: Bearer <token>` header. Query parameters, including `token` and
+`access_token`, cannot authenticate a connection. Session identifiers and stream
+controls remain query parameters. Clients previously using URL tokens must send
+the Authorization header instead; browser and Electron clients use the cookie.
+
 When authentication is required, both endpoints reject invalid tokens before
 upgrade with HTTP 403. The token must not have reached `exp`; the REST clock
 skew does not extend a WebSocket connection. Each connection closes at its

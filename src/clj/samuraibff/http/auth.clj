@@ -8,10 +8,8 @@
      - `GET /auth/callback` exchanges code for tokens
      - access token is stored in an HttpOnly cookie
 
-  2) **Non-browser clients** (and dev tools) can authenticate by providing an
-     access token either:
-     - in `Authorization: Bearer <token>` header, or
-     - as `?token=<token>` query parameter.
+  2) **Non-browser clients** (and dev tools) authenticate with an access token
+     in the `Authorization: Bearer <token>` header. URL parameters are ignored.
 
   Token verification is delegated to `samuraibff.auth.oidc`.
 

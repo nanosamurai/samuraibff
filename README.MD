@@ -99,6 +99,10 @@ shows how many languages support aligned, diarized finals.
 accounts can discover tracks without an email claim; populated browser-user
 claims retain the same response shape.
 
+API and WebSocket authentication use the Authorization bearer header or the
+HttpOnly login cookie. URL tokens are not accepted; programmatic clients must
+send the header. Browser and Electron clients continue using the cookie.
+
 Required-auth WebSockets close when their access token expires. A long
 recording can stop at that point; sign in again and start a new recording.
 See [token validation and lifetime](docs/security-auth.md#token-validation-and-lifetime)

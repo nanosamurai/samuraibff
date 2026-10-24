@@ -31,17 +31,29 @@ Do not add CORS support for `Origin: null`: packaged Electron does not use
 
 ## Token transport
 
-The backend accepts access tokens from:
+The backend accepts access tokens from these sources, in order:
 
 1) `Authorization: Bearer <token>` header
-2) `?token=<token>` query param (useful for WS/dev)
-3) HttpOnly cookie (default name: `access_token`)
+2) HttpOnly cookie (default name: `access_token`)
+
+Query, form and body parameters never authenticate a request. This includes
+`token` and `access_token`. Legacy clients that put bearer tokens in URLs must
+send the Authorization header instead. A supplied bearer header takes precedence
+over the cookie; an invalid bearer token does not fall back to a valid cookie.
 
 WebSockets `/ws/events` and `/ws/audio` enforce auth **before upgrade** when `:auth {:required? true}`.
 
-Prefer the authorization header or the HttpOnly cookie over query tokens.
-Reverse proxies and tracing agents can record URLs independently of the BFF;
-configure those systems to exclude credentials, cookies and query parameters.
+Browser and Electron WebSockets use the same-origin HttpOnly cookie. Their URLs
+carry session and stream parameters; the UI does not read
+`sessionStorage.access_token` or append access tokens. Connection status and
+diagnostic logs omit full WebSocket URLs. SDK and other non-browser clients
+continue using the Authorization header.
+
+The normal OIDC authorization-code redirect still uses `code` and `state`.
+Those protocol parameters are not bearer-token authentication. Reverse proxies
+and tracing agents can record incoming URLs independently of the BFF; configure
+those systems to exclude credentials, cookies and sensitive query parameters.
+No new credential mechanism or environment variable is required.
 
 ## Error responses and diagnostics
 

@@ -2,7 +2,7 @@
   "OIDC (Keycloak) helpers.
 
   This namespace provides:
-  - token extraction from Ring requests (Authorization header / query param / cookie)
+  - token extraction from Ring requests (Authorization header / cookie)
   - verification of Keycloak-issued JWT access tokens via OIDC discovery + JWKS
   - helpers to derive tenant identifiers from claims
 
@@ -103,10 +103,11 @@
 (defn extract-token
   "Extract an access token from a Ring request.
 
-  Precedence (matches drsynth):
+  Precedence:
   1) Authorization: Bearer <token>
-  2) ?token=<token> query param
-  3) cookie named [:auth :cookie-name] (defaults to \"access_token\")
+  2) cookie named [:auth :cookie-name] (defaults to \"access_token\")
+
+  Query, form and body parameters never supply authentication credentials.
 
   Inputs:
   - config: full config map
@@ -114,14 +115,13 @@
 
   Returns:
   - token string or nil"
-  [config {:keys [headers params cookies] :as _req}]
+  [config {:keys [headers cookies]}]
   (let [auth-header (or (get headers "authorization")
                         (get headers "Authorization"))
         by-header (bearer-token auth-header)
-        by-query (some-> (or (get params :token) (get params "token")) str not-empty)
         cookie-name (or (get-in config [:auth :cookie-name]) "access_token")
         by-cookie (some-> cookies (get cookie-name) :value str not-empty)]
-    (or by-header by-query by-cookie)))
+    (or by-header by-cookie)))
 
 (def clock-skew-seconds
   "Fixed, bounded clock tolerance for JWT exp/nbf validation."

@@ -5,6 +5,7 @@
             [org.httpkit.server :as http]
             [ring.middleware.cookies :refer [wrap-cookies]]
             [ring.middleware.params :refer [wrap-params]]
+            [ring.util.codec :as codec]
             [samuraibff.auth.oidc :as oidc]
             [samuraibff.auth.signed-tokens :as signed]
             [samuraibff.db.sessions :as db.sessions]
@@ -23,13 +24,28 @@
            (java.util UUID)
            (java.util.concurrent CountDownLatch TimeUnit)))
 
+(defn- transport-options
+  "Build explicit credential transports and optional competing headers/parameters."
+  [token transport extra]
+  (merge-with merge
+              (case transport
+                :header {:headers {"Authorization" (str "Bearer " token)}}
+                :cookie {:headers {"Cookie" (str "ns_access_token=" token)}}
+                :query-token {:params {:token token}}
+                :query-access-token {:params {:access_token token}})
+              extra))
+
 (defn- socket
-  "Create a loopback WS client authenticated through a header or browser cookie."
-  [base path session-id token transport]
-  (doto (.createSocket (WebSocketFactory.)
-                       (str base path "?session_id=" session-id) 2000)
-    (.addHeader (if (= transport :cookie) "Cookie" "Authorization")
-                (if (= transport :cookie) (str "ns_access_token=" token) (str "Bearer " token)))))
+  "Create a loopback WS client with the transport under test."
+  ([base path session-id token transport]
+   (socket base path session-id token transport {}))
+  ([base path session-id token transport extra]
+   (let [{:keys [headers params]} (transport-options token transport extra)
+         ws (.createSocket (WebSocketFactory.)
+                           (str base path "?" (codec/form-encode (assoc params :session_id session-id)))
+                           2000)]
+     (doseq [[name value] headers] (.addHeader ws name value))
+     ws)))
 
 (defn- handshake-status
   "Return the real HTTP status for a rejected upgrade, closing any accepted socket."
@@ -42,14 +58,41 @@
     (finally (.disconnect ws))))
 
 (defn- rest-status
-  "Call the authenticated REST test route with a signed bearer token."
-  [base token]
-  (.statusCode (.send (HttpClient/newHttpClient)
-                      (-> (HttpRequest/newBuilder (URI/create (str base "/api/me")))
-                          (.timeout (Duration/ofSeconds 3))
-                          (.header "Authorization" (str "Bearer " token))
-                          (.GET) (.build))
-                      (HttpResponse$BodyHandlers/discarding))))
+  "Call the authenticated REST test route using the transport under test."
+  ([base token] (rest-status base token :header {}))
+  ([base token transport extra]
+   (let [{:keys [headers params]} (transport-options token transport extra)
+         builder (-> (HttpRequest/newBuilder
+                      (URI/create (str base "/api/me?" (codec/form-encode params))))
+                     (.timeout (Duration/ofSeconds 3)))]
+     (doseq [[name value] headers] (.header builder name value))
+     (.statusCode (.send (HttpClient/newHttpClient) (-> builder (.GET) (.build))
+                         (HttpResponse$BodyHandlers/discarding))))))
+
+(defn- assert-credential-transports
+  "Exercise signed header/cookie positives, query rejection, and precedence on each endpoint."
+  [http-base ws-base ws-registry token]
+  (let [cookie (str "ns_access_token=" token)
+        ignored-params {:params {:token "ignored-query-token" :access_token "ignored-query-access-token"}}]
+    (doseq [[credential transport extra rest-status-code ws-status-code]
+            [[token :header {} 200 101]
+             [token :cookie {} 200 101]
+             [token :query-token {} 403 403]
+             [token :query-access-token {} 403 403]
+             [token :header ignored-params 200 101]
+             [token :cookie ignored-params 200 101]
+             ["invalid-header" :header {:headers {"Cookie" cookie}} 401 403]
+             [token :header {:headers {"Cookie" "ns_access_token=invalid-cookie"}} 200 101]
+             ["invalid-cookie" :cookie {:params {:token token :access_token token}} 401 403]]]
+      (is (= rest-status-code (rest-status http-base credential transport extra)))
+      (doseq [path ["/ws/audio" "/ws/events"]]
+        (let [session-id (str (UUID/randomUUID))]
+          (registry/ensure-session! ws-registry signed/tenant-id session-id {})
+          (try
+            (is (= ws-status-code
+                   (handshake-status (socket ws-base path session-id credential transport extra))))
+            (finally
+              (registry/close-session! ws-registry signed/tenant-id session-id "transport-test-complete"))))))))
 
 (deftest real-signatures-protect-rest-and-websocket-lifetimes
   (let [config (assoc-in signed/config [:auth :cookie-name] "ns_access_token")
@@ -85,6 +128,7 @@
                     registry/offer-audio! (fn [_ _ bytes] (deliver audio-received (alength bytes)) true)]
         (let [claims (signed/claims (System/currentTimeMillis))
               now-s (quot (System/currentTimeMillis) 1000)]
+          (assert-credential-transports http-base ws-base ws-registry (signed/token claims))
           (is (= 200 (rest-status http-base (signed/token claims))))
           (doseq [token (conj (mapv signed/token
                                     [(assoc claims :exp (- now-s 60))
