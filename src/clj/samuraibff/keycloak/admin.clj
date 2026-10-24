@@ -24,16 +24,17 @@
   - Returned secrets are show-once to the user.
   "
   (:require
-    [clojure.string :as str]
-    [integrant.core :as ig]
-    [jsonista.core :as json]
-    [org.corfield.logging4j2 :as log])
+   [clojure.string :as str]
+   [integrant.core :as ig]
+   [jsonista.core :as json]
+   [org.corfield.logging4j2 :as log]
+   [samuraibff.observability.diagnostics :as diagnostics])
   (:import
-    (java.net URI)
-    (java.net.http HttpClient HttpClient$Redirect HttpRequest HttpRequest$BodyPublishers HttpResponse$BodyHandlers)
-    (java.nio.charset StandardCharsets)
-    (java.time Duration)
-    (java.util UUID)))
+   (java.net URI)
+   (java.net.http HttpClient HttpClient$Redirect HttpRequest HttpRequest$BodyPublishers HttpResponse$BodyHandlers)
+   (java.nio.charset StandardCharsets)
+   (java.time Duration)
+   (java.util UUID)))
 
 (defprotocol KeycloakAdmin
   (create-m2m-client! [this {:keys [tenant-id name audience-client-id]}]
@@ -94,53 +95,78 @@
         base (str/replace issuer0 #"/realms/[^/]+$" "")]
     (str base "/admin/realms/" realm)))
 
+(defn- request!
+  "Run a request thunk, replacing transport errors with a fixed safe exception.
+
+  Diagnostic logs retain classes and code locations, never messages or causes."
+  [send-request]
+  (try
+    (send-request)
+    (catch InterruptedException failure
+      (.interrupt (Thread/currentThread))
+      (log/warn "Keycloak request interrupted" (diagnostics/failure-details failure))
+      (throw (ex-info "Keycloak request interrupted" {:type :samuraibff.keycloak-admin/request-failed})))
+    (catch Exception failure
+      (log/warn "Keycloak request failed" (diagnostics/failure-details failure))
+      (throw (ex-info "Keycloak request failed" {:type :samuraibff.keycloak-admin/request-failed})))))
+
+(defn- read-json!
+  "Parse an upstream response or throw a fixed exception without its payload."
+  [body status]
+  (try
+    (json/read-value body json-mapper)
+    (catch Exception _
+      (throw (ex-info "Invalid Keycloak response"
+                      {:type :samuraibff.keycloak-admin/invalid-response
+                       :status (diagnostics/http-status status)})))))
+
 (defn- http-post-form!
+  "POST form parameters and return the response only to the token parser."
   [url params]
-  (let [^HttpRequest req (-> (HttpRequest/newBuilder)
-                             (.uri (URI/create url))
-                             (.timeout (Duration/ofSeconds 10))
-                             (.header "Content-Type" "application/x-www-form-urlencoded")
-                             (.POST (HttpRequest$BodyPublishers/ofString (form-encode params) StandardCharsets/UTF_8))
-                             (.build))
-        resp (.send http-client req (HttpResponse$BodyHandlers/ofString))]
-    {:status (.statusCode resp)
-     :body (.body resp)}))
+  (request!
+   (fn []
+     (let [^HttpRequest req (-> (HttpRequest/newBuilder)
+                                (.uri (URI/create url))
+                                (.timeout (Duration/ofSeconds 10))
+                                (.header "Content-Type" "application/x-www-form-urlencoded")
+                                (.POST (HttpRequest$BodyPublishers/ofString (form-encode params) StandardCharsets/UTF_8))
+                                (.build))
+           resp (.send http-client req (HttpResponse$BodyHandlers/ofString))]
+       {:status (.statusCode resp) :body (.body resp)}))))
 
 (defn- http-request-json!
   "Make an HTTP request and parse JSON body.
 
-  Returns {:status int :body (parsed-json-or-string)}"
+  Returns {:status int :body parsed-json-or-nil}. Error bodies are discarded."
   [{:keys [method url headers body]}]
-  (let [builder (-> (HttpRequest/newBuilder)
-                    (.uri (URI/create url))
-                    (.timeout (Duration/ofSeconds 10)))
-        builder (reduce (fn [b [k v]] (.header b (str k) (str v))) builder (or headers {}))
-        builder (case method
-                  :get (.GET builder)
-                  :post (.POST builder (HttpRequest$BodyPublishers/ofString (or body "") StandardCharsets/UTF_8))
-                  :put (.PUT builder (HttpRequest$BodyPublishers/ofString (or body "") StandardCharsets/UTF_8))
-                  :delete (.DELETE builder)
-                  (throw (ex-info "Unsupported method" {:method method})))
-        ^HttpRequest req (.build builder)
-        resp (.send http-client req (HttpResponse$BodyHandlers/ofString))
-        status (.statusCode resp)
-        body-str (.body resp)
-        parsed (try
-                 (when (seq (str body-str))
-                   (json/read-value body-str json-mapper))
-                 (catch Exception _ body-str))]
-    {:status status :body parsed :raw body-str}))
+  (request!
+   (fn []
+     (let [builder (-> (HttpRequest/newBuilder)
+                       (.uri (URI/create url))
+                       (.timeout (Duration/ofSeconds 10)))
+           builder (reduce (fn [b [k v]] (.header b (str k) (str v))) builder (or headers {}))
+           builder (case method
+                     :get (.GET builder)
+                     :post (.POST builder (HttpRequest$BodyPublishers/ofString (or body "") StandardCharsets/UTF_8))
+                     :put (.PUT builder (HttpRequest$BodyPublishers/ofString (or body "") StandardCharsets/UTF_8))
+                     :delete (.DELETE builder)
+                     (throw (ex-info "Unsupported method" {:type :samuraibff.keycloak-admin/invalid-method})))
+           ^HttpRequest req (.build builder)
+           resp (.send http-client req (HttpResponse$BodyHandlers/ofString))
+           status (.statusCode resp)
+           body-str (.body resp)
+           parsed (when (and (<= 200 status 299) (seq body-str))
+                    (read-json! body-str status))]
+       {:status status :body parsed}))))
 
 (defn- fetch-admin-token!
   "Get an admin access token via client_credentials.
 
-  Returns token string." 
+  Returns token string."
   [{:keys [issuer client-id client-secret]}]
   (when-not (and (seq (str issuer)) (seq (str client-id)) (seq (str client-secret)))
     (throw (ex-info "Keycloak admin config missing"
-                    {:type :samuraibff.keycloak-admin/config-missing
-                     :issuer issuer
-                     :client-id client-id})))
+                    {:type :samuraibff.keycloak-admin/config-missing})))
   (let [{:keys [status body]} (http-post-form!
                                (token-endpoint issuer)
                                {:grant_type "client_credentials"
@@ -149,15 +175,12 @@
     (when-not (<= 200 status 299)
       (throw (ex-info "Keycloak admin token fetch failed"
                       {:type :samuraibff.keycloak-admin/token-fetch-failed
-                       :status status
-                       :url (token-endpoint issuer)
-                       :body (subs (str body) 0 (min 2000 (count (str body))))})))
-    (let [m (json/read-value body json-mapper)
+                       :status status})))
+    (let [m (read-json! body status)
           tok (:access_token m)]
-      (when (str/blank? (str tok))
+      (when-not (and (string? tok) (not (str/blank? tok)))
         (throw (ex-info "Keycloak token response missing access_token"
-                        {:type :samuraibff.keycloak-admin/token-missing-access-token
-                         :resp m})))
+                        {:type :samuraibff.keycloak-admin/token-missing-access-token})))
       tok)))
 
 (defn- make-client-id
@@ -166,7 +189,7 @@
   We include tenant id so that even without RBAC, credentials remain naturally
   tenant-bound and easy to identify.
 
-  Returns string." 
+  Returns string."
   [tenant-id name]
   (let [suffix (subs (str (UUID/randomUUID)) 0 8)
         safe-name (-> (or name "")
@@ -181,16 +204,16 @@
   "Ensure a protocol mapper exists for tenant_id claim.
 
   For now this is best-effort; if it fails we still create the client.
-  We’ll enforce tenant claim presence at the BFF auth layer separately." 
+  We’ll enforce tenant claim presence at the BFF auth layer separately."
   [_deps token admin-base client-uuid tenant-id]
   (let [tenant-id (str tenant-id)
         url (str admin-base "/clients/" client-uuid "/protocol-mappers/models")
-        {:keys [status body raw]} (http-request-json!
-                                   {:method :get
-                                    :url url
-                                    :headers {"Authorization" (str "Bearer " token)}})
+        {:keys [status body]} (http-request-json!
+                               {:method :get
+                                :url url
+                                :headers {"Authorization" (str "Bearer " token)}})
         _ (when-not (<= 200 status 299)
-            (throw (ex-info "Keycloak list protocol mappers failed" {:status status :body raw :client-uuid client-uuid})))
+            (throw (ex-info "Keycloak list protocol mappers failed" {:status status})))
         existing? (some (fn [m]
                           (and (= "tenant_id" (get m :name))
                                (= "oidc-hardcoded-claim-mapper" (get m :protocolMapper))))
@@ -206,14 +229,14 @@
                              "id.token.claim" "false"
                              "access.token.claim" "true"
                              "userinfo.token.claim" "true"}}
-            {:keys [status raw]} (http-request-json!
-                                  {:method :post
-                                   :url url
-                                   :headers {"Authorization" (str "Bearer " token)
-                                             "Content-Type" "application/json"}
-                                   :body (json/write-value-as-string mapper json-mapper)})]
+            {:keys [status]} (http-request-json!
+                              {:method :post
+                               :url url
+                               :headers {"Authorization" (str "Bearer " token)
+                                         "Content-Type" "application/json"}
+                               :body (json/write-value-as-string mapper json-mapper)})]
         (when-not (<= 200 status 299)
-          (throw (ex-info "Keycloak create protocol mapper failed" {:status status :body raw :client-uuid client-uuid})))))))
+          (throw (ex-info "Keycloak create protocol mapper failed" {:status status})))))))
 
 (defn- ensure-audience-mapper!
   "Ensure a protocol mapper exists that adds a required audience into access tokens.
@@ -225,17 +248,17 @@
   - token: admin access token
   - admin-base: Keycloak realm admin base URL
   - client-uuid: UUID of the created client (not clientId)
-  - audience-client-id: string Keycloak clientId to include in `aud`" 
+  - audience-client-id: string Keycloak clientId to include in `aud`"
   [_deps token admin-base client-uuid audience-client-id]
   (let [aud (some-> audience-client-id str)]
     (when (seq aud)
       (let [url (str admin-base "/clients/" client-uuid "/protocol-mappers/models")
-            {:keys [status body raw]} (http-request-json!
-                                       {:method :get
-                                        :url url
-                                        :headers {"Authorization" (str "Bearer " token)}})
+            {:keys [status body]} (http-request-json!
+                                   {:method :get
+                                    :url url
+                                    :headers {"Authorization" (str "Bearer " token)}})
             _ (when-not (<= 200 status 299)
-                (throw (ex-info "Keycloak list protocol mappers failed" {:status status :body raw :client-uuid client-uuid})))
+                (throw (ex-info "Keycloak list protocol mappers failed" {:status status})))
             existing? (some (fn [m]
                               (and (= "bff_audience" (get m :name))
                                    (= "oidc-audience-mapper" (get m :protocolMapper))))
@@ -249,14 +272,14 @@
                                  "id.token.claim" "false"
                                  "access.token.claim" "true"
                                  "userinfo.token.claim" "false"}}
-                {:keys [status raw]} (http-request-json!
-                                      {:method :post
-                                       :url url
-                                       :headers {"Authorization" (str "Bearer " token)
-                                                 "Content-Type" "application/json"}
-                                       :body (json/write-value-as-string mapper json-mapper)})]
+                {:keys [status]} (http-request-json!
+                                  {:method :post
+                                   :url url
+                                   :headers {"Authorization" (str "Bearer " token)
+                                             "Content-Type" "application/json"}
+                                   :body (json/write-value-as-string mapper json-mapper)})]
             (when-not (<= 200 status 299)
-              (throw (ex-info "Keycloak create audience protocol mapper failed" {:status status :body raw :client-uuid client-uuid})))))))))
+              (throw (ex-info "Keycloak create audience protocol mapper failed" {:status status})))))))))
 
 (defrecord HttpKeycloakAdmin [deps]
   KeycloakAdmin
@@ -273,67 +296,54 @@
                        :directAccessGrantsEnabled false
                        :standardFlowEnabled false
                        :protocol "openid-connect"}
-          {:keys [status raw]} (http-request-json!
-                                {:method :post
-                                 :url (str admin-base "/clients")
-                                 :headers {"Authorization" (str "Bearer " token)
-                                           "Content-Type" "application/json"}
-                                 :body (json/write-value-as-string client-repr json-mapper)})]
+          {:keys [status]} (http-request-json!
+                            {:method :post
+                             :url (str admin-base "/clients")
+                             :headers {"Authorization" (str "Bearer " token)
+                                       "Content-Type" "application/json"}
+                             :body (json/write-value-as-string client-repr json-mapper)})]
       (when-not (or (= status 201) (= status 204))
         (throw (ex-info "Keycloak create client failed"
                         {:type :samuraibff.keycloak-admin/create-client-failed
-                         :status status
-                         :url (str admin-base "/clients")
-                         :body raw
-                         :client-id client-id})))
+                         :status status})))
 
       ;; Find the created client's UUID by querying by clientId.
-      (let [{:keys [status body raw]} (http-request-json!
-                                       {:method :get
-                                        :url (str admin-base "/clients?clientId=" (java.net.URLEncoder/encode client-id "UTF-8"))
-                                        :headers {"Authorization" (str "Bearer " token)}})
+      (let [{:keys [status body]} (http-request-json!
+                                   {:method :get
+                                    :url (str admin-base "/clients?clientId=" (java.net.URLEncoder/encode client-id "UTF-8"))
+                                    :headers {"Authorization" (str "Bearer " token)}})
             _ (when-not (<= 200 status 299)
                 (throw (ex-info "Keycloak lookup client failed"
                                 {:type :samuraibff.keycloak-admin/lookup-client-failed
-                                 :status status
-                                 :url (str admin-base "/clients")
-                                 :body raw
-                                 :client-id client-id})))
+                                 :status status})))
             client-uuid (some-> body first :id)
             _ (when (str/blank? (str client-uuid))
                 (throw (ex-info "Keycloak lookup did not return client UUID"
-                                {:type :samuraibff.keycloak-admin/lookup-client-missing-uuid
-                                 :client-id client-id
-                                 :resp body})))
+                                {:type :samuraibff.keycloak-admin/lookup-client-missing-uuid})))
 
             ;; Create / regenerate secret (Keycloak returns it).
-            {:keys [status body raw]} (http-request-json!
-                                       {:method :post
-                                        :url (str admin-base "/clients/" client-uuid "/client-secret")
-                                        :headers {"Authorization" (str "Bearer " token)}})
+            {:keys [status body]} (http-request-json!
+                                   {:method :post
+                                    :url (str admin-base "/clients/" client-uuid "/client-secret")
+                                    :headers {"Authorization" (str "Bearer " token)}})
             _ (when-not (<= 200 status 299)
                 (throw (ex-info "Keycloak generate secret failed"
                                 {:type :samuraibff.keycloak-admin/generate-secret-failed
-                                 :status status
-                                 :url (str admin-base "/clients/" client-uuid "/client-secret")
-                                 :body raw
-                                 :client-id client-id})))
+                                 :status status})))
             secret (or (:value body) (:clientSecret body))]
-        (when (str/blank? (str secret))
+        (when-not (and (string? secret) (not (str/blank? secret)))
           (throw (ex-info "Keycloak secret response missing value"
-                          {:type :samuraibff.keycloak-admin/secret-missing-value
-                           :client-id client-id
-                           :resp (dissoc body :value :clientSecret)})))
+                          {:type :samuraibff.keycloak-admin/secret-missing-value})))
 
         (try
           (ensure-tenant-claim-mapper! deps token admin-base client-uuid tenant-id)
           (catch Exception e
-            (log/warn e "Failed ensuring tenant claim mapper" {:client-id client-id :tenant-id tenant-id})))
+            (log/warn "Failed ensuring tenant claim mapper" (diagnostics/failure-details e))))
 
         (try
           (ensure-audience-mapper! deps token admin-base client-uuid audience-client-id)
           (catch Exception e
-            (log/warn e "Failed ensuring audience mapper" {:client-id client-id :audience-client-id audience-client-id})))
+            (log/warn "Failed ensuring audience mapper" (diagnostics/failure-details e))))
 
         {:client-id client-id
          :client-secret secret})))
@@ -343,55 +353,55 @@
           token (fetch-admin-token! deps)
           admin-base (admin-base-url issuer realm)
           ;; Lookup UUID
-          {:keys [status body raw]} (http-request-json!
-                                     {:method :get
-                                      :url (str admin-base "/clients?clientId=" (java.net.URLEncoder/encode (str client-id) "UTF-8"))
-                                      :headers {"Authorization" (str "Bearer " token)}})
+          {:keys [status body]} (http-request-json!
+                                 {:method :get
+                                  :url (str admin-base "/clients?clientId=" (java.net.URLEncoder/encode (str client-id) "UTF-8"))
+                                  :headers {"Authorization" (str "Bearer " token)}})
           _ (when-not (<= 200 status 299)
-              (throw (ex-info "Keycloak lookup client failed" {:status status :body raw :client-id client-id})))
+              (throw (ex-info "Keycloak lookup client failed" {:status status})))
           client-uuid (some-> body first :id)
           _ (when (str/blank? (str client-uuid))
-              (throw (ex-info "Keycloak lookup did not return client UUID" {:client-id client-id :resp body})))
-          {:keys [status body raw]} (http-request-json!
-                                     {:method :post
-                                      :url (str admin-base "/clients/" client-uuid "/client-secret")
-                                      :headers {"Authorization" (str "Bearer " token)}})
+              (throw (ex-info "Keycloak lookup did not return client UUID" {:type :samuraibff.keycloak-admin/lookup-client-missing-uuid})))
+          {:keys [status body]} (http-request-json!
+                                 {:method :post
+                                  :url (str admin-base "/clients/" client-uuid "/client-secret")
+                                  :headers {"Authorization" (str "Bearer " token)}})
           _ (when-not (<= 200 status 299)
-              (throw (ex-info "Keycloak rotate secret failed" {:status status :body raw :client-id client-id})))
+              (throw (ex-info "Keycloak rotate secret failed" {:status status})))
           secret (or (:value body) (:clientSecret body))]
-      (when (str/blank? (str secret))
-        (throw (ex-info "Keycloak secret response missing value" {:client-id client-id :resp body})))
+      (when-not (and (string? secret) (not (str/blank? secret)))
+        (throw (ex-info "Keycloak secret response missing value" {:type :samuraibff.keycloak-admin/secret-missing-value})))
       {:client-secret secret}))
 
   (disable-client! [_this {:keys [client-id]}]
     (let [{:keys [issuer realm]} deps
           token (fetch-admin-token! deps)
           admin-base (admin-base-url issuer realm)
-          {:keys [status body raw]} (http-request-json!
-                                     {:method :get
-                                      :url (str admin-base "/clients?clientId=" (java.net.URLEncoder/encode (str client-id) "UTF-8"))
-                                      :headers {"Authorization" (str "Bearer " token)}})
+          {:keys [status body]} (http-request-json!
+                                 {:method :get
+                                  :url (str admin-base "/clients?clientId=" (java.net.URLEncoder/encode (str client-id) "UTF-8"))
+                                  :headers {"Authorization" (str "Bearer " token)}})
           _ (when-not (<= 200 status 299)
-              (throw (ex-info "Keycloak lookup client failed" {:status status :body raw :client-id client-id})))
+              (throw (ex-info "Keycloak lookup client failed" {:status status})))
           client-uuid (some-> body first :id)
           _ (when (str/blank? (str client-uuid))
-              (throw (ex-info "Keycloak lookup did not return client UUID" {:client-id client-id :resp body})))
+              (throw (ex-info "Keycloak lookup did not return client UUID" {:type :samuraibff.keycloak-admin/lookup-client-missing-uuid})))
           ;; GET existing repr, then PUT enabled=false
-          {:keys [status body raw]} (http-request-json!
-                                     {:method :get
-                                      :url (str admin-base "/clients/" client-uuid)
-                                      :headers {"Authorization" (str "Bearer " token)}})
+          {:keys [status body]} (http-request-json!
+                                 {:method :get
+                                  :url (str admin-base "/clients/" client-uuid)
+                                  :headers {"Authorization" (str "Bearer " token)}})
           _ (when-not (<= 200 status 299)
-              (throw (ex-info "Keycloak get client repr failed" {:status status :body raw :client-id client-id})))
+              (throw (ex-info "Keycloak get client repr failed" {:status status})))
           repr (assoc body :enabled false)
-          {:keys [status raw]} (http-request-json!
-                                {:method :put
-                                 :url (str admin-base "/clients/" client-uuid)
-                                 :headers {"Authorization" (str "Bearer " token)
-                                           "Content-Type" "application/json"}
-                                 :body (json/write-value-as-string repr json-mapper)})]
+          {:keys [status]} (http-request-json!
+                            {:method :put
+                             :url (str admin-base "/clients/" client-uuid)
+                             :headers {"Authorization" (str "Bearer " token)
+                                       "Content-Type" "application/json"}
+                             :body (json/write-value-as-string repr json-mapper)})]
       (when-not (<= 200 status 299)
-        (throw (ex-info "Keycloak disable client failed" {:status status :body raw :client-id client-id})))
+        (throw (ex-info "Keycloak disable client failed" {:status status})))
       nil)))
 
 (defmethod ig/init-key :samuraibff/keycloak-admin
@@ -402,12 +412,10 @@
         client-secret (get-in config [:keycloak :admin :client-secret])]
     (if-not (and (seq (str issuer)) (seq (str realm)) (seq (str client-id)) (seq (str client-secret)))
       (do
-        (log/warn "Keycloak admin client disabled (missing config)" {:issuer issuer
-                                                                     :realm realm
-                                                                     :client-id client-id})
+        (log/warn "Keycloak admin client disabled (missing config)")
         nil)
       (do
-        (log/info "Keycloak admin client initialized" {:issuer issuer :realm realm :client-id client-id})
+        (log/info "Keycloak admin client initialized")
         (->HttpKeycloakAdmin {:issuer issuer
                               :realm realm
                               :client-id client-id
