@@ -39,6 +39,40 @@ The backend accepts access tokens from:
 
 WebSockets `/ws/events` and `/ws/audio` enforce auth **before upgrade** when `:auth {:required? true}`.
 
+Prefer the authorization header or the HttpOnly cookie over query tokens.
+Reverse proxies and tracing agents can record URLs independently of the BFF;
+configure those systems to exclude credentials, cookies and query parameters.
+
+## Error responses and diagnostics
+
+Authentication and Keycloak admin errors do not include request headers,
+cookies, tokens, client secrets, upstream response bodies or exception payloads.
+Their diagnostic logs retain bounded exception classes and code locations.
+Keycloak credential-creation errors may include the numeric upstream HTTP status.
+Successful credential creation and rotation still return the secret once.
+
+HTTP error logs use the matched route template, an allowlisted method and status,
+and validated session and trace correlation. They omit raw URLs, response bodies,
+arbitrary error messages and exception data. An invalid session identifier is not
+used for log correlation.
+
+Request validation and body-decoding failures return HTTP 400 with
+`{"ok":false,"message":"invalid-request"}`. Unexpected failures, including
+response-schema failures, return HTTP 500 with
+`{"ok":false,"message":"internal-error"}`. These responses omit submitted values
+and response-schema payloads. Explicit application error responses retain their
+documented messages.
+
+The login callback returns a fixed `oidc-error` message for an identity-provider
+error. Token exchange rejection returns HTTP 400 with `token-exchange-failed`
+and the numeric upstream status. A transport error, malformed JSON or missing
+access token returns HTTP 502 with the same fixed message. Provider error text
+and token responses are not returned to the browser.
+
+These rules apply to the BFF boundaries described above. They do not sanitize
+logs or traces produced independently by proxies, agents or other services.
+No additional environment variables are required.
+
 ## Token validation and lifetime
 
 Access tokens must have an RS256 signature from the configured issuer, a
