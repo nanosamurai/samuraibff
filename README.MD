@@ -97,7 +97,12 @@ shows how many languages support aligned, diarized finals.
 
 `GET /api/me` omits absent optional identity claims and tenant names. Machine
 accounts can discover tracks without an email claim; populated browser-user
-claims retain the same response shape. Authentication requirements are unchanged.
+claims retain the same response shape.
+
+Required-auth WebSockets close when their access token expires. A long
+recording can stop at that point; sign in again and start a new recording.
+See [token validation and lifetime](docs/security-auth.md#token-validation-and-lifetime)
+for claim checks, signing-key refresh, and revocation limits.
 
 Rejected WebSocket handshakes return `Connection: close`. This prevents an HTTP
 load balancer from reusing a rejected upgrade connection for a subsequent

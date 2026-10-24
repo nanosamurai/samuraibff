@@ -9,16 +9,16 @@
   Query parameters:
   - session_id  (required) string
 
-  Note: OIDC auth is intentionally not implemented yet." 
+  Required-auth sockets stop receiving events when their access token expires."
   (:require
-    [clojure.core.async :as async]
-    [clojure.string :as str]
-    [jsonista.core :as json]
-    [org.corfield.logging4j2 :as log]
-    [org.httpkit.server :as http]
-    [samuraibff.ws.auth :as ws.auth]
-    [samuraibff.ws.registry :as ws.registry]
-    [samuraibff.ws.tenant :as ws.tenant]))
+   [clojure.core.async :as async]
+   [clojure.string :as str]
+   [jsonista.core :as json]
+   [org.corfield.logging4j2 :as log]
+   [org.httpkit.server :as http]
+   [samuraibff.ws.auth :as ws.auth]
+   [samuraibff.ws.registry :as ws.registry]
+   [samuraibff.ws.tenant :as ws.tenant]))
 
 (def ^:private json-mapper
   (json/object-mapper {:encode-key-fn name}))
@@ -29,10 +29,9 @@
   Inputs:
   - value: map (event)
 
-  Returns: string (JSON)." 
+  Returns: string (JSON)."
   [value]
   (json/write-value-as-string value json-mapper))
-
 
 (defn handler
   "Return a Ring handler that upgrades `/ws/events` and streams JSON events.
@@ -52,58 +51,61 @@
         {:status 400
          :headers {"content-type" "application/json"}
          :body "{\"error\":\"session_id is required\"}"}
-        (let [{:keys [ok? response tenant-id]} (ws.auth/require-auth-or-continue config request)]
+        (let [{:keys [ok? response tenant-id user]} (ws.auth/require-auth-or-continue config request)]
           (if-not ok?
             response
             (try
               (let [session (ws.tenant/assert-session-access! config ws-registry tenant-id session-id)
                     out-ch (async/chan 64)
                     stop?* (atom false)]
-              (ws.registry/tap-events! session out-ch)
+                (ws.registry/tap-events! session out-ch)
               ;; IMPORTANT: return the AsyncChannel from `http/as-channel`.
               ;; Returning nil can cause some Ring stacks/middlewares to close the
               ;; connection immediately even though `as-channel` was called.
-              (http/as-channel
-                request
-                {:on-open (fn [ch]
-                            (ws.registry/mark-events-connected! ws-registry session)
-                            (log/info "WS /ws/events connected" {:session-id session-id})
+                (http/as-channel
+                 request
+                 (ws.auth/expiry-callbacks
+                  config user
+                  {:on-open (fn [ch]
+                              (ws.registry/mark-events-connected! ws-registry session)
+                              (log/info "WS /ws/events connected" {:session-id session-id})
 
                             ;; Send events coming from `out-ch` to this websocket.
                             ;; This runs on a core.async thread pool, not the WS thread.
-                            (async/go-loop []
-                              (when-not @stop?*
-                                (if-let [event (async/<! out-ch)]
-                                  (do
-                                    (try
-                                      (http/send! ch (write-json event))
-                                      (catch Exception e
-                                        (log/warn e "Failed sending ws event" {:session-id session-id
-                                                                              :event-type (:type event)})))
-                                    (recur))
+                              (async/go-loop []
+                                (when-not @stop?*
+                                  (if-let [event (async/<! out-ch)]
+                                    (do
+                                      (try
+                                        (when (ws.auth/authenticated-now? config user)
+                                          (http/send! ch (write-json event)))
+                                        (catch Exception e
+                                          (log/warn e "Failed sending ws event" {:session-id session-id
+                                                                                 :event-type (:type event)})))
+                                      (recur))
                                   ;; channel closed
-                                  (reset! stop?* true))))
+                                    (reset! stop?* true))))
 
                             ;; Publish a monotonic status event for UI.
-                            (ws.registry/publish! ws-registry session
-                                                  {:type "status"
-                                                   :session_id session-id
-                                                   :seq (swap! (:seq* session) inc)
-                                                   :ts_ms (System/currentTimeMillis)
-                                                   :status "connected"
-                                                   :detail "events-subscribed"})
-                            (comment "NOTE: We intentionally do NOT start the realtime gRPC stream here.
+                              (ws.registry/publish! ws-registry session
+                                                    {:type "status"
+                                                     :session_id session-id
+                                                     :seq (swap! (:seq* session) inc)
+                                                     :ts_ms (System/currentTimeMillis)
+                                                     :status "connected"
+                                                     :detail "events-subscribed"})
+                              (comment "NOTE: We intentionally do NOT start the realtime gRPC stream here.
                             The browser typically connects /ws/events before /ws/audio,
                             but the language + sample-rate controls are only available on /ws/audio.
                             Starting the stream here would lock in the default (empty) :lang."))
-                 :on-close (fn [_ch status]
-                             (reset! stop?* true)
-                             (ws.registry/untap-events! session out-ch)
-                             (async/close! out-ch)
-                             (ws.registry/mark-events-disconnected! ws-registry session)
-                             (log/info "WS /ws/events closed" {:session-id session-id
-                                                               :tenant-id  (:tenant-id session)
-                                                               :status     status}))}))
+                   :on-close (fn [_ch status]
+                               (reset! stop?* true)
+                               (ws.registry/untap-events! session out-ch)
+                               (async/close! out-ch)
+                               (ws.registry/mark-events-disconnected! ws-registry session)
+                               (log/info "WS /ws/events closed" {:session-id session-id
+                                                                 :tenant-id  (:tenant-id session)
+                                                                 :status     status}))})))
               (catch clojure.lang.ExceptionInfo e
                 (let [{:keys [type]} (ex-data e)]
                   (case type
