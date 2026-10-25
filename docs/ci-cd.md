@@ -65,3 +65,47 @@ docker buildx imagetools inspect \
 
 Deployment orchestration and environment-specific configuration remain owned
 by the deployment repository.
+
+### Runtime dependency maintenance
+
+The runtime uses a digest-pinned Temurin Java 21 image on Ubuntu 24.04 LTS.
+While the corresponding container release is pending, the Dockerfile replaces
+its JRE with the official Temurin 21.0.13+9 archive and verifies the architecture's
+pinned SHA-256 before extraction. Preserve the base's CA certificates, native
+libraries, timezones and UID 10001 when updating it. Verify `java --version` in
+the final image; the base tag and an OS package scan do not establish the JRE
+patch level. The Ubuntu LTS variant does not include Pebble.
+
+The bundled default Java truststore follows Oracle's
+[eMudhra root-removal guidance](https://ops.java/emudhra). The build verifies
+the remaining emSign Root CA G1 fingerprint before deleting that exact alias,
+then checks that all four roots named by the guidance are absent. TLS peers
+chaining only to these removed roots will be rejected. Application-provided
+truststores, including `javax.net.ssl.trustStore` overrides, need separate review.
+
+Jackson 2.x modules in `deps.edn` follow one BOM version; annotations use the
+BOM's minor-only version. Keep the gRPC runtime and Buf gRPC generator aligned.
+The gRPC client uses `grpc-netty` with its three Netty dependency roots pinned
+to one patch release; verify every resolved Netty module has that same version.
+This allows Netty security patches to be applied independently of gRPC's shaded
+bundle. The current client uses plaintext connections within its configured
+service network. If TLS is introduced, the unshaded transport uses Java 21's
+built-in TLS/ALPN provider unless an explicitly managed native provider is added.
+The application uses http-kit, Nimbus and JDK HttpClient for authentication,
+and synchronous AWS clients. Jetty, Keycloak's Java client and the AWS async
+Netty transport are not runtime dependencies; Cheshire is an explicit dependency.
+AWS SDK modules also stay on one version because their shaded Jackson copy is
+independent of the application Jackson pins. Kafka uses the maintained
+`at.yawk.lz4` library; exclude the old `org.lz4` coordinate when updating Kafka.
+Keep the Log4j API, implementation and bridges on the same patch version.
+
+After dependency changes, run the full backend suite, UI build, UI and Electron
+tests, and npm audit. Scan the final image with a current database and inspect
+Netty Maven metadata and AWS's shaded Jackson version in the packaged jar:
+flattened uberjars can hide shaded libraries from package scanners. Preserve
+gRPC service-loader metadata and verify streaming, deadlines and round-robin
+routing against the assembled jar as well as the dependency classpath.
+The build adds missing gRPC Maven metadata from the same resolved basis used
+to assemble the jar, and requires each known runtime class to be present.
+Existing matching metadata is preserved; conflicting versions fail the build.
+`clojure -M:build-test` verifies these evidence checks and runs in PR CI.
