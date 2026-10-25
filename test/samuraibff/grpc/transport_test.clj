@@ -6,7 +6,7 @@
   (:import (io.grpc EquivalentAddressGroup Metadata$Key Metadata NameResolver
                     NameResolver$ResolutionResult NameResolverProvider
                     NameResolverRegistry ServerInterceptor ServerInterceptors Status Status$Code)
-           (io.grpc.netty.shaded.io.grpc.netty NettyServerBuilder)
+           (io.grpc.netty NettyServerBuilder)
            (io.grpc.stub StreamObserver)
            (java.net InetSocketAddress)
            (java.util.concurrent TimeUnit)

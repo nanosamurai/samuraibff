@@ -72,10 +72,13 @@
   com.nimbusds/nimbus-jose-jwt      {:mvn/version "10.7"}
 
   ;; --- gRPC client stack (Java stubs) ---
-  io.grpc/grpc-netty-shaded         {:mvn/version "1.85.0"}
-  io.grpc/grpc-protobuf             {:mvn/version "1.85.0"}
-  io.grpc/grpc-stub                 {:mvn/version "1.85.0"}
-  io.grpc/grpc-util                 {:mvn/version "1.85.0"}
+  io.grpc/grpc-netty                {:mvn/version "1.85.1"}
+  io.grpc/grpc-protobuf             {:mvn/version "1.85.1"}
+  io.grpc/grpc-stub                 {:mvn/version "1.85.1"}
+  io.grpc/grpc-util                 {:mvn/version "1.85.1"}
+  io.netty/netty-codec-http2        {:mvn/version "4.2.19.Final"}
+  io.netty/netty-handler-proxy      {:mvn/version "4.2.19.Final"}
+  io.netty/netty-transport-native-unix-common {:mvn/version "4.2.19.Final"}
   ;; Must be >= the version used by generated Java stubs (buf).
   ;; Keep in sync with the generated gencode version to avoid runtime init failures.
   com.google.protobuf/protobuf-java {:mvn/version "4.34.1"}
