@@ -7,6 +7,21 @@ This document defines the contracts for:
 
 The WebSocket surface is intentionally **not** part of OpenAPI.
 
+## Authentication lifetime
+
+When authentication is required, both endpoints reject invalid tokens before
+upgrade with HTTP 403. The token must not have reached `exp`; the REST clock
+skew does not extend a WebSocket connection. Each connection closes at its
+token expiry with code `1008` (no close reason), even when idle.
+Audio received and events sent after that deadline are rejected.
+
+Clients must sign in or obtain a fresh token and start a new session. The
+browser and Electron stop microphone capture on socket closure and do not
+silently refresh tokens. This is an abnormal audio close, so normal completion
+markers are not emitted; the recorder's existing idle fallback still applies.
+For signing-key and account revocation limits, see
+[Security + auth](security-auth.md#token-validation-and-lifetime).
+
 ## `/ws/audio`
 
 Audio ingestion WebSocket.

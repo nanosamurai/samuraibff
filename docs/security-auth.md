@@ -39,6 +39,52 @@ The backend accepts access tokens from:
 
 WebSockets `/ws/events` and `/ws/audio` enforce auth **before upgrade** when `:auth {:required? true}`.
 
+## Token validation and lifetime
+
+Access tokens must have an RS256 signature from the configured issuer, a
+non-empty `sub`, and a valid `exp`. The configured audience must match `aud`
+or Keycloak's `azp`. The verifier checks `nbf` when present. REST verification
+allows a fixed 30-second clock skew; missing or malformed required claims,
+expired tokens outside that window, and tokens not yet valid are rejected.
+Keep BFF and identity-provider clocks synchronized.
+
+Discovery must report the configured issuer. Signing keys are cached for at
+most five minutes. An unknown key ID can trigger a refresh, with one shared
+refresh attempt per 30 seconds per process. Concurrent requests share the
+attempt, and attacker-supplied key IDs do not create cache entries. A failed
+refresh rejects unknown keys; previously known keys remain usable only until
+their original cache expiry. Expired keys are never reused after a failed
+refresh. During an issuer outage, authentication therefore stops once cached
+keys expire and retries at the same bounded interval.
+
+Each metadata response is limited to 256 KiB and a five-second total timeout;
+redirects are rejected. HTTPS discovery cannot select an HTTP key endpoint.
+Operator-configured HTTP issuers remain supported for private development
+networks; use HTTPS for shared deployments. Tokens are limited to 16 KiB and
+must contain a non-empty signing key ID of at most 256 characters. These limits
+are fixed; no new environment variables are required.
+
+Authenticated WebSockets require a token whose `exp` is still in the future.
+Both endpoints close at that expiry, including idle connections, with code
+`1008`. The current HTTP server does not transmit a close reason. They do not
+receive the REST clock-skew extension. Audio intake and event sends also check the deadline.
+Each connection uses the token supplied at its own handshake.
+
+Browser and Electron login currently have no silent token refresh. Expiry
+stops microphone capture and marks the sockets disconnected; the close code
+appears in the diagnostic log. There is no dedicated re-login prompt. A long
+recording can therefore stop at token expiry. Sign in again and start a new
+recording. SDK clients must obtain a fresh token before opening a new session.
+
+This is local JWT verification, not token introspection. Account disablement,
+logout, and individual token revocation are not checked on each request.
+Removing a signing key affects new authentication after the cached key set
+expires, but existing WebSockets retain their original token deadline. They
+do not re-check signing keys while open. Use short access-token lifetimes.
+For emergency signing-key revocation, remove the compromised key at the
+issuer and terminate existing BFF connections (for example, restart all BFF
+instances); do not rely on the five-minute cache TTL to close existing sockets.
+
 When authentication is disabled, HTTP and WebSocket requests run under the
 configured development guest tenant (`SAMURAIBFF_AUTH_GUEST_TENANT_ID`). This
 keeps tenant-scoped sessions, recordings, and speakers usable for the

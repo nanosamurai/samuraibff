@@ -94,7 +94,7 @@
         {:status 400
          :headers {"content-type" "application/json"}
          :body "{\"error\":\"session_id is required\"}"}
-        (let [{:keys [ok? response tenant-id]} (ws.auth/require-auth-or-continue config request)]
+        (let [{:keys [ok? response tenant-id user]} (ws.auth/require-auth-or-continue config request)]
           (if-not ok?
             response
             (try
@@ -136,31 +136,33 @@
 
                 (http/as-channel
                  request
-                 {:on-open (fn [_ch]
-                             (ws.registry/mark-audio-connected! ws-registry session)
-                             (log/info "WS /ws/audio connected" {:session-id session-id
-                                                                 :tenant-id (:tenant-id session)}))
-                  :on-receive (fn [_ payload]
-                                (cond
-                                  (instance? ByteBuffer payload)
-                                  (let [buf ^ByteBuffer payload
-                                        arr (byte-array (.remaining buf))]
-                                    (.get buf arr)
-                                    (ws.registry/offer-audio! ws-registry session arr))
+                 (ws.auth/expiry-callbacks
+                  config user
+                  {:on-open (fn [_ch]
+                              (ws.registry/mark-audio-connected! ws-registry session)
+                              (log/info "WS /ws/audio connected" {:session-id session-id
+                                                                  :tenant-id (:tenant-id session)}))
+                   :on-receive (fn [_ payload]
+                                 (cond
+                                   (instance? ByteBuffer payload)
+                                   (let [buf ^ByteBuffer payload
+                                         arr (byte-array (.remaining buf))]
+                                     (.get buf arr)
+                                     (ws.registry/offer-audio! ws-registry session arr))
 
-                                  (bytes? payload)
-                                  (ws.registry/offer-audio! ws-registry session payload)
+                                   (bytes? payload)
+                                   (ws.registry/offer-audio! ws-registry session payload)
 
-                                  :else
-                                  (do
-                                    (log/warn "Non-binary frame received on /ws/audio" {:session-id session-id
-                                                                                        :received (str (type payload))})
-                                    false)))
-                  :on-close (fn [_ch status]
-                              (log/info "WS /ws/audio closed" {:session-id session-id
-                                                               :tenant-id (:tenant-id session)
-                                                               :status status})
-                              (ws.registry/mark-audio-disconnected! ws-registry session (= :normal status)))}))
+                                   :else
+                                   (do
+                                     (log/warn "Non-binary frame received on /ws/audio" {:session-id session-id
+                                                                                         :received (str (type payload))})
+                                     false)))
+                   :on-close (fn [_ch status]
+                               (log/info "WS /ws/audio closed" {:session-id session-id
+                                                                :tenant-id (:tenant-id session)
+                                                                :status status})
+                               (ws.registry/mark-audio-disconnected! ws-registry session (= :normal status)))})))
               (catch clojure.lang.ExceptionInfo e
                 (let [{:keys [type]} (ex-data e)]
                   (case type

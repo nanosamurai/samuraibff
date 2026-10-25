@@ -25,6 +25,8 @@
   '[samuraibff.auth.oidc-audience-test
     samuraibff.auth.oidc-jwks-fetch-test
     samuraibff.auth.oidc-test
+    samuraibff.auth.oidc-security-test
+    samuraibff.auth.jwks-http-test
     samuraibff.http.auth-test
     samuraibff.http.readiness-integration-test
     samuraibff.http.server-integration-test
@@ -34,6 +36,7 @@
     samuraibff.ui.pagination-test
     samuraibff.ws.registry-test
     samuraibff.ws.ws-auth-required-integration-test
+    samuraibff.ws.token-lifetime-integration-test
     samuraibff.ws.ws-tenant-isolation-integration-test
     samuraibff.workflows.track-test])
 

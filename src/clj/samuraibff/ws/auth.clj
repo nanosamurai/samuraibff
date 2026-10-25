@@ -6,7 +6,7 @@
   - call `http-kit/as-channel` to upgrade.
 
   This namespace provides a small, reusable helper to enforce auth *before*
-  the upgrade happens, mirroring the behavior in drsynth's Python BFF.
+  the upgrade happens and to bound authenticated connection lifetimes.
 
   Public API:
   - `require-auth-or-continue`"
@@ -14,10 +14,74 @@
    [clojure.string :as str]
    [jsonista.core :as json]
    [org.corfield.logging4j2 :as log]
-   [samuraibff.auth.oidc :as oidc]))
+   [samuraibff.auth.oidc :as oidc])
+  (:import (org.httpkit.server AsyncChannel)
+           (java.util.concurrent ScheduledThreadPoolExecutor ThreadFactory TimeUnit Future)))
 
 (def ^:private json-mapper
   (json/object-mapper {:encode-key-fn name}))
+
+(defonce ^:private expiry-executor
+  (doto (ScheduledThreadPoolExecutor.
+         1 (reify ThreadFactory
+             (newThread [_ runnable]
+               (doto (Thread. runnable "websocket-auth-expiry")
+                 (.setDaemon true)))))
+    (.setRemoveOnCancelPolicy true)))
+
+(defn authenticated-now?
+  "Return whether a verified principal may still send or receive WS data.
+
+  Required-auth sockets have no clock-skew extension beyond the token's exp.
+  Development guest sockets retain their existing behavior."
+  [config user]
+  (or (not (oidc/auth-required? config))
+      (let [deadline (:expires-at-ms user)]
+        (and (integer? deadline) (< (System/currentTimeMillis) deadline)))))
+
+(defn- close-expired!
+  "Close an expired authenticated channel with the WS policy-violation code."
+  [channel]
+  (.serverClose ^AsyncChannel channel 1008 "authentication-expired"))
+
+(defn expiry-callbacks
+  "Wrap http-kit callbacks with a per-connection token deadline and cleanup.
+
+  Required-auth sockets close at exp even when idle. Audio callbacks cannot
+  accept data after expiry. Cancel timers on every close; guest sockets have
+  no timer. Each connection retains its own verified token lifetime."
+  [config user {:keys [on-open on-close on-receive] :as callbacks}]
+  (if-not (oidc/auth-required? config)
+    callbacks
+    (let [lifecycle* (atom {:closed? false})]
+      (cond->
+       (assoc callbacks
+              :on-open
+              (fn [channel]
+                (try
+                  (when on-open (on-open channel))
+                  (finally
+                    (locking lifecycle*
+                      (when-not (:closed? @lifecycle*)
+                        (let [delay (max 0 (- (long (or (:expires-at-ms user) 0))
+                                              (System/currentTimeMillis)))
+                              timer (.schedule expiry-executor
+                                               ^Runnable #(close-expired! channel)
+                                               (long delay) TimeUnit/MILLISECONDS)]
+                          (swap! lifecycle* assoc :timer timer)))))))
+              :on-close
+              (fn [channel status]
+                (locking lifecycle*
+                  (when-let [timer (:timer @lifecycle*)]
+                    (.cancel ^Future timer false))
+                  (reset! lifecycle* {:closed? true}))
+                (when on-close (on-close channel status))))
+        on-receive
+        (assoc :on-receive
+               (fn [channel payload]
+                 (if (authenticated-now? config user)
+                   (on-receive channel payload)
+                   (close-expired! channel))))))))
 
 (defn wrap-rejected-upgrade
   "Mark rejected WebSocket HTTP connections as non-reusable for proxies.
@@ -92,17 +156,19 @@
         (let [user (oidc/verify-token config token)
               tenant-id0 (oidc/extract-tenant-from-claims user)
               tenant-id (or tenant-id0 guest-tid)]
+          (when-not (authenticated-now? config user)
+            (throw (ex-info "Expired WebSocket authentication" {})))
           {:ok? true :user user :tenant-id tenant-id})
-        (catch Exception e
+        (catch Exception _
           (if required?
             (do
-              (log/info "WS auth failed" {:message (.getMessage e)})
+              (log/info "WS auth failed")
               {:ok? false
                :response {:status 403
                           :headers {"content-type" "application/json"}
                           :body (json/write-value-as-string {:ok false :message "invalid-token"} json-mapper)}})
             (do
-              (log/warn e "WS auth failed but ignored (auth not required)")
+              (log/warn "WS auth failed but ignored (auth not required)")
               (when-not guest-tid
                 (log/warn "Auth disabled but :auth :guest-tenant-id not configured; tenant-id will be nil"))
               {:ok? true :user nil :tenant-id guest-tid})))))))

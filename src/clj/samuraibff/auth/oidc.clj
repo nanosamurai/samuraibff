@@ -6,10 +6,10 @@
   - verification of Keycloak-issued JWT access tokens via OIDC discovery + JWKS
   - helpers to derive tenant identifiers from claims
 
-  The implementation mirrors drsynth's Python BFF behavior:
+  Signing keys are resolved through bounded OIDC discovery and JWKS caching:
   - OIDC discovery: GET {issuer}/.well-known/openid-configuration
   - JWKS fetch: GET jwks_uri
-  - JWKS is cached in memory (no TTL yet)
+  - JWKS refresh is single-flight, rate limited and fails closed
 
   ## Data model
 
@@ -18,6 +18,7 @@
   {:sub                string
    :preferred_username (or string nil)
    :email              (or string nil)
+   :expires-at-ms      integer
    :raw                map-of-claims}
 
   ## Config
@@ -29,23 +30,20 @@
   [:auth :cookie-name]   string (defaults to \"access_token\")
 
   Notes:
-  - The JWKS cache is per-process; in prod you typically refresh periodically.
-  - For tests, the JWKS fetch can be injected (see `verify-token` arity 2)."
+  - The JWKS cache is per-process with a five-minute maximum age.
+  - Tests may inject the clock, cache and metadata fetch."
   (:require
-    [clojure.string :as str]
-    [jsonista.core :as json]
-    [org.corfield.logging4j2 :as log])
+   [clojure.string :as str]
+   [jsonista.core :as json]
+   [samuraibff.auth.jwks :as jwks])
   (:import
-    (com.nimbusds.jose JWSAlgorithm)
-    (com.nimbusds.jose.jwk JWKSet)
-    (com.nimbusds.jose.proc SecurityContext)
-    (com.nimbusds.jose.jwk.source ImmutableJWKSet)
-    (com.nimbusds.jwt.proc BadJWTException ConfigurableJWTProcessor DefaultJWTProcessor)
-    (com.nimbusds.jose.proc JWSKeySelector JWSVerificationKeySelector)
-    (java.net URI)
-    (java.net.http HttpClient HttpClient$Redirect HttpRequest HttpResponse$BodyHandlers)
-    (java.time Duration)
-    (java.util Date)))
+   (com.nimbusds.jose JWSAlgorithm)
+   (com.nimbusds.jose.jwk JWKSet)
+   (com.nimbusds.jose.jwk.source ImmutableJWKSet)
+   (com.nimbusds.jwt JWTClaimsSet JWTClaimsSet$Builder SignedJWT)
+   (com.nimbusds.jwt.proc BadJWTException ConfigurableJWTProcessor DefaultJWTProcessor DefaultJWTClaimsVerifier)
+   (com.nimbusds.jose.proc JWSKeySelector JWSVerificationKeySelector)
+   (java.util Date)))
 
 (def ^:private json-mapper
   (json/object-mapper {:decode-key-fn keyword
@@ -82,7 +80,7 @@
   Inputs:
   - config: full config map
 
-  Returns: boolean" 
+  Returns: boolean"
   [config]
   (boolean (get-in config [:auth :required?])))
 
@@ -93,7 +91,7 @@
   - auth-header: string
 
   Returns:
-  - token string or nil" 
+  - token string or nil"
   [auth-header]
   (when (and auth-header
              (string? auth-header))
@@ -115,7 +113,7 @@
   - req: Ring request map
 
   Returns:
-  - token string or nil" 
+  - token string or nil"
   [config {:keys [headers params cookies] :as _req}]
   (let [auth-header (or (get headers "authorization")
                         (get headers "Authorization"))
@@ -125,84 +123,9 @@
         by-cookie (some-> cookies (get cookie-name) :value str not-empty)]
     (or by-header by-query by-cookie)))
 
-(def ^:private jwks-cache*
-  "Process-wide cache for resolved OIDC metadata + JWKS.
-
-  Shape:
-  {:issuer <string>
-   :jwks-uri <string>
-   :jwks <JWKSet>
-   :loaded-at <Date>}
-
-  Note: no TTL yet." 
-  (atom nil))
-
-(defn- well-known-url
-  [issuer]
-  (str (str/replace issuer #"/+$" "") "/.well-known/openid-configuration"))
-
-(def ^:private http-client
-  "Shared JDK HTTP client used for OIDC discovery/JWKS fetches." 
-  (-> (HttpClient/newBuilder)
-      (.followRedirects HttpClient$Redirect/NORMAL)
-      (.connectTimeout (Duration/ofSeconds 5))
-      (.build)))
-
-(defn- fetch-json!
-  "Fetch JSON over HTTP using JDK HttpClient.
-
-  Inputs:
-  - url: string
-
-  Returns:
-  - parsed JSON value with keyword keys
-
-  Throws:
-  - ex-info on non-2xx responses" 
-  [url]
-  (let [^HttpRequest req (-> (HttpRequest/newBuilder)
-                             (.uri (URI/create url))
-                             (.timeout (Duration/ofSeconds 5))
-                             (.GET)
-                             (.build))
-        ^java.net.http.HttpResponse resp (.send http-client req (HttpResponse$BodyHandlers/ofString))
-        status (.statusCode resp)
-        body (.body resp)]
-    (when-not (<= 200 status 299)
-      (throw (ex-info "OIDC HTTP fetch failed" {:url url :status status :body body})))
-    (json/read-value body json-mapper)))
-
-(defn- ensure-jwks!
-  "Ensure JWKS is present in cache for the configured issuer.
-
-  Inputs:
-  - config full config map
-  - {:keys [fetch-json]} opts where fetch-json is (fn [url] => map)
-
-  Returns: cache map with :jwks (JWKSet)" 
-  [config {:keys [fetch-json]}]
-  (let [fetch-json (or fetch-json fetch-json!)
-        issuer (or (get-in config [:auth :issuer])
-                   (throw (ex-info "Missing auth issuer" {:config (select-keys config [:auth])})))
-        cached @jwks-cache*]
-    (if (and cached (= issuer (:issuer cached)) (:jwks cached))
-      cached
-      (do
-        (log/info "Fetching OIDC configuration" {:issuer issuer
-                                                 :well-known (well-known-url issuer)})
-        (let [conf (fetch-json (well-known-url issuer))
-              jwks-uri (or (:jwks_uri conf)
-                           (:jwks-uri conf)
-                           (throw (ex-info "OIDC discovery missing jwks_uri" {:conf conf})))
-              _ (log/info "Fetching JWKS" {:jwks-uri jwks-uri})
-              jwks-json (fetch-json jwks-uri)
-              jwks (JWKSet/parse (json/write-value-as-string jwks-json json-mapper))
-              cache {:issuer issuer
-                     :jwks-uri jwks-uri
-                     :jwks jwks
-                     :loaded-at (Date.)}]
-          (reset! jwks-cache* cache)
-          cache)))))
+(def clock-skew-seconds
+  "Fixed, bounded clock tolerance for JWT exp/nbf validation."
+  30)
 
 (defn- audience-valid?
   "Return true when token audience matches our expected audience.
@@ -218,7 +141,7 @@
   - aud: java.util.List (or nil)
   - azp: string (or nil)
 
-  Returns: boolean" 
+  Returns: boolean"
   [expected-audience aud azp]
   (let [aud (set (map str (or aud [])))
         azp (some-> azp str)]
@@ -230,35 +153,51 @@
 
   Notes:
   - We use an `ImmutableJWKSet` so Nimbus does the heavy lifting of selecting
-    the correct key by `kid` / algorithm." 
-  [issuer audience ^JWKSet jwks]
+    the correct key by `kid` / algorithm."
+  [issuer audience ^JWKSet jwks now]
   (let [proc (DefaultJWTProcessor.)
+        required-claims #{"iss" "sub" "exp"}
+        expected-claims (.build (.issuer (JWTClaimsSet$Builder.) issuer))
+        claims-verifier (proxy [DefaultJWTClaimsVerifier] [expected-claims required-claims]
+                          (currentTime [] (Date. (long (now)))))
         jwk-source (ImmutableJWKSet. jwks)
         key-selector (JWSVerificationKeySelector.
-                       (JWSAlgorithm/RS256)
-                       jwk-source)]
+                      (JWSAlgorithm/RS256)
+                      jwk-source)]
+    (.setMaxClockSkew claims-verifier clock-skew-seconds)
     (.setJWSKeySelector proc ^JWSKeySelector key-selector)
     (.setJWTClaimsSetVerifier
-      proc
-      (reify com.nimbusds.jwt.proc.JWTClaimsSetVerifier
-        (verify [_ claims _ctx]
-          ;; Validate iss/aud similarly to drsynth.
-          ;; NOTE: Keycloak sometimes uses `azp` instead of putting the client id into `aud`.
-          (let [iss (.getIssuer claims)
-                auds (.getAudience claims)
-                azp (try (.getStringClaim claims "azp") (catch Exception _ nil))]
-            (when-not (= issuer iss)
-              (throw (BadJWTException. (str "Invalid issuer: " iss))))
-            (when-not (audience-valid? audience auds azp)
-              (throw (BadJWTException. (str "Invalid audience: " (pr-str (set (or (map str auds) [])))))))))))
+     proc
+     (reify com.nimbusds.jwt.proc.JWTClaimsSetVerifier
+       (verify [_ claims _ctx]
+         (.verify claims-verifier claims _ctx)
+         (when (str/blank? (.getSubject ^JWTClaimsSet claims))
+           (throw (BadJWTException. "Invalid subject")))
+         (let [auds (.getAudience ^JWTClaimsSet claims)
+               azp (try (.getStringClaim claims "azp") (catch Exception _ nil))]
+           (when-not (audience-valid? audience auds azp)
+             (throw (BadJWTException. "Invalid audience")))))))
     proc))
+
+(defn- parse-token
+  "Reject malformed, oversized or unsupported tokens before any metadata fetch."
+  [token]
+  (when-not (and (string? token) (<= 1 (count token) 16384))
+    (throw (BadJWTException. "Invalid token size")))
+  (let [jwt (SignedJWT/parse token)
+        header (.getHeader jwt)
+        kid (.getKeyID header)]
+    (when-not (and (= JWSAlgorithm/RS256 (.getAlgorithm header))
+                   (string? kid) (<= 1 (count kid) 256) (not (str/blank? kid)))
+      (throw (BadJWTException. "Invalid signing algorithm or key identifier")))
+    jwt))
 
 (defn verify-token
   "Verify a Keycloak-issued JWT access token.
 
   Arity:
   - (verify-token config token)
-  - (verify-token config token {:keys [fetch-json]})  ; injection for tests
+  - (verify-token config token opts) ; isolated fetch/cache/clock injection
 
   Inputs:
   - config: full config map
@@ -268,32 +207,33 @@
   - OIDC user map
 
   Throws:
-  - ex-info with :type :samuraibff.auth/invalid-token on verification failure" 
+  - ex-info with :type :samuraibff.auth/invalid-token on verification failure"
   ([config token]
    (verify-token config token {}))
-  ([config token {:keys [fetch-json]}]
+  ([config token {:keys [now] :as opts}]
    (try
-     (let [{:keys [issuer jwks]} (ensure-jwks! config {:fetch-json fetch-json})
-           audience (or (get-in config [:auth :audience])
-                        (throw (ex-info "Missing auth audience" {:config (select-keys config [:auth])})))
-           ^ConfigurableJWTProcessor proc (jwt-processor issuer audience jwks)
-           claims (.process proc token nil)
-           ;; Convert claim map to CLJ
+     (let [jwt (parse-token token)
+           issuer (get-in config [:auth :issuer])
+           audience (get-in config [:auth :audience])
+           _ (when (or (str/blank? issuer) (str/blank? audience))
+               (throw (BadJWTException. "Missing auth configuration")))
+           key-set (jwks/resolve-key-set! issuer (.getKeyID (.getHeader jwt)) opts)
+           ^ConfigurableJWTProcessor proc (jwt-processor issuer audience key-set
+                                                         (or now #(System/currentTimeMillis)))
+           claims (.process proc jwt nil)
            raw (-> claims
                    (.toJSONObject)
                    (json/write-value-as-string json-mapper)
                    (json/read-value json-mapper))
-           sub (or (:sub raw) (throw (BadJWTException. "Token missing sub")))]
-       {:sub sub
+           expires-at-ms (.getTime (.getExpirationTime ^JWTClaimsSet claims))]
+       {:sub (:sub raw)
         :preferred_username (:preferred_username raw)
         :email (:email raw)
+        :expires-at-ms expires-at-ms
         :raw raw})
-     (catch Exception e
-       (log/warn e "JWT verification failed")
+     (catch Exception _
        (throw (ex-info "Invalid token"
-                       {:type :samuraibff.auth/invalid-token
-                        :message (.getMessage e)}
-                       e))))))
+                       {:type :samuraibff.auth/invalid-token}))))))
 
 (defn extract-tenant-from-claims
   "Best-effort tenant extraction from verified claims.
@@ -304,7 +244,7 @@
   - user: user map from `verify-token` (or nil)
 
   Returns:
-  - tenant-id string or nil" 
+  - tenant-id string or nil"
   [user]
   (when user
     (let [claims (or (:raw user) {})]
@@ -313,21 +253,21 @@
         ;; NOTE: This is not used by call sites yet; they currently call
         ;; extract-tenant-from-claims with only the user map.
         ;; See `extract-tenant-from-claims*` below.
-        (some (fn [k]
-                (let [v (get claims k)]
-                  (claim-string v)))
-              [:tenant_id :tenant :org_id :organization_id :company_id])
+       (some (fn [k]
+               (let [v (get claims k)]
+                 (claim-string v)))
+             [:tenant_id :tenant :org_id :organization_id :company_id])
 
         ;; role encoding: realm_access.roles contains e.g. "tenant:<uuid>"
-        (try
-          (let [roles (get-in claims [:realm_access :roles])]
-            (some (fn [r]
-                    (when (and (string? r) (str/starts-with? r "tenant:"))
-                      (let [tid (-> r (subs (count "tenant:")) str/trim)]
-                        (when-not (str/blank? tid) tid))))
-                  roles))
-          (catch Exception _
-            nil))))))
+       (try
+         (let [roles (get-in claims [:realm_access :roles])]
+           (some (fn [r]
+                   (when (and (string? r) (str/starts-with? r "tenant:"))
+                     (let [tid (-> r (subs (count "tenant:")) str/trim)]
+                       (when-not (str/blank? tid) tid))))
+                 roles))
+         (catch Exception _
+           nil))))))
 
 (defn extract-tenant-from-claims*
   "Tenant extraction with config.
@@ -340,7 +280,7 @@
   - config: full config map
   - user: verified OIDC user map
 
-  Returns: tenant-id string or nil" 
+  Returns: tenant-id string or nil"
   [config user]
   (when user
     (let [claims (or (:raw user) {})
