@@ -49,6 +49,7 @@
    [samuraibff.auth.oidc :as oidc]
    [samuraibff.db.tenants :as db.tenants]
    [samuraibff.features :as features]
+   [samuraibff.observability.diagnostics :as diagnostics]
    [samuraibff.grpc.client :as grpc.client])
   (:import
    (java.net URI)
@@ -276,22 +277,22 @@
                                      :auth/tenant-id guest-tenant-id))]
       (if-not token
         (handler (anonymous-request))
-        (try
-          (let [user (oidc/verify-token config token)
-                tenant-id (oidc/extract-tenant-from-claims* config user)]
+        (let [{:keys [user failure]} (try
+                                       {:user (oidc/verify-token config token)}
+                                       (catch Exception failure
+                                         {:failure failure}))]
+          (if failure
+            (if (and required? (api-path? req))
+              (do
+                (log/info "Auth failed (token invalid)" (diagnostics/failure-details failure))
+                (json-response 401 {:ok false :message "invalid-token"}))
+              (do
+                (log/warn "Auth failed but ignored" (diagnostics/failure-details failure))
+                (handler (anonymous-request))))
             (handler (assoc req
                             :auth/token token
                             :auth/user user
-                            :auth/tenant-id tenant-id)))
-          (catch Exception e
-            (if (and required? (api-path? req))
-              (do
-                (log/info "Auth failed (token invalid)" {:message (.getMessage e)
-                                                         :uri (:uri req)})
-                (json-response 401 {:ok false :message "invalid-token"}))
-              (do
-                (log/warn e "Auth failed but ignored")
-                (handler (anonymous-request))))))))))
+                            :auth/tenant-id (oidc/extract-tenant-from-claims* config user)))))))))
 
 (defn wrap-require-auth
   "Ring middleware enforcing that :auth/user is present.
@@ -329,15 +330,15 @@
   [config]
   (fn [{:keys [params] :as req}]
     (let [issuer (or (get-in config [:auth :issuer])
-                     (throw (ex-info "Missing auth issuer" {:config (select-keys config [:auth])})))
+                     (throw (ex-info "Missing auth issuer" {:type ::missing-issuer})))
           client-id (or (get-in config [:auth :client-id])
                         (get-in config [:auth :audience])
-                        (throw (ex-info "Missing auth client id" {:config (select-keys config [:auth])})))
+                        (throw (ex-info "Missing auth client id" {:type ::missing-client-id})))
           verifier (pkce-verifier)
           challenge (pkce-challenge verifier)
           state (base64url (random-bytes 18))
           origin (or (request-origin config req)
-                     (throw (ex-info "Cannot determine request origin" {:headers (:headers req)})))
+                     (throw (ex-info "Cannot determine request origin" {:type ::missing-origin})))
           redirect-uri (str origin "/auth/callback")
           next0 (or (get params :next) (get params "next") "/recordings")
           auth-url (str (str/replace issuer #"/+$" "") "/protocol/openid-connect/auth")
@@ -384,6 +385,32 @@
     {:status (.statusCode resp)
      :body (.body resp)}))
 
+(defn- exchange-token!
+  "Exchange a code without exposing upstream bodies or transport/parser errors.
+
+  Returns {:access-token string} on success, {:status int} on an HTTP rejection,
+  or {} when the transport or response is invalid. Logs only safe diagnostics."
+  [url params]
+  (try
+    (let [{:keys [status body]} (http-post-form! url params)
+          status (diagnostics/http-status status)]
+      (if (and status (<= 200 status 299))
+        (let [response (json/read-value body (json/object-mapper {:decode-key-fn keyword}))
+              token (:access_token response)]
+          (when-not (and (string? token) (not (str/blank? token)))
+            (throw (ex-info "Invalid token response" {:type ::invalid-token-response})))
+          {:access-token token})
+        (do
+          (log/warn "Token exchange rejected" {:status status})
+          {:status status})))
+    (catch InterruptedException failure
+      (.interrupt (Thread/currentThread))
+      (log/warn "Token exchange interrupted" (diagnostics/failure-details failure))
+      {})
+    (catch Exception failure
+      (log/warn "Token exchange failed" (diagnostics/failure-details failure))
+      {})))
+
 (defn callback-handler
   "Handler for `GET /auth/callback`.
 
@@ -404,11 +431,7 @@
           next0 (or (some-> cookies (get "post_login_next") :value) "/recordings")]
       (cond
         (some? (or (get params :error) (get params "error")))
-        (json-response 400 {:ok false
-                            :message "oidc-error"
-                            :error (or (get params :error) (get params "error"))
-                            :error_description (or (get params :error_description)
-                                                   (get params "error_description"))})
+        (json-response 400 {:ok false :message "oidc-error"})
 
         (str/blank? (str code))
         (json-response 400 {:ok false :message "missing-code"})
@@ -421,31 +444,27 @@
 
         :else
         (let [issuer (or (get-in config [:auth :issuer])
-                         (throw (ex-info "Missing auth issuer" {:config (select-keys config [:auth])})))
+                         (throw (ex-info "Missing auth issuer" {:type ::missing-issuer})))
               client-id (or (get-in config [:auth :client-id])
                             (get-in config [:auth :audience]))
               origin (or (request-origin config req)
-                         (throw (ex-info "Cannot determine request origin" {:headers (:headers req)})))
+                         (throw (ex-info "Cannot determine request origin" {:type ::missing-origin})))
               redirect-uri (str origin "/auth/callback")
               token-url (token-endpoint issuer)
-              {:keys [status body]} (http-post-form!
-                                     token-url
-                                     {:grant_type "authorization_code"
-                                      :client_id client-id
-                                      :code code
-                                      :redirect_uri redirect-uri
-                                      :code_verifier verifier})]
-          (if-not (<= 200 status 299)
-            (do
-              (log/warn "Token exchange failed" {:status status :body (subs (str body) 0 (min 2000 (count (str body))))})
-              (json-response 400 {:ok false :message "token-exchange-failed" :status status}))
-            (let [token-json (json/read-value body (json/object-mapper {:decode-key-fn keyword}))
-                  access-token (:access_token token-json)
-                  cookie-name (token-cookie-name config)
+              {:keys [status access-token]} (exchange-token!
+                                             token-url
+                                             {:grant_type "authorization_code"
+                                              :client_id client-id
+                                              :code code
+                                              :redirect_uri redirect-uri
+                                              :code_verifier verifier})]
+          (if-not access-token
+            (json-response (if status 400 502)
+                           (cond-> {:ok false :message "token-exchange-failed"}
+                             status (assoc :status status)))
+            (let [cookie-name (token-cookie-name config)
                   secure? (cookie-secure? req)
                   resp0 (resp/redirect next0)]
-              (when (str/blank? (str access-token))
-                (throw (ex-info "Token response missing access_token" {:token token-json})))
               (-> resp0
                   (set-cookie cookie-name access-token {:http-only true
                                                         :same-site :lax
@@ -510,7 +529,8 @@
             :maximum_audio_seconds (:maximum-audio-seconds capabilities)
             :maximum_concurrent_sessions (:maximum-concurrent-sessions capabilities)})
          (catch Exception e
-           (log/warn e "Realtime ASR capability discovery failed" {:track id})
+           (log/warn "Realtime ASR capability discovery failed"
+                     (assoc (diagnostics/failure-details e) :track id))
            {:id id :available false})))
      tracks)))
 
@@ -536,15 +556,15 @@
             tenant-name (when (and ds tenant-uuid)
                           (db.tenants/find-tenant-name ds tenant-uuid))]
         (json-response 200 (cond-> {:ok true
-                            :authenticated true
-                            :tenant_id tenant-id-str
-                            :realtime_tracks (realtime-track-ids config)
-                            :default_tracks (or (:default-tracks config) {})
-                            :async_tracks (stream-controls/configured-async-tracks config)
-                            :realtime_track_capabilities (realtime-track-capabilities config grpc)
-                            :features (features/feature-state config)
-                            :user (into {} (remove (comp nil? val))
-                                        (select-keys user [:sub :preferred_username :email]))}
+                                    :authenticated true
+                                    :tenant_id tenant-id-str
+                                    :realtime_tracks (realtime-track-ids config)
+                                    :default_tracks (or (:default-tracks config) {})
+                                    :async_tracks (stream-controls/configured-async-tracks config)
+                                    :realtime_track_capabilities (realtime-track-capabilities config grpc)
+                                    :features (features/feature-state config)
+                                    :user (into {} (remove (comp nil? val))
+                                                (select-keys user [:sub :preferred_username :email]))}
                              (some? tenant-name) (assoc :tenant_name tenant-name))))
       (if (oidc/auth-required? config)
         (json-response 401 {:ok false :authenticated false :message "not-authenticated"})

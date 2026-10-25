@@ -14,18 +14,14 @@
   - We never store secrets in Postgres; only Keycloak client id and audit.
   "
   (:require
-    [clojure.string :as str]
-    [jsonista.core :as json]
-    [org.corfield.logging4j2 :as log]
-    [samuraibff.db.api-credentials :as db.api-creds]
-    [samuraibff.keycloak.admin :as kc.admin]
-    [samuraibff.util.uuid :as util.uuid])
+   [clojure.string :as str]
+   [org.corfield.logging4j2 :as log]
+   [samuraibff.db.api-credentials :as db.api-creds]
+   [samuraibff.keycloak.admin :as kc.admin]
+   [samuraibff.observability.diagnostics :as diagnostics]
+   [samuraibff.util.uuid :as util.uuid])
   (:import
-    (java.util UUID)
-    (javax.sql DataSource)))
-
-(def ^:private json-mapper
-  (json/object-mapper {:encode-key-fn name}))
+   (java.util UUID)))
 
 (defn- json-response
   "Return a Ring JSON response.
@@ -34,7 +30,7 @@
   - status: int
   - body: map
 
-  Returns: Ring response map." 
+  Returns: Ring response map."
   [status body]
   ;; NOTE: Return a *data* body (map). Muuntaja JSON-encodes it.
   ;; This keeps Reitit response coercion compatible with Malli schemas.
@@ -50,7 +46,7 @@
   Returns:
   - UUID
 
-  Throws ex-info with :type :samuraibff.http/missing-tenant-id or :samuraibff.http/invalid-tenant-id." 
+  Throws ex-info with :type :samuraibff.http/missing-tenant-id or :samuraibff.http/invalid-tenant-id."
   [req]
   (let [tid (some-> (:auth/tenant-id req) str str/trim)]
     (cond
@@ -61,8 +57,7 @@
       (try
         (UUID/fromString tid)
         (catch Exception _
-          (throw (ex-info "Invalid tenant id" {:type :samuraibff.http/invalid-tenant-id
-                                               :tenant-id tid})))))))
+          (throw (ex-info "Invalid tenant id" {:type :samuraibff.http/invalid-tenant-id})))))))
 
 (defn- parse-uuid-or-nil
   [s]
@@ -77,7 +72,7 @@
   Returns:
   - 200 {ok true, items [...]}
   - 403 missing-tenant-id
-  - 503 db-unavailable" 
+  - 503 db-unavailable"
   [{:keys [db]}]
   (fn [req]
     (try
@@ -89,19 +84,19 @@
               body {:ok true
                     :tenant_id (str tenant-uuid)
                     :items (mapv (fn [row]
-                                  (-> row
-                                      (update :id str)
+                                   (-> row
+                                       (update :id str)
                                       ;; NOTE: list-credentials does not select tenant_id; however the
                                       ;; API response schema (and OpenAPI) includes it per item.
                                       ;; Since this endpoint is tenant-scoped, we can safely attach the
                                       ;; tenant id from the request.
-                                      (assoc :tenant_id (str tenant-uuid))
-                                      (update :created_at str)
+                                       (assoc :tenant_id (str tenant-uuid))
+                                       (update :created_at str)
                                       ;; Optional timestamps must stay nil (JSON null) when absent.
                                       ;; Never stringify nil into the literal "nil" string.
-                                      (update :last_used_at (fn [v] (some-> v str)))
-                                      (update :revoked_at (fn [v] (some-> v str)))))
-                                items)}]
+                                       (update :last_used_at (fn [v] (some-> v str)))
+                                       (update :revoked_at (fn [v] (some-> v str)))))
+                                 items)}]
           (json-response 200 body)))
       (catch clojure.lang.ExceptionInfo e
         (let [{:keys [type]} (ex-data e)]
@@ -110,10 +105,10 @@
             :samuraibff.http/invalid-tenant-id (json-response 400 {:ok false :message "invalid-tenant-id"})
             :samuraibff.http/missing-datasource (json-response 503 {:ok false :message "db-unavailable"})
             (do
-              (log/error e "Failed listing api credentials")
+              (log/error "Failed listing api credentials" (diagnostics/failure-details e))
               (json-response 500 {:ok false :message "internal-error"})))))
       (catch Exception e
-        (log/error e "Unexpected error listing api credentials")
+        (log/error "Unexpected error listing api credentials" (diagnostics/failure-details e))
         (json-response 500 {:ok false :message "internal-error"})))))
 
 (defn create-api-credential-handler
@@ -124,7 +119,7 @@
   Returns:
   - 200 {ok true, credential_id, client_id, client_secret}
   - 400 missing-name
-  - 503 db-unavailable / keycloak-unavailable" 
+  - 503 db-unavailable / keycloak-unavailable"
   [{:keys [config db keycloak-admin]}]
   (fn [req]
     (try
@@ -151,12 +146,12 @@
                                                   :audience-client-id audience-client-id})
               id (util.uuid/uuid7)
               _ (db.api-creds/insert-credential!
-                  ds
-                  {:id id
-                   :tenant-id tenant-uuid
-                   :name name
-                   :keycloak-client-id client-id
-                   :created-by-sub created-by-sub})]
+                 ds
+                 {:id id
+                  :tenant-id tenant-uuid
+                  :name name
+                  :keycloak-client-id client-id
+                  :created-by-sub created-by-sub})]
           (json-response 200 {:ok true
                               :credential_id (str id)
                               :client_id client-id
@@ -164,11 +159,8 @@
       (catch clojure.lang.ExceptionInfo e
         (let [{:keys [type] :as data} (ex-data e)
               kc-error? (and (keyword? type) (= "samuraibff.keycloak-admin" (namespace type)))
-              safe-kc-data (-> (select-keys data [:type :status :url :body :client-id])
-                               (update :body (fn [b]
-                                               (when-not (nil? b)
-                                                 (let [s (str b)]
-                                                   (subs s 0 (min 2000 (count s))))))))]
+              status (diagnostics/http-status (:status data))
+              safe-kc-data (cond-> {} status (assoc :status status))]
           (cond
             (= type :samuraibff.http/missing-tenant-id)
             (json-response 403 {:ok false :message "missing-tenant-id"})
@@ -187,17 +179,18 @@
 
             kc-error?
             (do
-              (log/error e "Keycloak admin error creating api credential" {:keycloak safe-kc-data})
+              (log/error "Keycloak admin error creating api credential"
+                         (assoc (diagnostics/failure-details e) :keycloak safe-kc-data))
               (json-response 502 {:ok false
-                                 :message "keycloak-admin-error"
-                                 :keycloak safe-kc-data}))
+                                  :message "keycloak-admin-error"
+                                  :keycloak safe-kc-data}))
 
             :else
             (do
-              (log/error e "Failed creating api credential")
+              (log/error "Failed creating api credential" (diagnostics/failure-details e))
               (json-response 500 {:ok false :message "internal-error"})))))
       (catch Exception e
-        (log/error e "Unexpected error creating api credential")
+        (log/error "Unexpected error creating api credential" (diagnostics/failure-details e))
         (json-response 500 {:ok false :message "internal-error"})))))
 
 (defn rotate-api-credential-handler
@@ -207,7 +200,7 @@
   - 200 {ok true, client_secret}
   - 400 invalid-id
   - 404 not-found
-  - 503 keycloak-admin-unavailable" 
+  - 503 keycloak-admin-unavailable"
   [{:keys [db keycloak-admin]}]
   (fn [req]
     (try
@@ -242,10 +235,10 @@
             :samuraibff.http/missing-keycloak-admin (json-response 503 {:ok false :message "keycloak-admin-unavailable"})
             :samuraibff.http/invalid-id (json-response 400 {:ok false :message "invalid-id"})
             (do
-              (log/error e "Failed rotating api credential")
+              (log/error "Failed rotating api credential" (diagnostics/failure-details e))
               (json-response 500 {:ok false :message "internal-error"})))))
       (catch Exception e
-        (log/error e "Unexpected error rotating api credential")
+        (log/error "Unexpected error rotating api credential" (diagnostics/failure-details e))
         (json-response 500 {:ok false :message "internal-error"})))))
 
 (defn revoke-api-credential-handler
@@ -254,7 +247,7 @@
   Returns:
   - 200 {ok true}
   - 400 invalid-id
-  - 404 not-found" 
+  - 404 not-found"
   [{:keys [db keycloak-admin]}]
   (fn [req]
     (try
@@ -276,7 +269,7 @@
                 (try
                   (kc.admin/disable-client! keycloak-admin {:client-id (:keycloak_client_id row)})
                   (catch Exception e
-                    (log/warn e "Failed disabling keycloak client" {:client-id (:keycloak_client_id row)}))))
+                    (log/warn "Failed disabling keycloak client" (diagnostics/failure-details e)))))
               (let [{:keys [updated?]} (db.api-creds/revoke-credential! ds tenant-uuid cred-uuid)]
                 (if-not updated?
                   (json-response 404 {:ok false :message "not-found"})
@@ -290,8 +283,8 @@
             :samuraibff.http/missing-datasource (json-response 503 {:ok false :message "db-unavailable"})
             :samuraibff.http/invalid-id (json-response 400 {:ok false :message "invalid-id"})
             (do
-              (log/error e "Failed revoking api credential")
+              (log/error "Failed revoking api credential" (diagnostics/failure-details e))
               (json-response 500 {:ok false :message "internal-error"})))))
       (catch Exception e
-        (log/error e "Unexpected error revoking api credential")
+        (log/error "Unexpected error revoking api credential" (diagnostics/failure-details e))
         (json-response 500 {:ok false :message "internal-error"})))))

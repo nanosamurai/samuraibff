@@ -196,6 +196,11 @@ clojure -X:test
 Application startup failures exit with status 1 and log bounded exception classes
 and code locations. Throwable messages and resolved Integrant configuration are
 excluded because they can contain database or identity-provider credentials.
+Authentication and HTTP error diagnostics also omit request credentials and
+exception payloads. Validation errors return a fixed `invalid-request` message;
+unexpected errors return `internal-error`. See
+[`docs/security-auth.md`](docs/security-auth.md#error-responses-and-diagnostics)
+for the error-response contract and proxy logging requirements.
 
 See `docs/dev-runbook.md` for the lightweight CI test plan (`clojure -X:ci`),
 WS integration test prerequisites, proto generation, and nREPL.

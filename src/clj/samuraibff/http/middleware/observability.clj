@@ -18,11 +18,12 @@
   - http_route: low-cardinality route template
   "
   (:require
-    [clojure.string :as str]
-    [org.corfield.logging4j2 :as log]
-    [samuraibff.observability.mdc :as mdc]
-    [samuraibff.observability.metrics :as metrics]
-    [samuraibff.observability.trace :as trace]))
+   [clojure.string :as str]
+   [org.corfield.logging4j2 :as log]
+   [samuraibff.observability.diagnostics :as diagnostics]
+   [samuraibff.observability.mdc :as mdc]
+   [samuraibff.observability.metrics :as metrics]
+   [samuraibff.observability.trace :as trace]))
 
 (defn- now-ns [] (System/nanoTime))
 
@@ -31,43 +32,60 @@
   (/ (double (- (long end-ns) (long start-ns))) 1.0e9))
 
 (defn- request-method
+  "Return a recognized HTTP method, without recording arbitrary request text."
   [req]
-  (some-> req :request-method name str/upper-case))
+  (let [value (:request-method req)
+        method (when (or (keyword? value) (string? value))
+                 (-> value name str/upper-case))]
+    (if (contains? #{"GET" "HEAD" "POST" "PUT" "PATCH" "DELETE" "OPTIONS" "TRACE" "CONNECT"}
+                   method)
+      method
+      "OTHER")))
 
 (defn- route-template
   "Return a low-cardinality route template for metrics/logging.
 
-  Prefer Reitit route template when available, otherwise fall back to URI.
+  Prefer the configured Reitit template; never fall back to a raw request URI.
 
-  Returns: string" 
+  Returns: string"
   [req]
   (or (some-> req :reitit.core/match :template)
-      (some-> req :uri)
-      "<unknown>"))
+      "<unmatched>"))
 
 (defn- request-session-id
   "Best-effort extraction of session_id from request.
 
   Looks at path params and query params.
 
-  Returns: string or nil" 
+  Returns: string or nil"
   [req]
   (let [v (or (get-in req [:path-params :session_id])
               (get-in req [:path-params "session_id"])
               (get-in req [:params :session_id])
               (get-in req [:params "session_id"]))
-        s (some-> v str str/trim)]
-    (when-not (str/blank? (str s))
-      s)))
+        s (diagnostics/session-id v)]
+    s))
 
-(defn- response-message
-  "Extract a stable, low-sensitivity message from a JSON response body.
+(defn log-failure!
+  "Log bounded failure diagnostics and route/session correlation without payloads.
 
-  Returns: string or nil" 
-  [resp]
-  (let [body (:body resp)]
-    (when (map? body)
-      (some-> (or (:message body) (:error body)) str not-empty))))
+  Accepts a Ring request and Throwable. Never passes the Throwable, its message,
+  request URL, headers, parameters, response body or exception data to logging."
+  ([req failure]
+   (log-failure! req failure 500))
+  ([req failure status]
+   (let [session-id (request-session-id req)
+         status (or (diagnostics/http-status status) 500)
+         fields (cond-> (assoc (diagnostics/failure-details failure)
+                               :http {:method (request-method req)
+                                      :route (route-template req)
+                                      :status status})
+                  session-id (assoc :session_id session-id
+                                    :trace_id (trace/trace-id-for-session session-id)))]
+     (if (< status 500)
+       (log/warn "HTTP request validation failed" fields)
+       (log/error "HTTP handler failed" fields)))
+   nil))
 
 (defn- log-response!
   "Log an HTTP response when it indicates an error.
@@ -75,22 +93,18 @@
   We intentionally avoid logging request params/headers to prevent accidental
   leakage of auth tokens.
 
-  Returns: nil" 
+  Returns: nil"
   [req resp duration-seconds]
   (let [status (long (or (:status resp) 200))
-        uri (:uri req)
         method (request-method req)
         route (route-template req)
-        msg (response-message resp)
         tenant-id (or (:auth/tenant-id req) (get-in req [:auth :tenant-id]))
         user-sub (get-in req [:auth/user :sub])
         session-id (request-session-id req)
         fields (cond-> {:http {:method method
-                               :uri uri
                                :route route
                                :status status
                                :duration_s duration-seconds}}
-                 (some? msg) (assoc :message msg)
                  (some? tenant-id) (assoc :tenant_id (str tenant-id))
                  (some? user-sub) (assoc :user_id (str user-sub))
                  (some? session-id) (assoc :session_id (str session-id)))]
@@ -111,7 +125,7 @@
   New code should not use this. Auth MDC binding is performed inside
   `wrap-observability` to ensure keys are always removed on request exit.
 
-  Returns wrapped handler." 
+  Returns wrapped handler."
   [handler]
   handler)
 
@@ -123,7 +137,7 @@
   - binds MDC keys (trace_id/span_id/session_id/http_route)
   - logs error responses/exceptions
 
-  Returns: wrapped handler." 
+  Returns: wrapped handler."
   [handler]
   (fn [req]
     (let [start-ns (now-ns)
@@ -146,7 +160,10 @@
           (let [resp (handler req)
                 end-ns (now-ns)
                 dur-s (duration-seconds start-ns end-ns)
-                status (long (or (:status resp) 200))]
+                status (if (nil? (:status resp))
+                         200
+                         (or (diagnostics/http-status (:status resp))
+                             (throw (ex-info "Invalid HTTP response status" {}))))]
             (metrics/observe-http! method route status dur-s)
             (log-response! req resp dur-s)
             resp)
@@ -155,13 +172,5 @@
                   dur-s (duration-seconds start-ns end-ns)]
               (metrics/inc-http-exception! method route t)
               (metrics/observe-http! method route 500 dur-s)
-              (log/error t "HTTP handler threw" {:http {:method method
-                                                        :uri (:uri req)
-                                                        :route route
-                                                        :duration_s dur-s}
-                                      :session_id session-id
-                                      :tenant_id (some-> (or (:auth/tenant-id req) (get-in req [:auth :tenant-id])) str)
-                                      :user_id (some-> (get-in req [:auth/user :sub]) str)
-                                      :ex_data (when (instance? clojure.lang.ExceptionInfo t)
-                                                 (ex-data t))})
-              (throw t))))))))
+              (log-failure! req t)
+              (throw (ex-info "HTTP request failed" {:type :samuraibff.http/internal-error})))))))))
