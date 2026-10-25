@@ -9,7 +9,7 @@
 
 (deftest synchronous-secrets-manager-roundtrip-test
   (let [requests (atom [])
-        arn "arn:aws:secretsmanager:us-east-1:000000000000:secret:transport-test"
+        arn "synthetic-secret-reference"
         server (http/run-server
                 (fn [request]
                   (swap! requests conj {:target (get-in request [:headers "x-amz-target"])
