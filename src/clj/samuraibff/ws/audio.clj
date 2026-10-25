@@ -60,7 +60,7 @@
 
   Auth:
   - If [:auth :required?] is true, the request must include a valid access token
-    (Authorization header, ?token=..., or auth cookie) or it is rejected with 403.
+    (Authorization header or auth cookie) or it is rejected with 403.
 
   Query parameters:
   - session_id   (required) string

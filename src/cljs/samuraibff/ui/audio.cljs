@@ -303,7 +303,7 @@
         url (util/ws-url "/ws/audio" qp {:backend-base-url (env/backend-base-url)})
         ws (js/WebSocket. url)]
     (reset! audio-ws* ws)
-    (store/set-ws-status! :audio :connecting url)
+    (store/set-ws-status! :audio :connecting "/ws/audio")
 
     (set! (.-binaryType ws) "arraybuffer")
 
@@ -312,7 +312,7 @@
        (set! (.-onopen ws)
              (fn [_]
                (store/set-ws-status! :audio :connected nil)
-               (store/append-log! (str "[audio] ws connected " url))
+               (store/append-log! "[audio] ws connected")
                (-> (start-capture! ws)
                    (.then (fn [_] (resolve true)))
                    (.catch (fn [e] (reject e))))))
