@@ -50,6 +50,9 @@ jobs:
       - name: Generate + compile protobuf stubs
         run: clojure -T:build proto+compile
 
+      - name: Test runtime package metadata
+        run: clojure -M:build-test
+
       - name: Run lightweight test plan
         run: clojure -X:ci
 

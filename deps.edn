@@ -97,7 +97,10 @@
   }
 
  :aliases
- {:nrepl {:extra-paths ["src/clj" "resources" "test"]
+ {:build-test {:extra-paths ["." "test-build"]
+               :extra-deps {io.github.clojure/tools.build {:mvn/version "0.10.12"}}
+               :main-opts ["-m" "build-test"]}
+  :nrepl {:extra-paths ["src/clj" "resources" "test"]
           :extra-deps  {nrepl/nrepl {:mvn/version "1.5.1"}}
           :main-opts   ["-m" "nrepl.cmdline" "--port" "7888"]}
   ;; REPL niceties
