@@ -27,6 +27,7 @@
     samuraibff.auth.oidc-test
     samuraibff.auth.oidc-security-test
     samuraibff.auth.jwks-http-test
+    samuraibff.grpc.transport-test
     samuraibff.http.auth-test
     samuraibff.http.auth-privacy-test
     samuraibff.http.error-security-test
@@ -35,6 +36,7 @@
     samuraibff.http.server-test
     samuraibff.keycloak.admin-privacy-test
     samuraibff.observability.diagnostics-test
+    samuraibff.secrets.aws-transport-test
     samuraibff.ui.transcript-test
     samuraibff.ui.urls-test
     samuraibff.ui.pagination-test
