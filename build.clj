@@ -28,7 +28,10 @@
    'io.grpc/grpc-util "io/grpc/util/RoundRobinLoadBalancer.class"})
 
 (defn complete-grpc-metadata!
-  "Add missing gRPC Maven metadata to a built jar using its exact build basis.
+  "A helper fn sued to improve vulnerability detection. 
+  Our packaged application was missing some library names and versions. 
+  => so this function adds those labels so vulnerability scanners can identify the included gRPC libraries. It improves detection.
+  Adds missing gRPC Maven metadata to a built jar using its exact build basis.
   Takes a jar path and tools.build basis. Requires each known runtime class,
   preserves existing matching metadata, and throws on absent or conflicting
   evidence. Returns nil; does not alter any classes."
