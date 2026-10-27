@@ -11,6 +11,7 @@
    [samuraibff.ui.output-settings :as output-settings]
    [clojure.string :as str]
    [samuraibff.ui.env :as env]
+   [samuraibff.ui.permissions :as permissions]
    [samuraibff.ui.store :as store]
    [samuraibff.ui.util :as util]))
 
@@ -322,6 +323,9 @@
                (store/set-ws-status! :audio :disconnected (str "code=" (.-code e)))
                (store/append-log! (str "[audio] ws closed code=" (.-code e)
                                        " reason=" (.-reason e)))
+               (when (and (= 1008 (.-code e)) (= "access-revoked" (.-reason e)))
+                 (permissions/note-access-revoked! session-id)
+                 (store/set-running! false))
                (reset! audio-ws* nil)
                (stop-audio!)))
 

@@ -10,9 +10,11 @@
   (:require
    [samuraibff.ui.api :as api]
    [samuraibff.ui.components.shared :as shared]
+   [samuraibff.ui.destinations :as destinations]
    [samuraibff.ui.hooks :as hooks]
    [samuraibff.ui.store :as store]
    ["react" :as react]))
+
 (defn workflow-routing-panel
   "Advanced panel for per-session workflow routing overrides.
 
@@ -305,3 +307,78 @@
 
      [:div {:class "muted" :style {:marginTop "10px" :fontSize "12px"}}
       "Applies to new sessions. Existing sessions keep their original settings."]]))
+
+(defn- load-routing-lists!
+  "Load workflow and webhook lists and defaults that are not loaded yet.
+
+  Inputs: current store maps for webhooks, webhook defaults, workflows and
+  workflow defaults. Returns: nil. Errors go to the same store error fields
+  the routing panels show."
+  [webhooks-st wh-defaults-st workflows-st wf-defaults-st]
+  (letfn [(load! [st set-loading! set-error! fetch! on-ok]
+            (when (and (not (true? (:loading? st))) (nil? (:error st)))
+              (set-loading! true)
+              (-> (fetch!)
+                  (.then on-ok)
+                  (.catch (fn [e] (set-error! (shared/safe-http-error e))))
+                  (.finally (fn [] (set-loading! false))))))]
+    (when (empty? (:items webhooks-st))
+      (load! webhooks-st store/set-webhooks-loading! store/set-webhooks-error!
+             api/list-webhooks! #(store/set-webhooks-items! (:items %))))
+    (when (empty? (:webhook_ids wh-defaults-st))
+      (load! wh-defaults-st store/set-webhook-defaults-loading! store/set-webhook-defaults-error!
+             api/get-webhook-defaults! #(store/set-webhook-defaults-ids! (:webhook_ids %))))
+    (when (empty? (:items workflows-st))
+      (load! workflows-st store/set-workflows-loading! store/set-workflows-error!
+             api/list-workflows! #(store/set-workflows-items! (:items %))))
+    (when (empty? (:workflow_ids wf-defaults-st))
+      (load! wf-defaults-st store/set-workflow-defaults-loading! store/set-workflow-defaults-error!
+             api/get-workflow-defaults! #(store/set-workflow-defaults-ids! (:workflow_ids %)))))
+  nil)
+
+(defn destinations-summary
+  "Show which webhooks and workflows will receive a new session.
+
+  Uses the same rule as session creation: organization defaults (when
+  enabled) plus selected items, enabled items only. Shows webhook destination
+  hosts and workflow models so the recorder sees where results go without
+  opening Session settings. Renders nothing when the runtime is disabled.
+
+  Returns: hiccup or nil."
+  []
+  (let [session (hooks/use-atom store/session*)
+        webhooks-st (hooks/use-atom store/webhooks*)
+        wh-defaults-st (hooks/use-atom store/webhook-defaults*)
+        workflows-st (hooks/use-atom store/workflows*)
+        wf-defaults-st (hooks/use-atom store/workflow-defaults*)
+        runtime-enabled? (store/workflow-webhook-runtime-enabled?)
+        webhooks (destinations/effective-items (:items webhooks-st) (:webhook_overrides session)
+                                               (:webhook_ids wh-defaults-st) :webhook_ids)
+        workflows (destinations/effective-items (:items workflows-st) (:workflow_overrides session)
+                                                (:workflow_ids wf-defaults-st) :workflow_ids)
+        loading? (some #(true? (:loading? %)) [webhooks-st wh-defaults-st workflows-st wf-defaults-st])]
+    (react/useEffect
+     (fn []
+       (when runtime-enabled?
+         (load-routing-lists! @store/webhooks* @store/webhook-defaults*
+                              @store/workflows* @store/workflow-defaults*))
+       js/undefined)
+     #js [runtime-enabled?])
+    (when runtime-enabled?
+      [:div {:class "field" :style {:minWidth 0}}
+       [:div {:class "label"} "Results are sent to"]
+       (cond
+         (or (seq webhooks) (seq workflows))
+         [:div {:style {:display "flex" :flexDirection "column" :gap "2px" :fontSize "13px"}}
+          (for [w webhooks]
+            [:span {:key (str "dest-wh-" (:id w))} (str "Webhook: " (destinations/webhook-label w))])
+          (for [w workflows]
+            [:span {:key (str "dest-wf-" (:id w))} (str "Workflow: " (destinations/workflow-label w))])]
+
+         loading?
+         [:div {:class "muted"} "Checking destinations…"]
+
+         :else
+         [:div {:class "muted"} "No webhooks or workflows receive this session."])
+       [:div {:class "hint" :style {:marginTop "2px"}}
+        "Change this in Session settings → Webhooks / Workflows."]])))

@@ -9,6 +9,8 @@
    [samuraibff.ui.media-devices :as media.devices]
    [samuraibff.ui.env :as env]
    [samuraibff.ui.components.session-routing :as session-routing]
+   [samuraibff.ui.components.share-dialog :as share-dialog]
+   [samuraibff.ui.permissions :as permissions]
    [samuraibff.ui.components.shared :as shared]
    [samuraibff.ui.components.transcript :as components.transcript]
    [samuraibff.ui.hooks :as hooks]
@@ -71,6 +73,7 @@
         mic-device-id (str (or (:mic_device_id controls) ""))
 
         running? (hooks/use-atom store/running?*)
+        revoked-session-id (permissions/use-revoked-session-id)
         starting?* (react/useState false)
         starting? (aget starting?* 0)
         set-starting! (aget starting?* 1)
@@ -129,6 +132,8 @@
                                                       :created_at_ms (util/now-ms)
                                                       :status        :ready})
                                (store/append-log! (str "[ui] new session " session_id))
+                               ;; Save the chosen audience; recording does not wait for it.
+                               (share-dialog/apply-draft-audience! session_id)
                                (str session_id)))
                       (.catch (fn [e]
                                 (store/append-log! (str "[ui] failed creating session: " (shared/safe-http-error e)))
@@ -199,10 +204,14 @@
                 (store/clear-segments!)
                 (store/set-session-title! "")
                 (store/set-session-created-at-ms! nil)
-                (store/set-session-status! nil))]
+                (store/set-session-status! nil)
+                (share-dialog/reset-draft-audience!)
+                (permissions/clear-access-revoked!))]
 
         [:div {:class "controls"}
          (when start-error [:p {:role "alert" :class "badge bad"} start-error])
+         (when (and revoked-session-id (= revoked-session-id (str id)))
+           [:p {:role "alert" :class "badge bad"} "Your access to this session was removed."])
          (when (not-any? effective-controls [:realtime :refined :final])
            [:p {:role "status" :class "muted"} "Choose at least one transcript option in Session settings to start recording."])
          [:div {:class "controls-row"}
@@ -291,7 +300,13 @@
                     :on-click   (fn [_]
                                   (when set-settings-open!
                                     (set-settings-open! (not (true? settings-open?)))))}
-           "⚙"]]]))))
+           "⚙"]]
+         [share-dialog/who-can-access-row
+          {:session-id id
+           :session-title (get @store/session* :title)
+           :disabled? (or (true? running?) (true? starting?))
+           :extra (when (str/blank? (str id))
+                    [session-routing/destinations-summary])}]]))))
 
 (declare audio-controls-panel)
 

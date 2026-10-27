@@ -129,6 +129,8 @@
    "provisioning-failed" "The account could not be created. Try again later."
    "rate-limited" "Wait a minute before you send another setup email."
    "not-pending" "This person has already finished setup."
+   "credential-revoked" "This credential is revoked. Create a new credential instead."
+   "credential-provisioning-failed" "The credential could not be created. Try again later."
    "access-not-provisioned" "Your account is not set up for this organization yet. Contact an Admin."
    "account-setup-pending" "Finish setting up your account from the email we sent, then sign in again."
    "account-suspended" "Your account is suspended. Contact an Admin."
