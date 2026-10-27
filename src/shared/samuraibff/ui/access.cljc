@@ -23,7 +23,7 @@
   {:record true
    :share_sessions false
    :manage_people false
-   :manage_credentials true
+   :manage_credentials false
    :manage_own_credentials true
    :author_integrations true
    :publish_integrations false

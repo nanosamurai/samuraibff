@@ -1,11 +1,18 @@
 (ns samuraibff.ui.components.pages.api-credentials
-  "API credentials management page (tenant-scoped)."
+  "API credentials management page (tenant-scoped).
+
+  Access (capability hints from `/api/me`; the BFF authorizes again):
+  - Admins (`manage_credentials`) see every credential with its manager.
+  - Builders (`manage_own_credentials`) see and manage their own.
+  - Members see an explanation instead of the list."
   (:require
    [clojure.string :as str]
+   [samuraibff.ui.access :as access]
    [samuraibff.ui.api :as api]
    [samuraibff.ui.api-credentials-store :as api-creds.store]
    [samuraibff.ui.components.shared :as shared]
    [samuraibff.ui.hooks :as hooks]
+   [samuraibff.ui.permissions :as permissions]
    [samuraibff.ui.store :as store]
    ["react" :as react]))
 
@@ -14,6 +21,14 @@
 
   Must match the @media rule in `resources/public/index.html`."
   "(max-width: 768px)")
+
+(def ^:private disable-pending-text
+  "Disable in sign-in system pending — retry")
+
+(defn- safe-error
+  "Return a user-facing message for a failed credential call."
+  [e]
+  (access/error-message (api/error-code e) (shared/safe-http-error e)))
 
 (defn api-credentials-secret-modal
   "Modal that shows `client_secret` exactly once.
@@ -56,59 +71,111 @@
                                (store/api-credentials-close-secret!))}
           "Close"]]]])))
 
+(defn- rotate!
+  "Ask for confirmation, rotate a credential secret and show it once."
+  [id name refresh!]
+  (when (js/confirm (str "Rotate secret for " name "?\n\nThe old secret will stop working."))
+    (store/api-credentials-set-loading! true)
+    (store/api-credentials-set-error! nil)
+    (-> (api/rotate-api-credential! id)
+        (.then (fn [resp]
+                 (store/api-credentials-open-secret!
+                  {:credential-id (:credential_id resp)
+                   :client-id (:client_id resp)
+                   :client-secret (:client_secret resp)})
+                 (refresh!)))
+        (.catch (fn [e]
+                  (store/api-credentials-set-error! (safe-error e))))
+        (.finally (fn []
+                    (store/api-credentials-set-loading! false))))))
+
+(defn- revoke!
+  "Revoke a credential, or retry a pending sign-in disable when retry? is true.
+
+  A response with `upstream: pending` means the sign-in system did not
+  confirm the disable yet; sending DELETE again retries it."
+  [id name refresh! retry?]
+  (when (or retry?
+            (js/confirm (str "Revoke credential " name "?\n\nThis will disable the Keycloak client.")))
+    (store/api-credentials-set-loading! true)
+    (store/api-credentials-set-error! nil)
+    (-> (api/revoke-api-credential! id)
+        (.then (fn [resp]
+                 ;; Optimistic: mark revoked, then refresh.
+                 (store/api-credentials-mark-revoked! id)
+                 (when (= "pending" (:upstream resp))
+                   (store/api-credentials-set-error!
+                    (str "Revoked in nanosamur.ai. " disable-pending-text " with Retry disable.")))
+                 (refresh!)))
+        (.catch (fn [e]
+                  (store/api-credentials-set-error! (safe-error e))))
+        (.finally (fn []
+                    (store/api-credentials-set-loading! false))))))
+
+(defn- credential-flags
+  "Return derived display flags for a credential item."
+  [{:keys [revoked_at identity_sync_state] :as cred}]
+  (let [revoked? (some? revoked_at)]
+    {:revoked? revoked?
+     :can-manage? (not (false? (:can_manage cred)))
+     :disable-pending? (and revoked? (= "disable_pending" identity_sync_state))}))
+
+(defn- status-node
+  "Render the credential status badge and a pending-disable note."
+  [{:keys [revoked? disable-pending?]}]
+  [:span {:style {:display "inline-flex" :flexDirection "column" :gap "4px"}}
+   (if revoked?
+     [:span {:class "badge muted"} "Revoked"]
+     [:span {:class "badge ok"} "Active"])
+   (when disable-pending?
+     [:span {:class "muted" :style {:fontSize "12px"}} disable-pending-text])])
+
+(defn- credential-actions
+  "Render Rotate and Revoke (or Retry disable) buttons for a credential.
+
+  Inputs: credential, flags from `credential-flags`, refresh! fn and the
+  attributes of the container element (table row or mobile card layout)."
+  [{:keys [id name]} {:keys [revoked? can-manage? disable-pending?]} refresh! container-attrs]
+  (let [id (or id "")]
+    [:div container-attrs
+     [:button {:class "btn"
+               :disabled (or revoked? (not can-manage?))
+               :title "Rotate secret"
+               :on-click (fn [_] (rotate! id name refresh!))}
+      "Rotate"]
+     (if disable-pending?
+       [:button {:class "btn ghost"
+                 :disabled (not can-manage?)
+                 :title "Send the disable to the sign-in system again"
+                 :on-click (fn [_] (revoke! id name refresh! true))}
+        "Retry disable"]
+       [:button {:class "btn ghost"
+                 :disabled (or revoked? (not can-manage?))
+                 :title "Revoke credential"
+                 :on-click (fn [_] (revoke! id name refresh! false))}
+        "Revoke"])]))
+
+(defn- manager-label
+  "Return the manager display text for a credential.
+
+  Credentials without a manager (created before roles) are Admin-managed."
+  [cred]
+  (or (access/owner-name (:manager cred)) "Admins"))
+
 (defn- api-credentials-row
-  [{:keys [id name keycloak_client_id created_at last_used_at revoked_at]} refresh!]
-  (let [revoked? (some? revoked_at)
-        id (or id "")
+  [{:keys [name keycloak_client_id created_at last_used_at] :as cred} refresh! show-manager?]
+  (let [flags (credential-flags cred)
         client-id (or keycloak_client_id "")]
     [:tr
      [:td name]
+     (when show-manager?
+       [:td {:class "muted"} (manager-label cred)])
      [:td {:class "mono"} client-id]
      [:td {:class "muted"} (or (shared/iso->local created_at) "")]
      [:td {:class "muted"} (or (shared/iso->local last_used_at) "")]
-     [:td
-      (if revoked?
-        [:span {:class "badge muted"} "Revoked"]
-        [:span {:class "badge ok"} "Active"])]
+     [:td [status-node flags]]
      [:td {:style {:textAlign "right"}}
-      [:div {:class "row" :style {:justifyContent "flex-end"}}
-       [:button {:class "btn"
-                 :disabled revoked?
-                 :title "Rotate secret"
-                 :on-click (fn [_]
-                             (when (js/confirm (str "Rotate secret for " name "?\n\nThe old secret will stop working."))
-                               (store/api-credentials-set-loading! true)
-                               (store/api-credentials-set-error! nil)
-                               (-> (api/rotate-api-credential! id)
-                                   (.then (fn [resp]
-                                            (store/api-credentials-open-secret!
-                                             {:credential-id (:credential_id resp)
-                                              :client-id (:client_id resp)
-                                              :client-secret (:client_secret resp)})
-                                            (refresh!)))
-                                   (.catch (fn [e]
-                                             (store/api-credentials-set-error! (shared/safe-http-error e))))
-                                   (.finally (fn []
-                                               (store/api-credentials-set-loading! false))))))}
-        "Rotate"]
-
-       [:button {:class "btn ghost"
-                 :disabled revoked?
-                 :title "Revoke credential"
-                 :on-click (fn [_]
-                             (when (js/confirm (str "Revoke credential " name "?\n\nThis will disable the Keycloak client."))
-                               (store/api-credentials-set-loading! true)
-                               (store/api-credentials-set-error! nil)
-                               (-> (api/revoke-api-credential! id)
-                                   (.then (fn [_]
-                                            ;; Optimistic: mark revoked, then refresh.
-                                            (store/api-credentials-mark-revoked! id)
-                                            (refresh!)))
-                                   (.catch (fn [e]
-                                             (store/api-credentials-set-error! (shared/safe-http-error e))))
-                                   (.finally (fn []
-                                               (store/api-credentials-set-loading! false))))))}
-        "Revoke"]]]]))
+      [credential-actions cred flags refresh! {:class "row" :style {:justifyContent "flex-end"}}]]]))
 
 (defn- api-credentials-card
   "Render a credential as a stacked card (mobile layout).
@@ -116,15 +183,12 @@
   Inputs:
   - cred: credential map
   - refresh!: (fn [])
+  - show-manager?: boolean
 
-  Returns: hiccup." 
-  [{:keys [id name keycloak_client_id created_at last_used_at revoked_at]} refresh!]
-  (let [revoked? (some? revoked_at)
-        id (or id "")
-        client-id (or keycloak_client_id "")
-        status-node (if revoked?
-                      [:span {:class "badge muted"} "Revoked"]
-                      [:span {:class "badge ok"} "Active"])]
+  Returns: hiccup."
+  [{:keys [name keycloak_client_id created_at last_used_at] :as cred} refresh! show-manager?]
+  (let [flags (credential-flags cred)
+        client-id (or keycloak_client_id "")]
     [:div {:class "list-item"}
      [:div {:style {:display "flex" :gap "10px" :alignItems "flex-start"}}
       [:div {:style {:flex "1" :minWidth 0}}
@@ -132,51 +196,31 @@
        [:div {:class "list-item-sub"}
         [:span {:class "mono" :style {:wordBreak "break-all"}} client-id]]
        [:div {:class "list-item-meta"}
+        (when show-manager?
+          [:span (str "Manager: " (manager-label cred))])
         [:span (str "Created: " (or (shared/iso->local created_at) "—"))]
         [:span (str "Last used: " (or (shared/iso->local last_used_at) "—"))]]]
-      [:div status-node]]
+      [:div [status-node flags]]]
 
-     [:div {:class "list-item-actions"}
-      [:button {:class "btn"
-                :disabled revoked?
-                :title "Rotate secret"
-                :on-click (fn [_]
-                            (when (js/confirm (str "Rotate secret for " name "?\n\nThe old secret will stop working."))
-                              (store/api-credentials-set-loading! true)
-                              (store/api-credentials-set-error! nil)
-                              (-> (api/rotate-api-credential! id)
-                                  (.then (fn [resp]
-                                           (store/api-credentials-open-secret!
-                                            {:credential-id (:credential_id resp)
-                                             :client-id (:client_id resp)
-                                             :client-secret (:client_secret resp)})
-                                           (refresh!)))
-                                  (.catch (fn [e]
-                                            (store/api-credentials-set-error! (shared/safe-http-error e))))
-                                  (.finally (fn []
-                                              (store/api-credentials-set-loading! false))))))}
-        "Rotate"]
+     [credential-actions cred flags refresh! {:class "list-item-actions"}]]))
 
-      [:button {:class "btn ghost"
-                :disabled revoked?
-                :title "Revoke credential"
-                :on-click (fn [_]
-                            (when (js/confirm (str "Revoke credential " name "?\n\nThis will disable the Keycloak client."))
-                              (store/api-credentials-set-loading! true)
-                              (store/api-credentials-set-error! nil)
-                              (-> (api/revoke-api-credential! id)
-                                  (.then (fn [_]
-                                           (store/api-credentials-mark-revoked! id)
-                                           (refresh!)))
-                                  (.catch (fn [e]
-                                            (store/api-credentials-set-error! (shared/safe-http-error e))))
-                                  (.finally (fn []
-                                              (store/api-credentials-set-loading! false))))))}
-        "Revoke"]]]))
-
-(defn api-credentials-page
-  "API credentials management page (tenant-scoped)."
+(defn- members-explanation
+  "Render the API Credentials page for people who cannot manage credentials."
   []
+  [:div {:class "page"}
+   [:div {:class "page-header"}
+    [:div
+     [:div {:class "page-title"} "API Credentials"]
+     [:div {:class "muted"}
+      "Machine-to-machine credentials for API access."]]]
+   [:div {:class "card"}
+    [:div {:class "muted"} "Automation credentials are managed by Builders and Admins."]]])
+
+(defn- api-credentials-manager-page
+  "API credentials list and create form for Builders and Admins.
+
+  Inputs: show-manager? boolean (Admins see every credential and its manager)."
+  [show-manager?]
   (let [st (hooks/use-atom store/api-credentials*)
         mobile? (hooks/use-media-query mobile-breakpoint-query)
         items (api-creds.store/visible-items st)
@@ -195,7 +239,7 @@
                        (.then (fn [resp]
                                 (store/api-credentials-set-items! (:items resp))))
                        (.catch (fn [e]
-                                 (store/api-credentials-set-error! (shared/safe-http-error e))))
+                                 (store/api-credentials-set-error! (safe-error e))))
                        (.finally (fn []
                                    (store/api-credentials-set-loading! false)))))
 
@@ -211,7 +255,7 @@
                                  :client-secret (:client_secret resp)})
                                (refresh!)))
                       (.catch (fn [e]
-                                (store/api-credentials-set-error! (shared/safe-http-error e))))
+                                (store/api-credentials-set-error! (safe-error e))))
                       (.finally (fn []
                                   (store/api-credentials-set-loading! false)))))]
 
@@ -228,7 +272,8 @@
       [:div
        [:div {:class "page-title"} "API Credentials"]
        [:div {:class "muted"}
-        "Machine-to-machine credentials for API access."]
+        (str "Machine-to-machine credentials for API access. "
+             (if show-manager? "All credentials in this organization." "Your credentials."))]
        (when (seq error)
          [:div {:class "badge bad" :style {:marginTop "10px"}} error])]
       [:div {:class "row"}
@@ -236,6 +281,9 @@
                  :disabled loading?
                  :on-click (fn [_] (refresh!))}
         (if loading? "Refreshing…" "Refresh")]]]
+
+     [:div {:class "muted" :role "note"}
+      "A credential signs in as its own service account. It does not get access to people's private sessions."]
 
      [:div {:class "card"}
       [:div {:class "card-title"} "Create credential"]
@@ -269,11 +317,12 @@
                         (sort-by :created_at)
                         reverse)]
              ^{:key (str "cred-card-" (:id c))}
-             [api-credentials-card c refresh!])]
+             [api-credentials-card c refresh! show-manager?])]
           [:table {:class "table"}
            [:thead
             [:tr
              [:th "Name"]
+             (when show-manager? [:th "Manager"])
              [:th "Client id"]
              [:th "Created"]
              [:th "Last used"]
@@ -284,4 +333,14 @@
                          (sort-by :created_at)
                          reverse)]
               ^{:key (str "cred-" (:id c))}
-              [api-credentials-row c refresh!])]]))]]))
+              [api-credentials-row c refresh! show-manager?])]]))]]))
+
+(defn api-credentials-page
+  "API credentials page: the manager view for Builders/Admins, otherwise an
+  explanation. Returns hiccup."
+  []
+  (let [manage-own? (permissions/use-capability? :manage_own_credentials)
+        manage-all? (permissions/use-capability? :manage_credentials)]
+    (if (or manage-own? manage-all?)
+      [api-credentials-manager-page manage-all?]
+      [members-explanation])))
