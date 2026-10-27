@@ -44,6 +44,7 @@
    [org.corfield.logging4j2 :as log]
    [ring.util.codec :as codec]
    [ring.util.response :as resp]
+   [samuraibff.access.policy :as policy]
    [samuraibff.auth.oidc :as oidc]
    [samuraibff.db.tenants :as db.tenants]
    [samuraibff.features :as features]
@@ -155,8 +156,8 @@
 
       :else nil)))
 
-(defn- request-origin
-  "Determine external origin for redirects.
+(defn request-origin
+  "Determine external origin for redirects and Origin validation.
 
   Precedence:
   1) config [:bff :public-origin-uri] (browser-facing; recommended behind a load balancer)
@@ -532,15 +533,40 @@
            {:id id :available false})))
      tracks)))
 
+(defn- access-state
+  "Return the /api/me access block for the request principal.
+
+  Inactive states carry no principal, tenant or capability data."
+  [req]
+  (let [principal (:auth/principal req)
+        state (or (:auth/access-state req) :unavailable)]
+    (if (policy/active? principal)
+      {:state "active"
+       :principal {:id (str (:id principal))
+                   :type (name (:type principal))
+                   :role (some-> (:role principal) name)
+                   :display_name (or (:name principal) (:email principal))
+                   :guest (boolean (:guest? principal))}
+       :capabilities (policy/capabilities principal)}
+      {:state (case state
+                :not-provisioned "not_provisioned"
+                :pending "pending"
+                :suspended "suspended"
+                "unavailable")})))
+
 (defn me-handler
   "Handler for `GET /api/me`.
 
-  Requires `wrap-authenticate` middleware to be installed.
+  Requires `wrap-authenticate` and `samuraibff.access.principal/wrap-principal`
+  (with inactive states allowed) to be installed.
 
   Behavior:
-  - if authenticated: returns {ok true, authenticated true, user {...}, tenant_id ...}
+  - if authenticated: returns {ok true, authenticated true, user {...},
+    access {...}}; tenant_id/tenant_name only for an active principal
   - if not authenticated and auth required: 401
-  - if not authenticated and auth not required: {ok true, authenticated false}
+  - if not authenticated and auth not required: the guest principal's access
+
+  `access.capabilities` are presentation hints; every route authorizes again.
 
   Returns: JSON response."
   [config grpc]
@@ -561,8 +587,10 @@
                                     :async_tracks (stream-controls/configured-async-tracks config)
                                     :realtime_track_capabilities (realtime-track-capabilities config grpc)
                                     :features (features/feature-state config)
+                                    :access (access-state req)
                                     :user (into {} (remove (comp nil? val))
                                                 (select-keys user [:sub :preferred_username :email]))}
+                             (nil? tenant-id-str) (dissoc :tenant_id)
                              (some? tenant-name) (assoc :tenant_name tenant-name))))
       (if (oidc/auth-required? config)
         (json-response 401 {:ok false :authenticated false :message "not-authenticated"})
@@ -572,4 +600,5 @@
                             :default_tracks (or (:default-tracks config) {})
                             :async_tracks (stream-controls/configured-async-tracks config)
                             :realtime_track_capabilities (realtime-track-capabilities config grpc)
-                            :features (features/feature-state config)})))))
+                            :features (features/feature-state config)
+                            :access (access-state req)})))))
