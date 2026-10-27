@@ -1,9 +1,14 @@
 (ns samuraibff.http.webhook-delivery-outcomes-integration-test
-  "Integration test for /api/sessions/:session_id/webhook-delivery-outcomes."
+  "Integration test for /api/sessions/:session_id/webhook-delivery-outcomes.
+
+  Outcomes need session read access: the provisioned owner reads them; a
+  foreign-tenant principal and a same-tenant non-owner get 404 for the
+  private session."
   (:require
    [clojure.test :refer :all]
    [next.jdbc :as jdbc]
    [samuraibff.http.webhook-delivery-outcomes :as http.wh.outcomes]
+   [samuraibff.test-support.principals :as tp]
    [samuraibff.testcontainers.postgres :as tc.pg])
   (:import
    (java.time Instant)
@@ -18,12 +23,16 @@
           tenant-a (UUID/fromString "00000000-0000-0000-0000-000000000000")
           tenant-b (UUID/fromString "00000000-0000-0000-0000-000000000001")
           _ (jdbc/execute! ds ["INSERT INTO tenants (id, name) VALUES (?, ?), (?, ?)" tenant-a "A" tenant-b "B"])
+          owner (tp/insert-principal! ds {:tenant-id tenant-a})
+          colleague (tp/insert-principal! ds {:tenant-id tenant-a :role :admin})
+          outsider (tp/insert-principal! ds {:tenant-id tenant-b :role :admin})
           wh-1 (UUID/randomUUID)
           _ (jdbc/execute! ds ["INSERT INTO webhooks (id, tenant_id, name, url, enabled, auth_type, created_at)
                                VALUES (?, ?, 'Webhook 1', 'http://example.invalid', true, 'none', now())"
                                wh-1 tenant-a])
           session-a (UUID/randomUUID)
-          _ (jdbc/execute! ds ["INSERT INTO sessions (id, tenant_id, session_key) VALUES (?, ?, ?)" session-a tenant-a (str session-a)])
+          _ (jdbc/execute! ds ["INSERT INTO sessions (id, tenant_id, user_id, session_key) VALUES (?, ?, ?, ?)"
+                               session-a tenant-a (:id owner) (str session-a)])
           dispatch-id (UUID/randomUUID)
           _ (jdbc/execute! ds ["INSERT INTO webhook_delivery_outcomes (
                                 id, created_at, tenant_id, session_id, webhook_id, dispatch_id,
@@ -37,10 +46,10 @@
           deps {:db {:ds ds}
                 :config {:env :test}}
           handler (http.wh.outcomes/list-webhook-delivery-outcomes-handler deps)
-          resp-ok (handler {:auth/tenant-id (str tenant-a)
-                            :path-params {:session_id (str session-a)}})
-          resp-cross (handler {:auth/tenant-id (str tenant-b)
-                               :path-params {:session_id (str session-a)}})]
+          params {:path-params {:session_id (str session-a)}}
+          resp-ok (handler (tp/request-for owner params))
+          resp-cross (handler (tp/request-for outsider params))
+          resp-colleague (handler (tp/request-for colleague params))]
       (is (= 200 (:status resp-ok)))
       (is (= true (get-in resp-ok [:body :ok])))
       (is (= 1 (count (get-in resp-ok [:body :items]))))
@@ -49,4 +58,9 @@
 
       ;; Tenant scoping: session doesn't exist for tenant-b.
       (is (= 404 (:status resp-cross)))
-      (is (= "not-found" (get-in resp-cross [:body :message]))))))
+      (is (= "not-found" (get-in resp-cross [:body :message])))
+
+      (testing "a same-tenant Admin who is not the owner cannot read a private session's outcomes"
+        (is (= 404 (:status resp-colleague)))
+        (is (= "not-found" (get-in resp-colleague [:body :message])))
+        (is (nil? (get-in resp-colleague [:body :items])))))))
