@@ -25,8 +25,9 @@
 
   Options: :tenant-id (required), :type :human|:service (default :human),
   :role :member|:builder|:admin (default :member for humans), :status
-  (default :active), :name, :email, :external-id, :client-id."
-  [ds {:keys [tenant-id type role status name email external-id client-id]
+  (default :active), :name, :email, :external-id, :client-id, :issuer
+  (default `test-issuer`)."
+  [ds {:keys [tenant-id type role status name email external-id client-id issuer]
        :or {type :human status :active}}]
   (let [id (UUID/randomUUID)
         service? (= :service type)
@@ -35,7 +36,7 @@
              {:id id
               :tenant-id tenant-id
               :external-id (or external-id (str "sub-" id))
-              :issuer test-issuer
+              :issuer (or issuer test-issuer)
               :principal-type (clojure.core/name type)
               :role (when-not service? (clojure.core/name (or role :member)))
               :status (clojure.core/name status)
