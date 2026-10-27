@@ -10,7 +10,7 @@
   (:require
    [clojure.string :as str]
    [org.corfield.logging4j2 :as log]
-   [samuraibff.db.recordings :as db.recordings]
+   [samuraibff.http.session-guard :as session-guard]
    [samuraibff.db.webhook-delivery-outcomes :as db.wh.outcomes]
    [samuraibff.schemas :as schemas])
   (:import
@@ -75,7 +75,7 @@
           (throw (ex-info "missing-datasource" {:type :samuraibff.http/missing-datasource})))
         (let [tenant-uuid (tenant-id-uuid req)
               session-uuid (parse-session-uuid req)
-              session (db.recordings/find-session-by-id ds tenant-uuid session-uuid)]
+              session (session-guard/require-readable-session! ds req session-uuid)]
           (if-not session
             (json-response 404 {:ok false :message "not-found"})
             (let [rows (db.wh.outcomes/list-latest-outcomes-for-session ds tenant-uuid session-uuid {:limit 50})
@@ -105,6 +105,8 @@
         (catch clojure.lang.ExceptionInfo e
           (let [{:keys [type]} (ex-data e)]
             (case type
+              (:samuraibff.http/not-found :samuraibff.http/read-only :samuraibff.http/forbidden)
+              (session-guard/error-response type)
               :samuraibff.http/missing-tenant-id (json-response 403 {:ok false :message "missing-tenant-id"})
               :samuraibff.http/invalid-tenant-id (json-response 400 {:ok false :message "invalid-tenant-id"})
               :samuraibff.http/invalid-session-id (json-response 400 {:ok false :message "invalid-session-id"})
