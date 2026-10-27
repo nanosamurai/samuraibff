@@ -108,18 +108,31 @@
    :api_key_header_name :api_key_prefix
    :static_headers])
 
+(defn- destination-origin
+  "Return scheme://host[:port] of a webhook URL, dropping credentials, path,
+  query and fragment, or nil for a malformed URL."
+  [url]
+  (try
+    (let [uri (java.net.URI. (str url))]
+      (when (and (.getScheme uri) (.getHost uri))
+        (str (.getScheme uri) "://" (.getHost uri)
+             (when (pos? (.getPort uri)) (str ":" (.getPort uri))))))
+    (catch Exception _ nil)))
+
 (defn- webhook-row->api-item
   "Convert a webhook row and its subscriptions into an API item for the principal.
 
-  Every viewer gets id, name, destination URL, enabled, subscriptions,
-  availability, owner and `can_manage`. Auth settings, secret refs and static
-  headers are added only when the principal may manage the webhook."
+  Every viewer gets id, name, destination, enabled, subscriptions,
+  availability, owner and `can_manage`. Viewers who cannot manage the webhook
+  see only the destination origin (scheme, host, port): URL credentials, paths
+  and query tokens are withheld. Auth settings, secret refs and static headers
+  are added only when the principal may manage the webhook."
   [principal owners row subscriptions]
   (let [manage? (policy/can-manage-definition? principal row)
         base {:id (str (:id row))
               :tenant_id (str (:tenant_id row))
               :name (:name row)
-              :url (:url row)
+              :url (if manage? (:url row) (or (destination-origin (:url row)) ""))
               :enabled (boolean (:enabled row))
               :subscriptions (vec subscriptions)
               :availability (:availability row)

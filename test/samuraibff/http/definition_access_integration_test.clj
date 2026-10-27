@@ -215,7 +215,7 @@
             (is (= (:body resp) (schemas/validate! schemas/WebhooksListResponse (:body resp))))
             (is (= #{:id :tenant_id :name :url :enabled :subscriptions :availability :owner :can_manage :created_at}
                    (set (keys listed))))
-            (is (= "https://hooks.example.test/receive" (:url listed)))
+            (is (= "https://hooks.example.test" (:url listed)) "Members see only the destination origin")
             (is (= ["recording.finished"] (:subscriptions listed)))
             (is (not (str/includes? (pr-str (:body resp)) "test-ref:")))))
 
