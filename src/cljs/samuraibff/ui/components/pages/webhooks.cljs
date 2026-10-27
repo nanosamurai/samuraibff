@@ -6,9 +6,11 @@
   - This page focuses on CRUD for webhook endpoints + subscriptions."
   (:require
    [clojure.string :as str]
+   [samuraibff.ui.access :as access]
    [samuraibff.ui.api :as api]
    [samuraibff.ui.components.shared :as shared]
    [samuraibff.ui.hooks :as hooks]
+   [samuraibff.ui.permissions :as permissions]
    [samuraibff.ui.store :as store]
    ["react" :as react]))
 
@@ -58,13 +60,24 @@
   Default behavior:
   - default?: boolean (whether current webhook is in tenant defaults)
   - default-disabled?: boolean (disable default checkbox, e.g. while saving)
-  - on-toggle-default: (fn [webhook-id checked?])"
+  - on-toggle-default: (fn [webhook-id checked?])
+
+  Access:
+  - can-publish?: boolean; Admins choose Personal or Published. Others
+    always create Personal webhooks and never send `availability`.
+  - can-default?: boolean; only Admins change defaults, and only for
+    published webhooks."
   [{:keys [open? mode initial on-close on-saved
-           default? default-disabled? on-toggle-default]}]
+           default? default-disabled? on-toggle-default can-publish? can-default?]}]
   (when (true? open?)
     (let [initial (or initial {})
           webhook-id (:id initial)
-          can-toggle-default? (and (= mode :edit) (some? webhook-id))
+          [availability set-availability!] (react/useState
+                                            (or (:availability initial)
+                                                (if can-publish? "published" "personal")))
+          owner-label (access/owner-name (:owner initial))
+          can-toggle-default? (and (= mode :edit) (some? webhook-id) can-default?
+                                   (= "published" (:availability initial)))
 
           name* (react/useState (or (:name initial) ""))
           name (aget name* 0)
@@ -160,7 +173,7 @@
           save! (fn []
                   (set-saving! true)
                   (set-err! nil)
-                  (let [payload {:name name
+                  (let [payload (cond-> {:name name
                                  :url url
                                  :enabled (boolean enabled?)
                                  :auth (cond-> {:type auth-type}
@@ -176,6 +189,7 @@
                                  :hmac_secret (when (= auth-type "hmac") hmac-secret)
                                  :api_key (when (= auth-type "api_key") api-key)
                                  :oauth_client_secret (when (= auth-type "oauth") oauth-client-secret)}
+                                  can-publish? (assoc :availability availability))
                         p (if (= mode :edit)
                             (api/update-webhook! (:id initial) payload)
                             (api/create-webhook! payload))]
@@ -184,7 +198,8 @@
                                  (when (fn? on-saved) (on-saved))
                                  (when (fn? on-close) (on-close))))
                         (.catch (fn [e]
-                                  (set-err! (shared/safe-http-error e))))
+                                  (set-err! (access/error-message (api/error-code e)
+                                                                  (shared/safe-http-error e)))))
                         (.finally (fn []
                                     (set-saving! false))))))]
       [:div {:class "modal-overlay"
@@ -213,15 +228,28 @@
             "Enabled"]
 
            [:label {:class "muted"
-                    :title (when-not can-toggle-default?
-                             "Default can be set after the webhook is created")
+                    :title (cond
+                             (not can-default?) "Only Admins change defaults"
+                             (not can-toggle-default?) "Default can be set after the webhook is created and published")
                     :style {:display "flex" :gap "8px" :alignItems "center"}}
             [checkbox {:checked? (true? default?)
                        :disabled? (or (not can-toggle-default?) (boolean default-disabled?))
                        :on-change (fn [checked?]
                                     (when (and can-toggle-default? (fn? on-toggle-default))
                                       (on-toggle-default webhook-id checked?)))}]
-            "Default"]]]
+            "Default"]
+
+           (if can-publish?
+             [:label {:class "muted" :style {:display "flex" :gap "8px" :alignItems "center"}}
+              "Availability"
+              [:select {:value availability
+                        :on-change (fn [e] (set-availability! (.. e -target -value)))}
+               [:option {:value "personal"} "Personal"]
+               [:option {:value "published"} "Published"]]]
+             [:span {:class "muted"} "Availability: Personal"])]
+          [:div {:class "hint"}
+           (str (when owner-label (str "Owner: " owner-label ". "))
+                "Personal webhooks receive only their owner's sessions. Publishing lets everyone choose this webhook; it gives no access to their recordings.")]]
 
         [:div {:class "card"}
          [:div {:class "card-title"} "Auth"]
@@ -303,37 +331,64 @@
           (if saving? "Saving…" "Save")]]]])))
 
 (defn- webhook-row
-  [{:keys [id name url enabled auth_type created_at subscriptions default? defaults-disabled?]}
-   {:keys [on-edit on-delete on-toggle-default]}]
-  [:tr
-   [:td name]
-    [:td
-     [checkbox {:checked? (true? default?)
-                :disabled? (boolean defaults-disabled?)
-                :on-change (fn [checked?]
-                             (when (fn? on-toggle-default)
-                               (on-toggle-default id checked?)))}]]
-   [:td {:class "mono" :style {:maxWidth "380px" :wordBreak "break-all"}} url]
-   [:td
-    (if enabled
-      [:span {:class "badge ok"} "Enabled"]
-      [:span {:class "badge muted"} "Disabled"])]
-   [:td {:class "muted"} (or auth_type "")]
-   [:td {:class "muted"}
-    (if (seq subscriptions)
-      (str (count subscriptions))
-      "0")]
-   [:td {:class "muted"} (or (shared/iso->local created_at) "")]
-   [:td {:style {:textAlign "right"}}
-    [:div {:class "row" :style {:justifyContent "flex-end"}}
-     [:button {:class "btn"
-               :on-click (fn [_] (when (fn? on-edit) (on-edit id)))}
-      "Edit"]
-     [:button {:class "btn ghost"
-               :on-click (fn [_]
-                           (when (js/confirm (str "Delete webhook '" name "'?"))
-                             (when (fn? on-delete) (on-delete id))))}
-      "Delete"]]]])
+  "Render one webhook row.
+
+  Rows the caller cannot manage are view-only. Admins (can-publish?) get
+  Publish/Unpublish; only Admins change defaults, and only for published
+  webhooks. Fields missing from the reader projection render empty."
+  [{:keys [id name url enabled auth_type created_at subscriptions default? defaults-disabled?
+           availability owner] :as item}
+   {:keys [on-edit on-delete on-toggle-default on-set-availability can-publish? can-default? busy?]}]
+  (let [can-manage? (not (false? (:can_manage item)))
+        published? (= "published" availability)
+        badge (access/definition-badge availability)
+        owner-label (access/owner-name owner)]
+    [:tr
+     [:td
+      [:div name]
+      (when (or badge owner-label)
+        [:div {:class "row" :style {:gap "6px" :marginTop "4px"}}
+         (when badge [:span {:class (str "badge " (if published? "ok" "muted"))} badge])
+         (when owner-label [:span {:class "muted" :style {:fontSize "12px"}} owner-label])])]
+     [:td
+      [checkbox {:checked? (true? default?)
+                 :disabled? (or (boolean defaults-disabled?) (not can-default?)
+                                (and (some? availability) (not published?)))
+                 :on-change (fn [checked?]
+                              (when (fn? on-toggle-default)
+                                (on-toggle-default id checked?)))}]]
+     [:td {:class "mono" :style {:maxWidth "380px" :wordBreak "break-all"}} url]
+     [:td
+      (if enabled
+        [:span {:class "badge ok"} "Enabled"]
+        [:span {:class "badge muted"} "Disabled"])]
+     [:td {:class "muted"} (or auth_type "")]
+     [:td {:class "muted"}
+      (if (seq subscriptions)
+        (str (count subscriptions))
+        "0")]
+     [:td {:class "muted"} (or (shared/iso->local created_at) "")]
+     [:td {:style {:textAlign "right"}}
+      (if can-manage?
+        [:div {:class "row" :style {:justifyContent "flex-end"}}
+         [:button {:class "btn"
+                   :on-click (fn [_] (when (fn? on-edit) (on-edit id)))}
+          "Edit"]
+         (when (and can-publish? (some? availability))
+           [:button {:class "btn"
+                     :disabled (boolean busy?)
+                     :on-click (fn [_]
+                                 (when (js/confirm (if published?
+                                                     (str "Unpublish webhook '" name "'? Only its owner can use it afterwards. It is removed from defaults.")
+                                                     (str "Publish webhook '" name "'? Everyone here can choose it for their sessions.")))
+                                   (on-set-availability id (if published? "personal" "published"))))}
+            (if published? "Unpublish" "Publish")])
+         [:button {:class "btn ghost"
+                   :on-click (fn [_]
+                               (when (js/confirm (str "Delete webhook '" name "'?"))
+                                 (when (fn? on-delete) (on-delete id))))}
+          "Delete"]]
+        [:span {:class "muted"} "View only"])]]))
 
 (defn webhooks-page
   "Webhooks management page."
@@ -343,6 +398,9 @@
 
         {:keys [items loading? error]} st
         items (vec (or items []))
+        can-author? (permissions/use-capability? :author_integrations)
+        can-publish? (permissions/use-capability? :publish_integrations)
+        can-default? (permissions/use-capability? :manage_defaults)
 
         defaults-ids (set (map str (or (:webhook_ids defaults-st) [])))
         defaults-loading? (true? (:loading? defaults-st))
@@ -405,11 +463,24 @@
                   (store/set-webhooks-error! nil)
                   (-> (api/delete-webhook! webhook-id)
                       (.then (fn [_]
-                               (store/remove-webhook-item! webhook-id)))
+                               (store/remove-webhook-item! webhook-id)
+                               (refresh-defaults!)))
                       (.catch (fn [e]
-                                (store/set-webhooks-error! (shared/safe-http-error e))))
+                                (store/set-webhooks-error! (access/error-message (api/error-code e)
+                                                                                 (shared/safe-http-error e)))))
                       (.finally (fn []
                                   (store/set-webhooks-loading! false)))))
+
+        set-availability! (fn [webhook-id availability]
+                            (store/set-webhooks-loading! true)
+                            (store/set-webhooks-error! nil)
+                            (-> (api/update-webhook! webhook-id {:availability availability})
+                                (.then (fn [_] (refresh!)))
+                                (.catch (fn [e]
+                                          (store/set-webhooks-error! (access/error-message (api/error-code e)
+                                                                                           (shared/safe-http-error e)))))
+                                (.finally (fn []
+                                            (store/set-webhooks-loading! false)))))
 
         toggle-default! (fn [webhook-id checked?]
                           (let [id (str (or webhook-id ""))
@@ -426,7 +497,8 @@
                             (-> (api/set-webhook-defaults! next-ids)
                                 (.catch (fn [e]
                                           (store/set-webhook-defaults-ids! prev-ids)
-                                          (store/set-webhook-defaults-error! (shared/safe-http-error e))))
+                                          (store/set-webhook-defaults-error!
+                                           (access/error-message (api/error-code e) (shared/safe-http-error e)))))
                                 (.finally (fn []
                                             (store/set-webhook-defaults-loading! false))))))
 
@@ -446,6 +518,8 @@
                           :default? (contains? defaults-ids (str (:id initial)))
                           :default-disabled? defaults-loading?
                           :on-toggle-default toggle-default!
+                          :can-publish? can-publish?
+                          :can-default? can-default?
                           :on-close close-modal!
                           :on-saved refresh!}]
 
@@ -460,11 +534,17 @@
        [:button {:class "btn"
                  :disabled (or loading? defaults-loading?)
                  :on-click (fn [_] (refresh!))}
-         (if (or loading? defaults-loading?) "Refreshing…" "Refresh")]
-       [:button {:class "btn primary"
-                 :disabled loading?
-                 :on-click (fn [_] (open-create!))}
-        "New webhook"]]]
+        (if (or loading? defaults-loading?) "Refreshing…" "Refresh")]
+       (when can-author?
+         [:button {:class "btn primary"
+                   :disabled loading?
+                   :on-click (fn [_] (open-create!))}
+          "New webhook"])]]
+
+     [:div {:class "muted" :role "note"}
+      (if can-author?
+        "Personal webhooks receive only their owner's sessions. Admins publish webhooks for everyone and choose defaults. Only an Admin can edit a published webhook."
+        "Webhooks are created by Builders and Admins. You can use published webhooks when you record.")]
 
      [:div {:class "card"}
       [:div {:class "card-title"} "Endpoints"]
@@ -489,4 +569,8 @@
                                  :defaults-disabled? defaults-loading?)
               {:on-edit open-edit!
                :on-delete delete!
-               :on-toggle-default toggle-default!}])]])]]))
+               :on-toggle-default toggle-default!
+               :on-set-availability set-availability!
+               :can-publish? can-publish?
+               :can-default? can-default?
+               :busy? loading?}])]])]]))
