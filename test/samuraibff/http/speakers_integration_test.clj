@@ -1,28 +1,32 @@
 ;; Copyright (c) samuraibff contributors.
 (ns samuraibff.http.speakers-integration-test
-  "Integration tests for enrolled speaker HTTP endpoints (S3 + Postgres)." 
+  "Integration tests for enrolled speaker HTTP endpoints (S3 + Postgres).
+
+  The speaker gallery requires an active human principal, so requests carry a
+  provisioned Member of the tenant (`samuraibff.test-support.principals`)."
   (:require
-    [cheshire.core :as cheshire]
-    [clojure.test :refer [deftest is testing]]
-    [clojure.java.io :as io]
-    [ring.mock.request :as mock]
-    [next.jdbc :as jdbc]
-    [next.jdbc.result-set :as rs]
-    [samuraibff.http.speakers :as http.speakers]
-    [samuraibff.testcontainers.localstack :as tc.localstack]
-    [samuraibff.testcontainers.postgres :as tc.pg])
+   [cheshire.core :as cheshire]
+   [clojure.test :refer [deftest is testing]]
+   [clojure.java.io :as io]
+   [ring.mock.request :as mock]
+   [next.jdbc :as jdbc]
+   [next.jdbc.result-set :as rs]
+   [samuraibff.http.speakers :as http.speakers]
+   [samuraibff.test-support.principals :as tp]
+   [samuraibff.testcontainers.localstack :as tc.localstack]
+   [samuraibff.testcontainers.postgres :as tc.pg])
   (:import
-    (java.nio.file Files)
-    (java.util UUID)))
+   (java.nio.file Files)
+   (java.util UUID)))
 
 (defn- write-temp-wav!
   "Write bytes to a temporary .wav file.
 
   Returns:
-  - java.io.File" 
+  - java.io.File"
   [^bytes audio-bytes]
   (let [p (Files/createTempFile "samuraibff-speaker" ".wav"
-                               (make-array java.nio.file.attribute.FileAttribute 0))]
+                                (make-array java.nio.file.attribute.FileAttribute 0))]
     (Files/write p audio-bytes (make-array java.nio.file.OpenOption 0))
     (.toFile p)))
 
@@ -30,9 +34,10 @@
   "00000000-0000-0000-0000-000000000000")
 
 (defn- insert-tenant!
+  "Insert the test tenant and return an active human Member of it."
   [ds]
   (jdbc/execute! ds ["INSERT INTO tenants (id, name) VALUES (?, ?)" (UUID/fromString tenant-id) "Tenant"])
-  nil)
+  (tp/insert-principal! ds {:tenant-id (UUID/fromString tenant-id)}))
 
 (defn- build-config
   [localstack]
@@ -50,8 +55,8 @@
                                  :prefix "recordings"}}}}))
 
 (defn- auth-req
-  [req]
-  (assoc req :auth/user {:sub "user-1"} :auth/tenant-id tenant-id))
+  [req principal]
+  (tp/request-for principal req))
 
 (defn- parse-json-body
   [resp]
@@ -70,7 +75,7 @@
         (let [jdbc-url (tc.pg/jdbc-url pg)
               ds (tc.pg/datasource jdbc-url "drsynth" "drsynth")
               _ (tc.pg/apply-schema! ds)
-              _ (insert-tenant! ds)
+              member (insert-tenant! ds)
               s3 (tc.localstack/s3-client localstack)
               config (build-config localstack)
               deps {:config config :db {:ds ds}}
@@ -86,27 +91,27 @@
                                                     "sample" {:filename "sample.wav"
                                                               :content-type "audio/wav"
                                                               :tempfile wav-file}})
-                          (auth-req))
+                          (auth-req member))
                   resp (create-handler req)
                   body (parse-json-body resp)
                   speaker-id (:speaker_id body)
-                  list-resp (list-handler (auth-req (mock/request :get "/api/speakers")))
+                  list-resp (list-handler (auth-req (mock/request :get "/api/speakers") member))
                   list-body (parse-json-body list-resp)
                   pre-delete-row (jdbc/execute-one!
-                                   ds
-                                   ["SELECT id, label FROM speakers WHERE id = ?" (UUID/fromString speaker-id)]
-                                   {:builder-fn rs/as-unqualified-lower-maps})
-              delete-resp (delete-handler
-                           (-> (mock/request :delete (str "/api/speakers/" speaker-id))
+                                  ds
+                                  ["SELECT id, label FROM speakers WHERE id = ?" (UUID/fromString speaker-id)]
+                                  {:builder-fn rs/as-unqualified-lower-maps})
+                  delete-resp (delete-handler
+                               (-> (mock/request :delete (str "/api/speakers/" speaker-id))
                                ;; When calling the handler directly, Reitit's path-params
                                ;; are not populated automatically.
-                               (assoc :path-params {:speaker_id speaker-id})
-                               (auth-req)))
+                                   (assoc :path-params {:speaker_id speaker-id})
+                                   (auth-req member)))
                   delete-body (parse-json-body delete-resp)
                   post-delete-row (jdbc/execute-one!
-                                    ds
-                                    ["SELECT id FROM speakers WHERE id = ?" (UUID/fromString speaker-id)]
-                                    {:builder-fn rs/as-unqualified-lower-maps})
+                                   ds
+                                   ["SELECT id FROM speakers WHERE id = ?" (UUID/fromString speaker-id)]
+                                   {:builder-fn rs/as-unqualified-lower-maps})
                   s3-keys (tc.localstack/list-objects s3 "xamurai-enrollment" "enrollment/")]
               (is (= 200 (:status resp)))
               (is (string? speaker-id))
@@ -133,27 +138,36 @@
         (let [jdbc-url (tc.pg/jdbc-url pg)
               ds (tc.pg/datasource jdbc-url "drsynth" "drsynth")
               _ (tc.pg/apply-schema! ds)
-              _ (insert-tenant! ds)
+              member (insert-tenant! ds)
+              _ (tp/insert-tenant! ds (UUID/fromString "22222222-2222-2222-2222-222222222222") "Foreign")
+              outsider (tp/insert-principal! ds {:tenant-id (UUID/fromString "22222222-2222-2222-2222-222222222222")
+                                                 :role :admin})
+              service (tp/insert-principal! ds {:tenant-id (UUID/fromString tenant-id) :type :service})
               config (build-config localstack)
               deps {:config config :db {:ds ds}}
               delete-handler (http.speakers/delete-speaker-handler deps)
               speaker-id (UUID/randomUUID)
               _ (jdbc/execute! ds
-                              ["INSERT INTO speakers (id, tenant_id, label, audio_url, created_at) VALUES (?, ?, ?, ?, now())"
-                               speaker-id
-                               (UUID/fromString tenant-id)
-                               "Ghost speaker"
-                               "s3://xamurai-enrollment/enrollment/.../speaker.json"])
+                               ["INSERT INTO speakers (id, tenant_id, label, audio_url, created_at) VALUES (?, ?, ?, ?, now())"
+                                speaker-id
+                                (UUID/fromString tenant-id)
+                                "Ghost speaker"
+                                "s3://xamurai-enrollment/enrollment/.../speaker.json"])
+              delete-req (-> (mock/request :delete (str "/api/speakers/" speaker-id))
+                             (assoc :path-params {:speaker_id (str speaker-id)}))
+              service-resp (delete-handler (auth-req delete-req service))
+              outsider-resp (delete-handler (auth-req delete-req outsider))
+              row-after-denials (jdbc/execute-one! ds ["SELECT id FROM speakers WHERE id = ?" speaker-id])
               ;; Intentionally DO NOT create the bucket in LocalStack.
-              delete-resp (delete-handler
-                           (-> (mock/request :delete (str "/api/speakers/" speaker-id))
-                               (assoc :path-params {:speaker_id (str speaker-id)})
-                               (auth-req)))
+              delete-resp (delete-handler (auth-req delete-req member))
               delete-body (parse-json-body delete-resp)
               post-delete-row (jdbc/execute-one!
                                ds
                                ["SELECT id FROM speakers WHERE id = ?" speaker-id]
                                {:builder-fn rs/as-unqualified-lower-maps})]
+          (is (= 403 (:status service-resp)) "Machine principals cannot change the speaker gallery")
+          (is (= 404 (:status outsider-resp)) "Another tenant cannot delete the speaker")
+          (is (some? row-after-denials))
           (is (= 200 (:status delete-resp)))
           (is (= (str speaker-id) (:speaker_id delete-body)))
           (is (nil? post-delete-row)))))))

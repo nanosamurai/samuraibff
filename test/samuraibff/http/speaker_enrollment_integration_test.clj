@@ -5,19 +5,22 @@
   Covered endpoint:
   - POST /api/speaker-enrollment/from-recording
 
-  The test uses LocalStack (S3) + Postgres testcontainers and calls the handler directly." 
+  The test uses LocalStack (S3) + Postgres testcontainers and calls the handler directly.
+  Enrollment from a recording requires session ownership, so the session is
+  owned by a provisioned principal and only that owner may enroll from it."
   (:require
-    [cheshire.core :as cheshire]
-    [clojure.test :refer :all]
-    [next.jdbc :as jdbc]
-    [next.jdbc.result-set :as rs]
-    [ring.mock.request :as mock]
-    [samuraibff.http.speaker-enrollment :as http.speaker-enrollment]
-    [samuraibff.testcontainers.localstack :as tc.localstack]
-    [samuraibff.testcontainers.postgres :as tc.pg])
+   [cheshire.core :as cheshire]
+   [clojure.test :refer :all]
+   [next.jdbc :as jdbc]
+   [next.jdbc.result-set :as rs]
+   [ring.mock.request :as mock]
+   [samuraibff.http.speaker-enrollment :as http.speaker-enrollment]
+   [samuraibff.test-support.principals :as tp]
+   [samuraibff.testcontainers.localstack :as tc.localstack]
+   [samuraibff.testcontainers.postgres :as tc.pg])
   (:import
-    (java.nio ByteBuffer ByteOrder)
-    (java.util UUID)))
+   (java.nio ByteBuffer ByteOrder)
+   (java.util UUID)))
 
 (defn- parse-json-body
   [resp]
@@ -33,9 +36,10 @@
   "00000000-0000-0000-0000-000000000000")
 
 (defn- insert-tenant!
+  "Insert the test tenant and return an active human Member of it."
   [ds]
   (jdbc/execute! ds ["INSERT INTO tenants (id, name) VALUES (?, ?)" (UUID/fromString tenant-id) "Tenant"])
-  nil)
+  (tp/insert-principal! ds {:tenant-id (UUID/fromString tenant-id)}))
 
 (defn- build-config
   [localstack]
@@ -55,8 +59,8 @@
                                  :prefix "recordings"}}}}))
 
 (defn- auth-req
-  [req]
-  (assoc req :auth/user {:sub "user-1"} :auth/tenant-id tenant-id))
+  [req principal]
+  (tp/request-for principal req))
 
 (defn- pcm-wav-bytes
   "Build a canonical PCM WAV byte array.
@@ -67,7 +71,7 @@
   - sample-rate int
   - data-bytes int
 
-  Returns: byte-array." 
+  Returns: byte-array."
   [sample-rate data-bytes]
   (let [channels 1
         bits-per-sample 16
@@ -100,15 +104,16 @@
         (let [jdbc-url (tc.pg/jdbc-url pg)
               ds (tc.pg/datasource jdbc-url "drsynth" "drsynth")
               _ (tc.pg/apply-schema! ds)
-              _ (insert-tenant! ds)
+              owner (insert-tenant! ds)
+              colleague (tp/insert-principal! ds {:tenant-id (UUID/fromString tenant-id)})
 
               s3 (tc.localstack/s3-client localstack)
               _ (tc.localstack/create-bucket! s3 "xamurai-enrollment")
               _ (tc.localstack/create-bucket! s3 "xamurai-recordings")
 
               session-id (UUID/fromString "00000000-0000-0000-0000-000000000010")
-              _ (jdbc/execute! ds ["INSERT INTO sessions (id, tenant_id, session_key, status, created_at) VALUES (?, ?, ?, ?, now())"
-                                  session-id (UUID/fromString tenant-id) session-id "active"])
+              _ (jdbc/execute! ds ["INSERT INTO sessions (id, tenant_id, user_id, session_key, status, created_at) VALUES (?, ?, ?, ?, ?, now())"
+                                   session-id (UUID/fromString tenant-id) (:id owner) (str session-id) "active"])
 
               ;; Create a tiny WAV: sample-rate=10 Hz, 2 bytes per sample => 20 bytes/s.
               ;; With 200 data bytes, duration is 10 seconds.
@@ -117,28 +122,32 @@
               _ (tc.localstack/put-object! s3 "xamurai-recordings" key wav-bytes {:content-type "audio/wav"})
               url (str "s3://" "xamurai-recordings" "/" key)
               _ (jdbc/execute! ds ["INSERT INTO recordings (id, session_id, recording_url, duration_s, sample_rate, lang, created_at) VALUES (?, ?, ?, 10.0, 10, 'en', now())"
-                                  (UUID/fromString "00000000-0000-0000-0000-000000000200") session-id url])
+                                   (UUID/fromString "00000000-0000-0000-0000-000000000200") session-id url])
 
               deps {:config (build-config localstack)
                     :db {:ds ds}}
               handler (http.speaker-enrollment/create-speaker-from-recording-handler deps)
 
               ;; Intentionally request a longer window; server should clamp to 10 seconds.
-              req (-> (mock/request :post "/api/speaker-enrollment/from-recording")
-                      (assoc :body-params {:session_id (str session-id)
-                                           :start_s 0.0
-                                           :end_s 30.0
-                                           :label "Dr Novak"})
-                      (auth-req))
-              resp (handler req)
+              base-req (-> (mock/request :post "/api/speaker-enrollment/from-recording")
+                           (assoc :body-params {:session_id (str session-id)
+                                                :start_s 0.0
+                                                :end_s 30.0
+                                                :label "Dr Novak"}))
+              colleague-resp (handler (auth-req base-req colleague))
+              speakers-after-denial (:count (jdbc/execute-one! ds ["SELECT count(*) AS count FROM speakers"]
+                                                               {:builder-fn rs/as-unqualified-lower-maps}))
+              resp (handler (auth-req base-req owner))
               body (parse-json-body resp)
               speaker-id (some-> body :speaker_id UUID/fromString)
               db-row (when speaker-id
                        (jdbc/execute-one! ds
-                                         ["SELECT id, label FROM speakers WHERE id=?" speaker-id]
-                                         {:builder-fn rs/as-unqualified-lower-maps}))
+                                          ["SELECT id, label FROM speakers WHERE id=?" speaker-id]
+                                          {:builder-fn rs/as-unqualified-lower-maps}))
               s3-keys (tc.localstack/list-objects s3 "xamurai-enrollment" "enrollment/")]
           (try
+            (is (= 404 (:status colleague-resp)) "A same-tenant non-owner cannot enroll from a private recording")
+            (is (zero? speakers-after-denial))
             (is (= 200 (:status resp)) (pr-str resp))
             (is (= true (:ok body)))
             (is (= "Dr Novak" (:label body)))
