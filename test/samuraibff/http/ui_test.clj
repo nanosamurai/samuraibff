@@ -97,7 +97,6 @@
             tenant-id "00000000-0000-0000-0000-000000000000"
             tenant-uuid (UUID/fromString tenant-id)
             guest (tp/insert-guest! ds {:tenant-id tenant-uuid})
-            ;; The owner may only select a webhook it can use (published, same tenant).
             _ (jdbc/execute! ds ["INSERT INTO webhooks (id, tenant_id, name, url, enabled, auth_type) VALUES (?, ?, ?, ?, ?, ?)"
                                  (UUID/fromString "11111111-1111-1111-1111-111111111111") tenant-uuid
                                  "hook" "http://127.0.0.1:8989" true "none"])
