@@ -12,7 +12,8 @@
    [malli.core :as m]
    [malli.error :as me]
    [malli.util :as mu]
-   [malli.transform :as mt]))
+   [malli.transform :as mt]
+   [samuraibff.access.schemas :as access.schemas]))
 
 ;; ---------------------------------------------------------------------
 ;; Common primitives
@@ -660,6 +661,7 @@
      [:workflow_webhook_runtime_enabled :boolean]
      [:webhooks_enabled :boolean]
      [:workflows_enabled :boolean]]]
+   [:access {:optional true} access.schemas/MeAccess]
    [:message {:optional true} :string]])
 
 (def RecordingItem
@@ -679,6 +681,7 @@
    [:created_at [:maybe :string]]
    [:has_recording :boolean]
    [:has_final_transcript :boolean]
+   [:access {:optional true} access.schemas/AccessSummary]
    [:recording
     [:map
      [:created_at [:maybe :string]]
@@ -691,6 +694,7 @@
   [:map
    [:ok :boolean]
    [:tenant_id Uuid]
+   [:scope {:optional true} [:enum "all" "mine" "shared"]]
    [:total NonNegInt]
    [:drafts_count NonNegInt]
    [:items [:sequential RecordingItem]]])
@@ -710,7 +714,8 @@
    [:stream_controls {:optional true} [:maybe :any]]
    ;; Flags for UI convenience (used for audio playback gating).
    [:has_recording :boolean]
-   [:has_final_transcript :boolean]])
+   [:has_final_transcript :boolean]
+   [:access {:optional true} access.schemas/AccessSummary]])
 
 (def TranscriptRecord
   "Transcript record element returned by `GET /api/recordings/{session_id}`.
