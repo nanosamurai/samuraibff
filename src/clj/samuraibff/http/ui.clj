@@ -21,7 +21,6 @@
    [clojure.string :as str]
    [org.corfield.logging4j2 :as log]
    [ring.util.response :as resp]
-   [samuraibff.auth.oidc :as oidc]
    [samuraibff.access.integrations :as access.integrations]
    [samuraibff.access.policy :as policy]
    [samuraibff.db.sessions :as db.sessions]
@@ -241,7 +240,7 @@
   - 400 {:ok false :message invalid-session-id}
   - 403 {:ok false :message missing-tenant-id}
   - 503 {:ok false :message db-unavailable}"
-  [{:keys [config db]}]
+  [{:keys [db]}]
   (fn [req]
     (let [ds (:ds db)
           sid-str (or (get-in req [:path-params :session_id])
@@ -298,7 +297,7 @@
   - 400 {:ok false :message invalid-session-id}
   - 403 {:ok false :message missing-tenant-id}
   - 503 {:ok false :message db-unavailable}"
-  [{:keys [config db]}]
+  [{:keys [db]}]
   (fn [req]
     (let [ds (:ds db)
           sid-str (or (get-in req [:path-params :session_id])

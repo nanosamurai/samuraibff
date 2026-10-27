@@ -57,47 +57,51 @@
   (let [[status message] (get error-responses error [400 "invalid-request"])]
     (json-response status {:ok false :message message})))
 
-(defmacro ^:private with-admin
-  "Run body only for an active Admin with a datasource; bind admin and ds."
-  [[admin-sym ds-sym req db] & body]
-  `(let [~admin-sym (:auth/principal ~req)
-         ~ds-sym (:ds ~db)]
-     (cond
-       (not (policy/can-manage-people? ~admin-sym)) (forbidden)
-       (nil? ~ds-sym) (unavailable)
-       :else (do ~@body))))
+(defn- with-admin
+  "Call (f admin ds) only for an active Admin with a datasource.
+
+  Returns 403 for anyone else and 503 without a datasource."
+  [req db f]
+  (let [admin (:auth/principal req)
+        ds (:ds db)]
+    (cond
+      (not (policy/can-manage-people? admin)) (forbidden)
+      (nil? ds) (unavailable)
+      :else (f admin ds))))
 
 (defn list-people-handler
   "Handler for GET /api/people?q=&limit=&offset=."
   [{:keys [db config]}]
   (fn [req]
-    (with-admin [admin ds req db]
-      (let [query (merge (:params req) (get-in req [:parameters :query]))
-            q (some-> (or (:q query) (get query "q")) str str/trim not-empty)
-            result (membership/list-people ds admin
-                                           {:q (when q (subs q 0 (min 100 (count q))))
-                                            :limit (parse-long-param (or (:limit query) (get query "limit")) 50 1 200)
-                                            :offset (parse-long-param (or (:offset query) (get query "offset")) 0 0 1000000)})]
-        (json-response 200 (assoc result
-                                  :ok true
-                                  :provisioning_enabled (kc.users/configured? config)))))))
+    (with-admin req db
+      (fn [admin ds]
+        (let [query (merge (:params req) (get-in req [:parameters :query]))
+              q (some-> (or (:q query) (get query "q")) str str/trim not-empty)
+              result (membership/list-people ds admin
+                                             {:q (when q (subs q 0 (min 100 (count q))))
+                                              :limit (parse-long-param (or (:limit query) (get query "limit")) 50 1 200)
+                                              :offset (parse-long-param (or (:offset query) (get query "offset")) 0 0 1000000)})]
+          (json-response 200 (assoc result
+                                    :ok true
+                                    :provisioning_enabled (kc.users/configured? config))))))))
 
 (defn add-person-handler
   "Handler for POST /api/people. Body: access.schemas/AddPersonRequest."
   [{:keys [db config]}]
   (fn [req]
-    (with-admin [admin ds req db]
-      (let [{:keys [email name role]} (body-of req)
-            result (membership/add-person! ds config admin {:email (str/lower-case (str email))
-                                                           :name (some-> name str/trim not-empty)
-                                                           :role (or role "member")})]
-        (if (:ok? result)
-          (do (log/info "Person added" {:tenant_id (str (:tenant-id admin))
-                                        :principal_id (str (get-in result [:person :id]))})
-              (json-response 200 {:ok true
-                                  :person (membership/person->api admin (:person result))
-                                  :setup_email (name (:setup-email result))}))
-          (error-response (:error result)))))))
+    (with-admin req db
+      (fn [admin ds]
+        (let [{:keys [email role] person-name :name} (body-of req)
+              result (membership/add-person! ds config admin {:email (str/lower-case (str email))
+                                                              :name (some-> person-name str/trim not-empty)
+                                                              :role (or role "member")})]
+          (if (:ok? result)
+            (do (log/info "Person added" {:tenant_id (str (:tenant-id admin))
+                                          :principal_id (str (get-in result [:person :id]))})
+                (json-response 200 {:ok true
+                                    :person (membership/person->api admin (:person result))
+                                    :setup_email (name (:setup-email result))}))
+            (error-response (:error result))))))))
 
 (defn update-person-handler
   "Handler for PATCH /api/people/:id. Body: access.schemas/UpdatePersonRequest.
@@ -106,28 +110,30 @@
   credentials a person manages when they lose Builder rights."
   [{:keys [db config]} revoke-credentials!]
   (fn [req]
-    (with-admin [admin ds req db]
-      (if-let [pid (person-id req)]
-        (let [{:keys [role status]} (body-of req)
-              result (membership/update-person! ds config admin pid {:role role :status status}
-                                                revoke-credentials!)]
-          (if (:ok? result)
-            (json-response 200 {:ok true
-                                :person (membership/person->api admin (:person result))
-                                :upstream (name (:upstream result))})
-            (error-response (:error result))))
-        (error-response :not-found)))))
+    (with-admin req db
+      (fn [admin ds]
+        (if-let [pid (person-id req)]
+          (let [{:keys [role status]} (body-of req)
+                result (membership/update-person! ds config admin pid {:role role :status status}
+                                                  revoke-credentials!)]
+            (if (:ok? result)
+              (json-response 200 {:ok true
+                                  :person (membership/person->api admin (:person result))
+                                  :upstream (name (:upstream result))})
+              (error-response (:error result))))
+          (error-response :not-found))))))
 
 (defn resend-setup-email-handler
   "Handler for POST /api/people/:id/setup-email."
   [{:keys [db config]}]
   (fn [req]
-    (with-admin [admin ds req db]
-      (if-let [pid (person-id req)]
-        (let [result (membership/resend-setup-email! ds config admin pid)]
-          (if (:ok? result)
-            (json-response 200 {:ok true
-                                :person (membership/person->api admin (:person result))
-                                :setup_email (name (:setup-email result))})
-            (error-response (:error result))))
-        (error-response :not-found)))))
+    (with-admin req db
+      (fn [admin ds]
+        (if-let [pid (person-id req)]
+          (let [result (membership/resend-setup-email! ds config admin pid)]
+            (if (:ok? result)
+              (json-response 200 {:ok true
+                                  :person (membership/person->api admin (:person result))
+                                  :setup_email (name (:setup-email result))})
+              (error-response (:error result))))
+          (error-response :not-found))))))
