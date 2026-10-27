@@ -35,7 +35,12 @@
       (is (= ["a"] (mapv :id (s/visible-items st))))
 
       (let [st2 (s/toggle-show-revoked st)]
-        (is (= ["a" "b"] (mapv :id (s/visible-items st2))))))))
+        (is (= ["a" "b"] (mapv :id (s/visible-items st2)))))))
+  (testing "a revoked row with a pending sign-in disable stays visible for retry"
+    (let [st (s/set-items (s/init-state)
+                          [{:id "b" :revoked_at "2025-01-01T00:00:00Z"
+                            :identity_sync_state "disable_pending"}])]
+      (is (= ["b"] (mapv :id (s/visible-items st)))))))
 
 (deftest mark-revoked-updates-item
   (testing "mark-revoked sets revoked_at on matching item"

@@ -157,10 +157,14 @@
 (defn visible-items
   "Return items filtered based on :show-revoked?.
 
+  Revoked credentials whose sign-in disable is still pending
+  (`identity_sync_state` = \"disable_pending\") stay visible so the retry
+  stays reachable.
+
   Inputs:
   - state map
 
-  Returns vector of items." 
+  Returns vector of items."
   [state]
   (let [state (or state (init-state))
         show-revoked? (true? (:show-revoked? state))]
@@ -168,4 +172,5 @@
          (filterv (fn [it]
                     (let [revoked? (some? (or (:revoked_at it) (:revoked-at it)))]
                       (or show-revoked?
-                          (not revoked?))))))))
+                          (not revoked?)
+                          (= "disable_pending" (:identity_sync_state it)))))))))
