@@ -13,6 +13,8 @@
   - delete-workflow!
   - get-defaults
   - set-defaults!
+  - lock-workflow
+  - remove-default!
 
   Notes:
   - All functions are tenant-scoped (require tenant-id).
@@ -198,6 +200,7 @@
       :trigger_type :trigger_track_id :prompt_text
       :provider_type :provider_model_id :provider_params
       :incremental_enabled :incremental_min_interval_sec
+      :availability :owner_user_id
 
   Returns:
   - {:updated? boolean}"
@@ -209,11 +212,10 @@
                                :trigger_type :trigger_track_id :prompt_text
                                :provider_type :provider_model_id :provider_params
                                :incremental_enabled :incremental_min_interval_sec
-                               :availability])
+                               :availability :owner_user_id])
         allowed (cond-> allowed0
                   (contains? allowed0 :provider_params)
                   (assoc :provider_params (->jsonb-pgobject (or (:provider_params allowed0) {}))))
-        ;; keep updated_at fresh on any patch
         allowed (assoc allowed :updated_at [:raw "now()"])
         q (-> (h/update :workflows)
               (h/set allowed)
@@ -284,3 +286,43 @@
        DO UPDATE SET workflow_ids=EXCLUDED.workflow_ids, updated_at=now()"
       tenant-id (into-array UUID ids)])
     {:ok true}))
+
+(def ^:private workflow-columns
+  [:id :tenant_id :name :enabled
+   :trigger_type :trigger_track_id
+   :prompt_text
+   :provider_type :provider_model_id :provider_params
+   :incremental_enabled :incremental_min_interval_sec
+   :owner_user_id :availability
+   :created_at :updated_at])
+
+(defn lock-workflow
+  "Read one tenant workflow and lock its row until the transaction ends.
+
+  Use inside `next.jdbc/with-transaction` so that an authorization decision
+  and the following change see the same ownership and availability.
+
+  Inputs: transaction connectable, tenant UUID, workflow UUID.
+  Returns: workflow row map (same shape as `find-workflow`) or nil."
+  [tx ^UUID tenant-id ^UUID workflow-id]
+  (some-> (jdbc/execute-one! tx
+                             (sql/format {:select workflow-columns
+                                          :from [:workflows]
+                                          :where [:and [:= :tenant_id tenant-id] [:= :id workflow-id]]
+                                          :for [:update]})
+                             {:builder-fn rs/as-unqualified-lower-maps})
+          normalize-workflow-row))
+
+(defn remove-default!
+  "Remove one workflow id from the tenant defaults.
+
+  Inputs: connectable, tenant UUID, workflow UUID.
+  Returns: {:removed? boolean} (true when the defaults row changed)."
+  [connectable ^UUID tenant-id ^UUID workflow-id]
+  (let [res (jdbc/execute-one! connectable
+                               (sql/format {:update :workflow_defaults
+                                            :set {:workflow_ids [:array_remove :workflow_ids workflow-id]
+                                                  :updated_at [:now]}
+                                            :where [:and [:= :tenant_id tenant-id]
+                                                    [:= workflow-id [:any :workflow_ids]]]}))]
+    {:removed? (pos? (long (or (:next.jdbc/update-count res) 0)))}))
