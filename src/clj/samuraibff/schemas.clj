@@ -865,7 +865,14 @@
       [:created_by_sub [:maybe :string]]
       [:created_at :string]
       [:last_used_at [:maybe :string]]
-      [:revoked_at [:maybe :string]]]]]])
+      [:revoked_at [:maybe :string]]
+      [:manager {:optional true} [:maybe [:map
+                                          [:id Uuid]
+                                          [:display_name [:maybe :string]]
+                                          [:is_me :boolean]]]]
+      [:service_principal_registered {:optional true} :boolean]
+      [:identity_sync_state {:optional true} [:enum "synced" "disable_pending"]]
+      [:can_manage {:optional true} :boolean]]]]])
 
 (def CreateApiCredentialRequest
   "Request body for POST /api/api-credentials."

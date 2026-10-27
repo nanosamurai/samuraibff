@@ -5,59 +5,41 @@
   - GET    /api/api-credentials              ; list
   - POST   /api/api-credentials              ; create (returns secret once)
   - POST   /api/api-credentials/:id/rotate   ; rotate secret (returns secret once)
-  - DELETE /api/api-credentials/:id          ; revoke/disable
+  - DELETE /api/api-credentials/:id          ; revoke
+
+  Access (`samuraibff.access.policy/credential-scope`):
+  - Admin lists and manages every tenant credential. Legacy credentials
+    without a manager are Admin-managed.
+  - Builder lists and manages only credentials they manage.
+  - Members and services get 403. A credential the caller may not manage is
+    reported as 404.
+
+  Lifecycle rules (service principal, compensation, revocation) live in
+  `samuraibff.api-credentials.lifecycle`.
 
   Notes:
-  - These endpoints are for *human* users managing machine credentials.
   - M2M usage itself uses standard OAuth2 client_credentials against Keycloak,
     then calls BFF with Authorization: Bearer <token>.
   - We never store secrets in Postgres; only Keycloak client id and audit.
-  "
+
+  Public API:
+  - the four handlers
+  - `revoke-managed-credentials-for-manager!` (People flow hook)"
   (:require
    [clojure.string :as str]
    [org.corfield.logging4j2 :as log]
+   [samuraibff.access.policy :as policy]
+   [samuraibff.api-credentials.lifecycle :as lifecycle]
    [samuraibff.db.api-credentials :as db.api-creds]
-   [samuraibff.keycloak.admin :as kc.admin]
-   [samuraibff.observability.diagnostics :as diagnostics]
-   [samuraibff.util.uuid :as util.uuid])
+   [samuraibff.observability.diagnostics :as diagnostics])
   (:import
    (java.util UUID)))
 
 (defn- json-response
-  "Return a Ring JSON response.
-
-  Inputs:
-  - status: int
-  - body: map
-
-  Returns: Ring response map."
+  "Return a Ring response with a data body (Muuntaja encodes it)."
   [status body]
-  ;; NOTE: Return a *data* body (map). Muuntaja JSON-encodes it.
-  ;; This keeps Reitit response coercion compatible with Malli schemas.
   {:status status
    :body body})
-
-(defn- require-tenant-uuid!
-  "Read tenant id from request and coerce into UUID.
-
-  Inputs:
-  - req: Ring request (expects :auth/tenant-id)
-
-  Returns:
-  - UUID
-
-  Throws ex-info with :type :samuraibff.http/missing-tenant-id or :samuraibff.http/invalid-tenant-id."
-  [req]
-  (let [tid (some-> (:auth/tenant-id req) str str/trim)]
-    (cond
-      (str/blank? tid)
-      (throw (ex-info "Missing tenant id" {:type :samuraibff.http/missing-tenant-id}))
-
-      :else
-      (try
-        (UUID/fromString tid)
-        (catch Exception _
-          (throw (ex-info "Invalid tenant id" {:type :samuraibff.http/invalid-tenant-id})))))))
 
 (defn- parse-uuid-or-nil
   [s]
@@ -66,225 +48,207 @@
     (catch Exception _
       nil)))
 
+(defn- require-credential-manager!
+  "Return the request principal when it may manage some credentials.
+
+  Throws :samuraibff.http/forbidden for Members, services and missing
+  principals."
+  [req]
+  (let [principal (:auth/principal req)]
+    (if (and (some? (policy/credential-scope principal))
+             (instance? UUID (:tenant-id principal)))
+      principal
+      (throw (ex-info "Forbidden" {:type :samuraibff.http/forbidden})))))
+
+(defn- require-ds!
+  [db]
+  (or (:ds db)
+      (throw (ex-info "Missing datasource" {:type :samuraibff.http/missing-datasource}))))
+
+(defn- require-keycloak-admin!
+  [keycloak-admin]
+  (or keycloak-admin
+      (throw (ex-info "Missing keycloak admin" {:type :samuraibff.http/missing-keycloak-admin}))))
+
+(defn- require-path-id!
+  [req]
+  (or (parse-uuid-or-nil (get-in req [:path-params :id]))
+      (throw (ex-info "Invalid id" {:type :samuraibff.http/invalid-id}))))
+
+(def ^:private fixed-errors
+  {:samuraibff.http/forbidden [403 "forbidden"]
+   :samuraibff.http/not-found [404 "not-found"]
+   :samuraibff.http/invalid-id [400 "invalid-id"]
+   :samuraibff.http/missing-name [400 "missing-name"]
+   :samuraibff.http/missing-datasource [503 "db-unavailable"]
+   :samuraibff.http/missing-keycloak-admin [503 "keycloak-admin-unavailable"]
+   :samuraibff.api-credentials/issuer-missing [503 "auth-issuer-not-configured"]
+   :samuraibff.api-credentials/revoked [400 "credential-revoked"]
+   :samuraibff.api-credentials/provisioning-failed [502 "credential-provisioning-failed"]})
+
+(defn- failure-response
+  "Map a handler failure to a fixed JSON response without upstream payloads.
+
+  Keycloak admin errors return 502 with only a validated upstream status."
+  [^Throwable e log-message]
+  (let [{:keys [type] :as data} (ex-data e)
+        [status message] (get fixed-errors type)
+        kc-error? (and (keyword? type) (= "samuraibff.keycloak-admin" (namespace type)))]
+    (cond
+      status
+      (json-response status {:ok false :message message})
+
+      kc-error?
+      (let [upstream-status (diagnostics/http-status (:status data))
+            safe-kc-data (cond-> {} upstream-status (assoc :status upstream-status))]
+        (log/error log-message (assoc (diagnostics/failure-details e) :keycloak safe-kc-data))
+        (json-response 502 {:ok false :message "keycloak-admin-error" :keycloak safe-kc-data}))
+
+      :else
+      (do (log/error log-message (diagnostics/failure-details e))
+          (json-response 500 {:ok false :message "internal-error"})))))
+
+(defn- manager-view
+  [principal row]
+  (when-let [manager-id (:manager_user_id row)]
+    {:id (str manager-id)
+     :display_name (or (:manager_name row) (:manager_email row))
+     :is_me (= (str manager-id) (str (:id principal)))}))
+
+(defn- credential-row->api-item
+  "Convert a credential row into the API item for a manager principal."
+  [principal tenant-uuid row]
+  {:id (str (:id row))
+   :tenant_id (str tenant-uuid)
+   :name (:name row)
+   :keycloak_client_id (:keycloak_client_id row)
+   :created_by_sub (:created_by_sub row)
+   :created_at (str (:created_at row))
+   :last_used_at (some-> (:last_used_at row) str)
+   :revoked_at (some-> (:revoked_at row) str)
+   :manager (manager-view principal row)
+   :service_principal_registered (some? (:service_user_id row))
+   :identity_sync_state (or (:identity_sync_state row) "synced")
+   :can_manage (policy/can-manage-credential? principal row)})
+
 (defn list-api-credentials-handler
   "Handler for GET /api/api-credentials.
 
   Returns:
-  - 200 {ok true, items [...]}
-  - 403 missing-tenant-id
+  - 200 {ok true, tenant_id, items [...]}: all tenant credentials for Admin,
+    own credentials for Builder
+  - 403 forbidden for Members and services
   - 503 db-unavailable"
   [{:keys [db]}]
   (fn [req]
     (try
-      (let [tenant-uuid (require-tenant-uuid! req)
-            ds (get-in db [:ds])]
-        (when-not ds
-          (throw (ex-info "Missing datasource" {:type :samuraibff.http/missing-datasource})))
-        (let [items (db.api-creds/list-credentials ds tenant-uuid)
-              body {:ok true
-                    :tenant_id (str tenant-uuid)
-                    :items (mapv (fn [row]
-                                   (-> row
-                                       (update :id str)
-                                      ;; NOTE: list-credentials does not select tenant_id; however the
-                                      ;; API response schema (and OpenAPI) includes it per item.
-                                      ;; Since this endpoint is tenant-scoped, we can safely attach the
-                                      ;; tenant id from the request.
-                                       (assoc :tenant_id (str tenant-uuid))
-                                       (update :created_at str)
-                                      ;; Optional timestamps must stay nil (JSON null) when absent.
-                                      ;; Never stringify nil into the literal "nil" string.
-                                       (update :last_used_at (fn [v] (some-> v str)))
-                                       (update :revoked_at (fn [v] (some-> v str)))))
-                                 items)}]
-          (json-response 200 body)))
-      (catch clojure.lang.ExceptionInfo e
-        (let [{:keys [type]} (ex-data e)]
-          (case type
-            :samuraibff.http/missing-tenant-id (json-response 403 {:ok false :message "missing-tenant-id"})
-            :samuraibff.http/invalid-tenant-id (json-response 400 {:ok false :message "invalid-tenant-id"})
-            :samuraibff.http/missing-datasource (json-response 503 {:ok false :message "db-unavailable"})
-            (do
-              (log/error "Failed listing api credentials" (diagnostics/failure-details e))
-              (json-response 500 {:ok false :message "internal-error"})))))
+      (let [principal (require-credential-manager! req)
+            tenant-uuid (:tenant-id principal)
+            ds (require-ds! db)
+            opts (when (= :own (policy/credential-scope principal))
+                   {:manager-id (:id principal)})
+            rows (->> (db.api-creds/list-credentials ds tenant-uuid opts)
+                      (filter #(policy/can-manage-credential? principal %)))]
+        (json-response 200 {:ok true
+                            :tenant_id (str tenant-uuid)
+                            :items (mapv #(credential-row->api-item principal tenant-uuid %) rows)}))
       (catch Exception e
-        (log/error "Unexpected error listing api credentials" (diagnostics/failure-details e))
-        (json-response 500 {:ok false :message "internal-error"})))))
+        (failure-response e "Failed listing api credentials")))))
 
 (defn create-api-credential-handler
   "Handler for POST /api/api-credentials.
 
-  Body (JSON): {\"name\": \"...\"}
+  Body (JSON): {\"name\": \"...\"}. Builder or Admin only; the caller becomes
+  the credential manager.
 
   Returns:
   - 200 {ok true, credential_id, client_id, client_secret}
-  - 400 missing-name
-  - 503 db-unavailable / keycloak-unavailable"
+  - 400 missing-name, 403 forbidden
+  - 502 keycloak-admin-error / credential-provisioning-failed
+  - 503 db-unavailable / keycloak-admin-unavailable / auth-issuer-not-configured"
   [{:keys [config db keycloak-admin]}]
   (fn [req]
     (try
-      (let [tenant-uuid (require-tenant-uuid! req)
-            ds (get-in db [:ds])
-            name (or (get-in req [:body-params :name]) (get-in req [:params :name]))
-            name (some-> name str str/trim)
-            created-by-sub (get-in req [:auth/user :sub])
-            audience-client-id (get-in config [:auth :audience])]
-        (when-not ds
-          (throw (ex-info "Missing datasource" {:type :samuraibff.http/missing-datasource})))
-        (when (str/blank? name)
-          (throw (ex-info "Missing name" {:type :samuraibff.http/missing-name})))
-
-        (when-not keycloak-admin
-          (throw (ex-info "Missing keycloak admin" {:type :samuraibff.http/missing-keycloak-admin})))
-
-        (let [{:keys [client-id client-secret]} (kc.admin/create-m2m-client!
-                                                 keycloak-admin
-                                                 {:tenant-id (str tenant-uuid)
-                                                  :name name
-                                                  ;; Ensure M2M tokens include the correct `aud` for the BFF.
-                                                  ;; In our setup, the expected audience equals the BFF client-id.
-                                                  :audience-client-id audience-client-id})
-              id (util.uuid/uuid7)
-              _ (db.api-creds/insert-credential!
-                 ds
-                 {:id id
-                  :tenant-id tenant-uuid
-                  :name name
-                  :keycloak-client-id client-id
-                  :created-by-sub created-by-sub})]
-          (json-response 200 {:ok true
-                              :credential_id (str id)
-                              :client_id client-id
-                              :client_secret client-secret})))
-      (catch clojure.lang.ExceptionInfo e
-        (let [{:keys [type] :as data} (ex-data e)
-              kc-error? (and (keyword? type) (= "samuraibff.keycloak-admin" (namespace type)))
-              status (diagnostics/http-status (:status data))
-              safe-kc-data (cond-> {} status (assoc :status status))]
-          (cond
-            (= type :samuraibff.http/missing-tenant-id)
-            (json-response 403 {:ok false :message "missing-tenant-id"})
-
-            (= type :samuraibff.http/invalid-tenant-id)
-            (json-response 400 {:ok false :message "invalid-tenant-id"})
-
-            (= type :samuraibff.http/missing-datasource)
-            (json-response 503 {:ok false :message "db-unavailable"})
-
-            (= type :samuraibff.http/missing-keycloak-admin)
-            (json-response 503 {:ok false :message "keycloak-admin-unavailable"})
-
-            (= type :samuraibff.http/missing-name)
-            (json-response 400 {:ok false :message "missing-name"})
-
-            kc-error?
-            (do
-              (log/error "Keycloak admin error creating api credential"
-                         (assoc (diagnostics/failure-details e) :keycloak safe-kc-data))
-              (json-response 502 {:ok false
-                                  :message "keycloak-admin-error"
-                                  :keycloak safe-kc-data}))
-
-            :else
-            (do
-              (log/error "Failed creating api credential" (diagnostics/failure-details e))
-              (json-response 500 {:ok false :message "internal-error"})))))
+      (let [principal (require-credential-manager! req)
+            ds (require-ds! db)
+            name (some-> (or (get-in req [:body-params :name]) (get-in req [:params :name])) str str/trim)
+            _ (when (str/blank? name)
+                (throw (ex-info "Missing name" {:type :samuraibff.http/missing-name})))
+            kc (require-keycloak-admin! keycloak-admin)
+            {:keys [credential-id client-id client-secret]}
+            (lifecycle/create-credential! ds config kc principal
+                                          {:name name
+                                           :created-by-sub (get-in req [:auth/user :sub])})]
+        (json-response 200 {:ok true
+                            :credential_id (str credential-id)
+                            :client_id client-id
+                            :client_secret client-secret}))
       (catch Exception e
-        (log/error "Unexpected error creating api credential" (diagnostics/failure-details e))
-        (json-response 500 {:ok false :message "internal-error"})))))
+        (failure-response e "Failed creating api credential")))))
 
 (defn rotate-api-credential-handler
   "Handler for POST /api/api-credentials/:id/rotate.
 
   Returns:
-  - 200 {ok true, client_secret}
-  - 400 invalid-id
-  - 404 not-found
+  - 200 {ok true, credential_id, client_id, client_secret}
+  - 400 invalid-id / credential-revoked, 403 forbidden, 404 not-found
   - 503 keycloak-admin-unavailable"
   [{:keys [db keycloak-admin]}]
   (fn [req]
     (try
-      (let [tenant-uuid (require-tenant-uuid! req)
-            ds (get-in db [:ds])
-            id-str (get-in req [:path-params :id])
-            cred-uuid (parse-uuid-or-nil id-str)]
-        (when-not ds
-          (throw (ex-info "Missing datasource" {:type :samuraibff.http/missing-datasource})))
-        (when-not cred-uuid
-          (throw (ex-info "Invalid id" {:type :samuraibff.http/invalid-id})))
-        (when-not keycloak-admin
-          (throw (ex-info "Missing keycloak admin" {:type :samuraibff.http/missing-keycloak-admin})))
-
-        ;; Lookup keycloak client id in DB.
-        (let [row (db.api-creds/find-credential ds tenant-uuid cred-uuid)]
-          (if-not row
-            (json-response 404 {:ok false :message "not-found"})
-            (let [{:keys [client-secret]} (kc.admin/rotate-client-secret!
-                                           keycloak-admin
-                                           {:client-id (:keycloak_client_id row)})]
-              (json-response 200 {:ok true
-                                  :credential_id (str cred-uuid)
-                                  :client_id (:keycloak_client_id row)
-                                  :client_secret client-secret})))))
-      (catch clojure.lang.ExceptionInfo e
-        (let [{:keys [type]} (ex-data e)]
-          (case type
-            :samuraibff.http/missing-tenant-id (json-response 403 {:ok false :message "missing-tenant-id"})
-            :samuraibff.http/invalid-tenant-id (json-response 400 {:ok false :message "invalid-tenant-id"})
-            :samuraibff.http/missing-datasource (json-response 503 {:ok false :message "db-unavailable"})
-            :samuraibff.http/missing-keycloak-admin (json-response 503 {:ok false :message "keycloak-admin-unavailable"})
-            :samuraibff.http/invalid-id (json-response 400 {:ok false :message "invalid-id"})
-            (do
-              (log/error "Failed rotating api credential" (diagnostics/failure-details e))
-              (json-response 500 {:ok false :message "internal-error"})))))
+      (let [principal (require-credential-manager! req)
+            ds (require-ds! db)
+            cred-uuid (require-path-id! req)
+            kc (require-keycloak-admin! keycloak-admin)
+            {:keys [client-id client-secret]} (lifecycle/rotate-credential! ds kc principal cred-uuid)]
+        (json-response 200 {:ok true
+                            :credential_id (str cred-uuid)
+                            :client_id client-id
+                            :client_secret client-secret}))
       (catch Exception e
-        (log/error "Unexpected error rotating api credential" (diagnostics/failure-details e))
-        (json-response 500 {:ok false :message "internal-error"})))))
+        (failure-response e "Failed rotating api credential")))))
 
 (defn revoke-api-credential-handler
   "Handler for DELETE /api/api-credentials/:id.
 
+  The credential is revoked and its service principal suspended before the
+  Keycloak client is disabled. `upstream` is \"disabled\" when Keycloak
+  confirmed, \"pending\" when the disable must be retried (repeat the DELETE).
+
   Returns:
-  - 200 {ok true}
-  - 400 invalid-id
-  - 404 not-found"
+  - 200 {ok true, credential_id, upstream}
+  - 400 invalid-id, 403 forbidden, 404 not-found"
   [{:keys [db keycloak-admin]}]
   (fn [req]
     (try
-      (let [tenant-uuid (require-tenant-uuid! req)
-            ds (get-in db [:ds])
-            id-str (get-in req [:path-params :id])
-            cred-uuid (parse-uuid-or-nil id-str)]
-        (when-not ds
-          (throw (ex-info "Missing datasource" {:type :samuraibff.http/missing-datasource})))
-        (when-not cred-uuid
-          (throw (ex-info "Invalid id" {:type :samuraibff.http/invalid-id})))
-
-        ;; Find keycloak client id.
-        (let [row (db.api-creds/find-credential ds tenant-uuid cred-uuid)]
-          (if-not row
-            (json-response 404 {:ok false :message "not-found"})
-            (do
-              (when keycloak-admin
-                (try
-                  (kc.admin/disable-client! keycloak-admin {:client-id (:keycloak_client_id row)})
-                  (catch Exception e
-                    (log/warn "Failed disabling keycloak client" (diagnostics/failure-details e)))))
-              (let [{:keys [updated?]} (db.api-creds/revoke-credential! ds tenant-uuid cred-uuid)]
-                (if-not updated?
-                  (json-response 404 {:ok false :message "not-found"})
-                  (json-response 200 {:ok true
-                                      :credential_id (str cred-uuid)})))))))
-      (catch clojure.lang.ExceptionInfo e
-        (let [{:keys [type]} (ex-data e)]
-          (case type
-            :samuraibff.http/missing-tenant-id (json-response 403 {:ok false :message "missing-tenant-id"})
-            :samuraibff.http/invalid-tenant-id (json-response 400 {:ok false :message "invalid-tenant-id"})
-            :samuraibff.http/missing-datasource (json-response 503 {:ok false :message "db-unavailable"})
-            :samuraibff.http/invalid-id (json-response 400 {:ok false :message "invalid-id"})
-            (do
-              (log/error "Failed revoking api credential" (diagnostics/failure-details e))
-              (json-response 500 {:ok false :message "internal-error"})))))
+      (let [principal (require-credential-manager! req)
+            ds (require-ds! db)
+            cred-uuid (require-path-id! req)
+            {:keys [upstream]} (lifecycle/revoke-credential! ds keycloak-admin principal cred-uuid)]
+        (json-response 200 {:ok true
+                            :credential_id (str cred-uuid)
+                            :upstream upstream}))
       (catch Exception e
-        (log/error "Unexpected error revoking api credential" (diagnostics/failure-details e))
-        (json-response 500 {:ok false :message "internal-error"})))))
+        (failure-response e "Failed revoking api credential")))))
+
+(defn revoke-managed-credentials-for-manager!
+  "Revoke every active credential managed by a user (People flow hook).
+
+  Inputs: router deps map {:db {:ds DataSource} :keycloak-admin KeycloakAdmin?},
+  tenant UUID, manager UUID. Call after the demotion or suspension commits.
+  Delegates to `samuraibff.api-credentials.lifecycle/revoke-managed-credentials!`
+  (audited as system). Upstream failures never throw: they leave
+  `disable_pending`. Returns nil. Throws only when the local revocation
+  transaction fails, so the caller can report that credentials are still
+  active."
+  [{:keys [db keycloak-admin]} ^UUID tenant-id ^UUID manager-user-id]
+  (try
+    (lifecycle/revoke-managed-credentials! (:ds db) keycloak-admin tenant-id manager-user-id nil)
+    (catch Exception e
+      (log/error "Failed revoking managed api credentials"
+                 (assoc (diagnostics/failure-details e)
+                        :tenant_id (str tenant-id)
+                        :manager_user_id (str manager-user-id)))
+      (throw (ex-info "Managed credential revocation failed"
+                      {:type :samuraibff.api-credentials/revocation-failed}))))
+  nil)

@@ -3,10 +3,19 @@
     [clojure.test :refer [deftest is testing]]
     [jsonista.core :as json]
     [samuraibff.schemas :as schemas]
-    [samuraibff.http.api-credentials :as http.api-creds]
-    [samuraibff.util.uuid :as util.uuid])
+    [samuraibff.db.api-credentials]
+    [samuraibff.http.api-credentials :as http.api-creds])
   (:import
     (java.util UUID)))
+
+(defn- principal
+  "Return an in-memory active human principal with the given role."
+  [role tenant-id]
+  {:id (UUID/randomUUID) :tenant-id tenant-id :type :human :role role :status :active})
+
+(defn- request-as
+  [p extra]
+  (merge {:auth/principal p :auth/tenant-id (str (:tenant-id p))} extra))
 
 (defn- ok-json
   [resp]
@@ -31,8 +40,7 @@
     (let [h ((http.api-creds/create-api-credential-handler
                {:db {:ds ::fake}
                 :keycloak-admin ::fake})
-             {:auth/tenant-id (str (UUID/randomUUID))
-              :body-params {}})]
+             (request-as (principal :admin (UUID/randomUUID)) {:body-params {}}))]
       (is (= 400 (:status h)))
       (is (= "missing-name" (:message (:body h)))))))
 
@@ -41,16 +49,25 @@
     (let [h ((http.api-creds/rotate-api-credential-handler
                {:db {:ds ::fake}
                 :keycloak-admin ::fake})
-             {:auth/tenant-id (str (UUID/randomUUID))
-              :path-params {:id "not-a-uuid"}})]
+             (request-as (principal :builder (UUID/randomUUID)) {:path-params {:id "not-a-uuid"}}))]
       (is (= 400 (:status h)))
       (is (= "invalid-id" (:message (:body h)))))))
 
+(deftest members-and-anonymous-requests-are-forbidden
+  (testing "credential endpoints return 403 without a credential-managing principal"
+    (doseq [handler [http.api-creds/list-api-credentials-handler
+                     http.api-creds/create-api-credential-handler
+                     http.api-creds/rotate-api-credential-handler
+                     http.api-creds/revoke-api-credential-handler]
+            req [(request-as (principal :member (UUID/randomUUID)) {:path-params {:id (str (UUID/randomUUID))}})
+                 {:auth/tenant-id (str (UUID/randomUUID))}]]
+      (is (= {:status 403 :body {:ok false :message "forbidden"}}
+             ((handler {:db {:ds ::fake} :keycloak-admin ::fake}) req))))))
+
 (deftest list-api-credentials-nil-revoked-at-remains-null
   (testing "revoked_at should be null (not \"nil\") when not revoked"
-    ;; Patch the DB call via with-redefs so we control the returned row.
     (with-redefs [samuraibff.db.api-credentials/list-credentials
-                  (fn [_ds _tenant]
+                  (fn [_ds _tenant _opts]
                     [{:id (UUID/randomUUID)
                       :tenant_id (UUID/randomUUID)
                       :name "cred"
@@ -60,7 +77,7 @@
                       :last_used_at nil
                       :revoked_at nil}])]
       (let [resp ((http.api-creds/list-api-credentials-handler {:db {:ds ::fake}})
-                  {:auth/tenant-id (str (UUID/randomUUID))})]
+                  (request-as (principal :admin (UUID/randomUUID)) {}))]
         (is (ok-json resp))
         (let [body (parse-json-body resp)
               item (first (:items body))]
@@ -71,21 +88,21 @@
   (testing "GET /api/api-credentials response matches schemas/ApiCredentialsListResponse"
     (let [tenant-id (UUID/randomUUID)]
       (with-redefs [samuraibff.db.api-credentials/list-credentials
-                    (fn [_ds _tenant]
+                    (fn [_ds _tenant _opts]
                       [{:id (UUID/randomUUID)
-                        ;; Intentionally omit tenant_id to emulate the real DB query.
                         :name "cred"
                         :keycloak_client_id "kc"
                         :created_by_sub "sub"
                         :created_at (java.time.Instant/parse "2025-01-01T00:00:00Z")
                         :last_used_at nil
-                        :revoked_at nil}])]
+                        :revoked_at nil
+                        :identity_sync_state "synced"}])]
         (let [resp ((http.api-creds/list-api-credentials-handler {:db {:ds ::fake}})
-                    {:auth/tenant-id (str tenant-id)})
+                    (request-as (principal :admin tenant-id) {}))
               body (parse-json-body resp)]
           (is (= 200 (:status resp)))
-          ;; This assertion is the important one: it would fail if we returned a
-          ;; body that makes Reitit response coercion throw (=> HTTP 500).
           (is (= body (schemas/validate! schemas/ApiCredentialsListResponse body)))
           (is (= (str tenant-id) (:tenant_id body)))
-          (is (= (str tenant-id) (get-in body [:items 0 :tenant_id]))))))))
+          (is (= (str tenant-id) (get-in body [:items 0 :tenant_id])))
+          (is (nil? (get-in body [:items 0 :manager])))
+          (is (false? (get-in body [:items 0 :service_principal_registered]))))))))

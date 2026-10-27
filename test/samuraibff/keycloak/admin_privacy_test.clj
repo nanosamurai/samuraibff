@@ -2,12 +2,16 @@
   "Exercise credential error boundaries without sending network requests."
   (:require [clojure.test :refer [deftest is testing]]
             [jsonista.core :as json]
+            [next.jdbc]
+            [samuraibff.api-credentials.lifecycle :as lifecycle]
             [samuraibff.db.api-credentials :as db]
+            [samuraibff.db.audit :as db.audit]
             [samuraibff.http.api-credentials :as api]
             [samuraibff.keycloak.admin :as admin]
             [samuraibff.test-support.log-capture :as logs])
   (:import (java.io IOException)
-           (java.net.http HttpClient HttpResponse)))
+           (java.net.http HttpClient HttpResponse)
+           (java.util UUID)))
 
 (def ^:private marker "synthetic-private-admin-credential")
 (def ^:private tenant-id "1ee835b3-82db-42b9-9dfe-6205e1dd07d1")
@@ -17,8 +21,12 @@
    :realm "example" :client-id "test-admin" :client-secret marker})
 (def ^:private token-response {:status 200 :body "{\"access_token\":\"test-token\"}"})
 (def ^:private lookup-response {:status 200 :body "[{\"id\":\"client-uuid\"}]"})
+(def ^:private api-config
+  {:auth {:issuer "https://identity.example.test/realms/example"}})
 (def ^:private api-request
   {:auth/tenant-id tenant-id :auth/user {:sub "test-user"}
+   :auth/principal {:id (UUID/randomUUID) :tenant-id (UUID/fromString tenant-id)
+                    :type :human :role :admin :status :active}
    :body-params {:name "test-credential"} :path-params {:id credential-id}})
 
 (defn- json-response
@@ -118,21 +126,30 @@
   (reify admin/KeycloakAdmin
     (create-m2m-client! [_ params] (f params))
     (rotate-client-secret! [_ params] (f params))
-    (disable-client! [_ params] (f params))))
+    (disable-client! [_ params] (f params))
+    (service-account-user-id [_ params] (f params) "test-service-account")
+    (delete-client! [_ params] (f params))))
 
 (deftest credential-api-errors-omit-keycloak-payloads-and-causes
   (doseq [status [401 marker]]
     (let [failure (ex-info marker {:type :samuraibff.keycloak-admin/token-fetch-failed
                                    :status status :body marker :url marker :client-id marker}
                            (IOException. marker))
-          deps {:db {:ds :fake} :keycloak-admin (fake-admin (fn [_] (throw failure)))}
+          deps {:config api-config :db {:ds :fake} :keycloak-admin (fake-admin (fn [_] (throw failure)))}
           result (logs/capture! #((api/create-api-credential-handler deps) api-request))]
       (is (= 502 (get-in result [:value :status])))
       (is (= (if (integer? status) {:status status} {}) (get-in result [:value :body :keycloak])))
       (is (not (.contains (pr-str (:value result)) marker)))
       (assert-private-logs (:events result))))
   (with-redefs [db/find-credential (fn [& _] {:keycloak_client_id "test-client"})
-                db/revoke-credential! (fn [& _] {:updated? true})]
+                db/lock-credential (fn [& _] {:id (UUID/fromString credential-id)
+                                              :tenant_id (UUID/fromString tenant-id)
+                                              :keycloak_client_id "test-client"
+                                              :identity_sync_state "synced"})
+                db/revoke-credential! (fn [& _] {:updated? true})
+                db/set-identity-sync-state! (fn [& _] nil)
+                db.audit/record! (fn [& _] nil)
+                next.jdbc/transact (fn [_ body-fn _] (body-fn :fake))]
     (doseq [handler [api/rotate-api-credential-handler api/revoke-api-credential-handler]]
       (let [deps {:db {:ds :fake}
                   :keycloak-admin (fake-admin (fn [_] (throw (IOException. marker))))}
@@ -142,8 +159,9 @@
 
 (deftest credential-api-success-keeps-show-once-secrets
   (let [client (fake-admin (fn [_] {:client-id "test-client" :client-secret marker}))
-        deps {:db {:ds :fake} :keycloak-admin client}]
-    (with-redefs [db/insert-credential! (fn [& _] nil)
+        deps {:config api-config :db {:ds :fake} :keycloak-admin client}]
+    (with-redefs [lifecycle/register-credential! (fn [& _] nil)
+                  db.audit/record! (fn [& _] nil)
                   db/find-credential (fn [& _] {:keycloak_client_id "test-client"})]
       (doseq [handler [api/create-api-credential-handler api/rotate-api-credential-handler]]
         (testing "the intended success response contains the secret, diagnostics do not"
