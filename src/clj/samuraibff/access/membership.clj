@@ -205,8 +205,10 @@
 
   Inputs: DataSource, config, admin principal, person UUID,
   {:role string? :status \"active\"|\"suspended\"?},
-  revoke-credentials! (fn [tenant-id manager-id] ...) called after commit when
-  the person loses Builder rights or is suspended.
+  revoke-credentials! (fn [tenant-id manager-id] ...) called after commit
+  whenever the person has no Builder rights or is suspended. Revocation is
+  idempotent, so repeating the request retries a failed revocation. A local
+  revocation failure propagates as an exception (never silently ignored).
   Returns {:ok? true :person row :upstream kw} or {:ok? false :error kw} with
   :not-found or :last-admin."
   [ds config admin person-id {:keys [role status] :as changes} revoke-credentials!]
@@ -238,8 +240,7 @@
     (if-not (:ok? result)
       result
       (let [{:keys [before person]} result
-            lost-builder? (and (contains? #{"builder" "admin"} (:role before))
-                               (or (= "member" (:role person)) (= "suspended" (:status person))))
+            lost-builder? (or (= "member" (:role person)) (= "suspended" (:status person)))
             status-changed? (not= (:status before) (:status person))
             sync-pending? (not= "synced" (:identity_sync_state before))]
         (when lost-builder?
