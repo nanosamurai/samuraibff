@@ -142,7 +142,7 @@
 
                 (kafka.producer/send-sessions-meta!
                  (:kafka-producer ws-registry) session-id
-                 (assoc (sessions.meta/resolve-sessions-meta config ds tenant-uuid session-uuid)
+                 (assoc (sessions.meta/resolve-admission-meta! config ds tenant-uuid session-uuid)
                         :stream_controls controls)
                  {:tenant-id tenant-id})
                 (ws.registry/start-rt! ws-registry grpc session)
