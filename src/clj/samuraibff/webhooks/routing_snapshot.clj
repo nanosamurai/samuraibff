@@ -11,13 +11,19 @@
   Inputs are tenant-scoped and expect that the caller already authenticated
   the tenant and created the session id.
 
+  Access:
+  - Only webhooks the session owner may use are included
+    (`samuraibff.access.integrations/usable-predicate`). Tenant defaults add
+    published webhooks only. A session without an active human owner routes
+    to no webhook.
+
   Security notes:
   - Secrets are never included as plaintext. We only include secret references.
   - This snapshot may include customer URLs; those are intentionally meant for
     the webhook dispatcher. Do not expose it via customer API without review.
   "
   (:require
-   [clojure.set :as set]
+   [samuraibff.access.integrations :as access.integrations]
    [samuraibff.db.webhooks :as db.webhooks])
   (:import
    (java.util UUID)))
@@ -83,37 +89,47 @@
                                       :prefix (:api_key_prefix w)
                                       :secret_ref (:api_key_ref w)}
              :else {:type "none"})
-     ;; optional static headers for dispatcher (non-secret)
      :static_headers (or (:static_headers w) {})}))
 
+(defn- selected?
+  "True when a webhook row is selected for a session owner.
+
+  Explicit selections need only be usable by the owner; defaults must also be
+  published."
+  [usable? default-ids explicit-ids w]
+  (and (usable? w)
+       (or (contains? explicit-ids (:id w))
+           (and (contains? default-ids (:id w))
+                (= "published" (:availability w))))))
+
 (defn resolve-routing-snapshot
-  "Resolve the routing snapshot for a newly created session.
+  "Resolve the routing snapshot for a session.
 
   Inputs:
-  - ds: DataSource
+  - ds: DataSource or connectable
   - tenant-id: UUID
   - session-id: UUID
   - webhook-overrides: map or nil (shape per schemas/CreateSessionRequest)
+  - owner: principal map of the session owner (see
+    `samuraibff.access.integrations/owner-principal`) or nil
 
   Returns:
   - routing map (JSON-friendly):
     {:targets_by_event_type {event-type [target ...] ...}}
   "
-  [ds ^UUID tenant-id ^UUID _session-id webhook-overrides]
+  [ds ^UUID tenant-id ^UUID _session-id webhook-overrides owner]
   (let [{:keys [use-defaults? webhook-ids disable-event-types]} (normalize-overrides (or webhook-overrides {}))
         {:keys [webhook_ids]} (if use-defaults?
                                 (db.webhooks/get-defaults ds tenant-id)
                                 {:webhook_ids []})
         default-ids (set webhook_ids)
-        selected-ids (set/union default-ids webhook-ids)
-        ;; Load only selected webhooks (if none -> empty routing)
-        webhooks (if (seq selected-ids)
+        usable? (access.integrations/usable-predicate owner)
+        webhooks (if (or (seq default-ids) (seq webhook-ids))
                    (->> (db.webhooks/list-webhooks ds tenant-id)
-                        (filter (fn [w] (contains? selected-ids (:id w))))
+                        (filter #(selected? usable? default-ids webhook-ids %))
                         (filter :enabled)
                         vec)
                    [])
-        ;; For each webhook we need subscriptions (event types)
         targets-by-event
         (reduce
          (fn [acc w]
@@ -127,7 +143,6 @@
               subs)))
          {}
          webhooks)
-        ;; Ensure stable keys for all supported event types (present even if empty)
         targets-by-event (reduce (fn [m et] (update m et #(vec (or % []))))
                                  targets-by-event
                                  supported-event-types)]

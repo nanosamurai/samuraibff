@@ -8,12 +8,18 @@
   Outputs:
   - JSON-friendly maps suitable for inclusion under `sessions.meta.workflows.targets`.
 
+  Access:
+  - Only workflows the session owner may use are included
+    (`samuraibff.access.integrations/usable-predicate`). Tenant defaults add
+    published workflows only. A session without an active human owner runs
+    no workflow.
+
   Security:
   - This snapshot contains user prompts (non-secret) and model parameters.
   - Do not log prompt bodies or full params maps at INFO level.
   "
   (:require
-   [clojure.set :as set]
+   [samuraibff.access.integrations :as access.integrations]
    [samuraibff.db.workflows :as db.workflows])
   (:import
    (java.util UUID)))
@@ -94,28 +100,40 @@
            (true? (get-in t [:incremental :enabled])))
          (or targets []))))
 
+(defn- selected?
+  "True when a workflow row is selected for a session owner.
+
+  Explicit selections need only be usable by the owner; defaults must also be
+  published."
+  [usable? default-ids explicit-ids w]
+  (and (usable? w)
+       (or (contains? explicit-ids (:id w))
+           (and (contains? default-ids (:id w))
+                (= "published" (:availability w))))))
+
 (defn resolve-targets
-  "Resolve workflow targets for a newly created session.
+  "Resolve workflow targets for a session.
 
   Inputs:
-  - ds: DataSource
+  - ds: DataSource or connectable
   - tenant-id: UUID
   - session-id: UUID (currently unused; included for parity with webhook snapshot resolver)
   - workflow-overrides: map or nil (shape per schemas/CreateSessionRequest)
+  - owner: principal map of the session owner (see
+    `samuraibff.access.integrations/owner-principal`) or nil
 
   Returns:
-  - vector of resolved target maps (JSON-friendly)." 
-  [ds ^UUID tenant-id ^UUID _session-id workflow-overrides]
+  - vector of resolved target maps (JSON-friendly)."
+  [ds ^UUID tenant-id ^UUID _session-id workflow-overrides owner]
   (let [{:keys [use-defaults? workflow-ids]} (normalize-overrides (or workflow-overrides {}))
         {:keys [workflow_ids]} (if use-defaults?
                                  (db.workflows/get-defaults ds tenant-id)
                                  {:workflow_ids []})
         default-ids (set workflow_ids)
-        selected-ids (set/union default-ids workflow-ids)
-        rows (if (seq selected-ids)
+        usable? (access.integrations/usable-predicate owner)
+        rows (if (or (seq default-ids) (seq workflow-ids))
                (->> (db.workflows/list-workflows ds tenant-id)
-                    (filter (fn [w]
-                              (contains? selected-ids (:id w))))
+                    (filter #(selected? usable? default-ids workflow-ids %))
                     vec)
                [])]
     (->> rows

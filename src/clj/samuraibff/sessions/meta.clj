@@ -10,8 +10,22 @@
   - May include customer webhook URLs (intended for internal router/dispatcher)
   - Must not include secrets in plaintext
 
+  Access:
+  - Webhook routing and workflow targets include only definitions the
+    session owner (`sessions.user_id`) may use. Tenant defaults add published
+    definitions only.
+
+  Admission freeze:
+  - `resolve-admission-meta!` resolves routing and workflow targets once, at
+    the first audio start, and stores them in `sessions.admission_snapshot`.
+    Later audio starts reuse the stored value, so later definition changes do
+    not change a running session. The stored value holds only secret
+    references, never secret values.
+
   Public API:
   - `build-sessions-meta`
+  - `resolve-sessions-meta`
+  - `resolve-admission-meta!`
 
   Inputs (high level):
   - tenant-id, session-id: UUID
@@ -22,12 +36,17 @@
   - map suitable for JSON encoding and publishing to Kafka topic `sessions.meta`"
   (:require
    [cheshire.core :as json]
+   [honey.sql :as sql]
    [next.jdbc :as jdbc]
    [next.jdbc.result-set :as rs]
+   [org.corfield.logging4j2 :as log]
+   [samuraibff.access.integrations :as access.integrations]
    [samuraibff.features :as features]
    [samuraibff.webhooks.routing-snapshot :as webhooks.snapshot]
    [samuraibff.workflows.snapshot :as workflows.snapshot]
-   [samuraibff.util.uuid :as util.uuid]))
+   [samuraibff.util.uuid :as util.uuid])
+  (:import
+   (org.postgresql.util PGobject)))
 
 (def ^:private default-max-bytes
   "Default payload max bytes for consolidated refined transcript tail."
@@ -90,26 +109,106 @@
              :webhook_routing routing-map
              :workflows {:targets workflow-targets}))))
 
-(defn resolve-sessions-meta
-  "Resolve the existing session snapshot from tenant-scoped DB settings.
-  Accepts config, datasource and tenant/session UUIDs; returns Kafka-ready JSON.
-  Preserves routing/workflow fields when publishing the audio-start selections."
-  [config ds tenant-id session-id]
-  (let [row (jdbc/execute-one!
-             ds
-             ["SELECT session_settings::text, webhook_overrides::text, workflow_overrides::text
-               FROM sessions WHERE tenant_id=? AND id=?" tenant-id session-id]
-             {:builder-fn rs/as-unqualified-lower-maps})
-        settings (some-> (:session_settings row) (json/parse-string true))
-        enabled? (features/workflow-webhook-runtime-enabled? config)
-        routing (when enabled?
-                  (webhooks.snapshot/resolve-routing-snapshot
-                   ds tenant-id session-id (some-> (:webhook_overrides row) (json/parse-string true))))
-        targets (if enabled?
-                  (workflows.snapshot/resolve-targets
-                   ds tenant-id session-id (some-> (:workflow_overrides row) (json/parse-string true)))
-                  [])
-        settings (cond-> (or settings {})
+(defn- load-session-row
+  "Read the session columns needed to resolve sessions.meta, or nil."
+  [ds tenant-id session-id]
+  (jdbc/execute-one!
+   ds
+   (sql/format {:select [:user_id
+                         [[:cast :session_settings :text] :session_settings]
+                         [[:cast :webhook_overrides :text] :webhook_overrides]
+                         [[:cast :workflow_overrides :text] :workflow_overrides]
+                         [[:cast :admission_snapshot :text] :admission_snapshot]]
+                :from [:sessions]
+                :where [:and [:= :tenant_id tenant-id] [:= :id session-id]]})
+   {:builder-fn rs/as-unqualified-lower-maps}))
+
+(defn- parse-json
+  [s]
+  (some-> s (json/parse-string true)))
+
+(defn- resolve-selection
+  "Resolve owner-filtered routing and workflow targets for a session row.
+
+  Returns {:routing map-or-nil :workflow_targets [target ...]}."
+  [config ds tenant-id session-id row]
+  (let [enabled? (features/workflow-webhook-runtime-enabled? config)
+        owner (when enabled?
+                (access.integrations/owner-principal ds tenant-id (:user_id row)))]
+    {:routing (when enabled?
+                (webhooks.snapshot/resolve-routing-snapshot
+                 ds tenant-id session-id (parse-json (:webhook_overrides row)) owner))
+     :workflow_targets (if enabled?
+                         (workflows.snapshot/resolve-targets
+                          ds tenant-id session-id (parse-json (:workflow_overrides row)) owner)
+                         [])}))
+
+(defn- selection->meta
+  "Build sessions.meta from a session row and a resolved selection."
+  [config tenant-id session-id row {:keys [routing workflow_targets]}]
+  (let [targets (vec (or workflow_targets []))
+        settings (cond-> (or (parse-json (:session_settings row)) {})
                    (workflows.snapshot/any-target-requires-refined-consolidation? targets)
                    (assoc-in [:refined_transcript :consolidation :enabled] true))]
     (build-sessions-meta config tenant-id session-id routing settings targets)))
+
+(defn resolve-sessions-meta
+  "Resolve the current sessions.meta value from tenant-scoped DB settings.
+
+  Inputs: config map, DataSource, tenant UUID, session UUID.
+  Returns: Kafka-ready sessions.meta map. Routing and workflow targets are
+  filtered for the session owner read from `sessions.user_id`; a session
+  without an active human owner gets no webhook or workflow targets.
+  Nothing is stored; see `resolve-admission-meta!` for the frozen value."
+  [config ds tenant-id session-id]
+  (let [row (load-session-row ds tenant-id session-id)]
+    (selection->meta config tenant-id session-id row
+                     (resolve-selection config ds tenant-id session-id row))))
+
+(defn- ->jsonb
+  ^PGobject [value]
+  (doto (PGobject.)
+    (.setType "jsonb")
+    (.setValue (json/generate-string value))))
+
+(defn- store-admission-snapshot!
+  "Store the selection only when the session has none yet. Returns update count."
+  [ds tenant-id session-id selection]
+  (:next.jdbc/update-count
+   (jdbc/execute-one!
+    ds
+    (sql/format {:update :sessions
+                 :set {:admission_snapshot (->jsonb selection)}
+                 :where [:and [:= :tenant_id tenant-id]
+                         [:= :id session-id]
+                         [:= :admission_snapshot nil]]}))))
+
+(defn resolve-admission-meta!
+  "Return sessions.meta with routing and workflow targets frozen at first audio start.
+
+  Inputs: config map, DataSource, tenant UUID, session UUID.
+  Behavior:
+  - When `sessions.admission_snapshot` is NULL, resolve the owner-filtered
+    selection, store it with one conditional UPDATE (`WHERE admission_snapshot
+    IS NULL`), then read the stored value back. Concurrent replicas therefore
+    all use the first stored value.
+  - Otherwise reuse the stored selection without reading definitions.
+  The stored selection is {:routing map-or-nil :workflow_targets [...]} and
+  contains secret references only.
+  Returns: Kafka-ready sessions.meta map (fresh event_id per call).
+  Throws ex-info {:type :samuraibff.sessions/not-found} when the session does
+  not exist in the tenant."
+  [config ds tenant-id session-id]
+  (let [row (or (load-session-row ds tenant-id session-id)
+                (throw (ex-info "Session not found" {:type :samuraibff.sessions/not-found})))
+        row (if (some? (:admission_snapshot row))
+              row
+              (let [selection (resolve-selection config ds tenant-id session-id row)
+                    stored (store-admission-snapshot! ds tenant-id session-id selection)]
+                (log/info "Resolved session admission snapshot"
+                          {:tenant_id (str tenant-id)
+                           :session_id (str session-id)
+                           :stored (pos? (long (or stored 0)))
+                           :workflow_targets_count (count (:workflow_targets selection))})
+                (load-session-row ds tenant-id session-id)))]
+    (selection->meta config tenant-id session-id row (parse-json (:admission_snapshot row)))))

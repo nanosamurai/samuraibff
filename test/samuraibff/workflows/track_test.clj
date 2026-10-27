@@ -22,14 +22,17 @@
   (let [tenant (UUID/randomUUID)
         a (UUID/randomUUID)
         b (UUID/randomUUID)
-        row {:enabled true :trigger_type "transcript.refined.segment"
+        owner {:id (UUID/randomUUID) :tenant-id tenant :type :human :role :member :status :active}
+        row {:enabled true :trigger_type "transcript.refined.segment" :availability "published"
              :prompt_text "Summarize" :provider_type "bedrock" :provider_model_id "model"}
         rows [(assoc row :id a :trigger_track_id "whisperx")
               (assoc row :id b :trigger_track_id "parakeet")]]
     (with-redefs [db.workflows/get-defaults (fn [_ tid] (is (= tenant tid)) {:workflow_ids [a b]})
                   db.workflows/list-workflows (fn [_ tid] (is (= tenant tid)) rows)]
-      (let [targets (snapshot/resolve-targets nil tenant (UUID/randomUUID) nil)]
+      (let [targets (snapshot/resolve-targets nil tenant (UUID/randomUUID) nil owner)]
         (is (= ["whisperx" "parakeet"] (mapv #(get-in % [:trigger :track_id]) targets))))
       (let [targets (snapshot/resolve-targets nil tenant (UUID/randomUUID)
-                                              {:use_defaults false :workflow_ids [(str b)]})]
-        (is (= ["parakeet"] (mapv #(get-in % [:trigger :track_id]) targets)))))))
+                                              {:use_defaults false :workflow_ids [(str b)]} owner)]
+        (is (= ["parakeet"] (mapv #(get-in % [:trigger :track_id]) targets))))
+      (testing "A session without an owner runs no workflow"
+        (is (= [] (snapshot/resolve-targets nil tenant (UUID/randomUUID) nil nil)))))))
