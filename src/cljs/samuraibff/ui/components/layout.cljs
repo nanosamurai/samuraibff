@@ -5,7 +5,9 @@
   page-specific state to avoid cycles."
   (:require
    [samuraibff.ui.auth :as auth]
+   [samuraibff.ui.access :as access]
    [samuraibff.ui.hooks :as hooks]
+   [samuraibff.ui.permissions :as permissions]
    [samuraibff.ui.router :as router]
    [samuraibff.ui.store :as store]))
 
@@ -50,6 +52,21 @@
             :route {:page :api-credentials :params {}}
             :active? (= active-page :api-credentials)}])))
 
+(defn- admin-nav-items
+  "Return Administration navigation items for the current principal.
+
+  Inputs:
+  - active-page: keyword
+  - manage-people?: boolean capability hint from `/api/me`
+
+  Returns: vector of item maps (empty when the principal is not an Admin)."
+  [active-page manage-people?]
+  (if manage-people?
+    [{:label "People"
+      :route {:page :people :params {}}
+      :active? (= active-page :people)}]
+    []))
+
 (defn- sidebar-item
   [{:keys [active? label route on-click]}]
   [router/link {:route route
@@ -68,32 +85,43 @@
   Returns:
   - hiccup nodes (overlay + drawer) or nil when closed."
   [{:keys [route open? on-close]}]
-  (when (true? open?)
-    (let [on-close (or on-close (fn [] nil))
-          page (:page route)
-          items (nav-items page)]
-      [:div
-       [:div {:class "drawer-overlay"
-              :on-click (fn [_] (on-close))}]
-       [:aside {:class "drawer open"
-                :role "dialog"
-                :aria-modal true}
-        [:div {:class "drawer-header"}
-         [:div {:style {:display "flex" :gap "10px" :alignItems "center"}}
-          [:img {:class "logo" :src logo-src :alt "nanosamur.ai"}]
-          [:div {:class "brand-name"} "nanosamur.ai"]]
-         [:button {:class "btn ghost"
-                   :title "Close"
-                   :on-click (fn [_] (on-close))}
-          "×"]]
-        [:div {:class "sidebar-section"}
-         [:div {:class "sidebar-title"} "Navigation"]
-         (for [{:keys [label route active?]} items]
-           ^{:key (str "drawer-item-" label)}
-           [sidebar-item {:label label
-                          :route route
-                          :active? active?
-                          :on-click (fn [_] (on-close))}])]]])))
+  (let [manage-people? (permissions/use-capability? :manage_people)]
+    (when (true? open?)
+      (let [on-close (or on-close (fn [] nil))
+            page (:page route)
+            items (nav-items page)
+            admin-items (admin-nav-items page manage-people?)]
+        [:div
+         [:div {:class "drawer-overlay"
+                :on-click (fn [_] (on-close))}]
+         [:aside {:class "drawer open"
+                  :role "dialog"
+                  :aria-modal true}
+          [:div {:class "drawer-header"}
+           [:div {:style {:display "flex" :gap "10px" :alignItems "center"}}
+            [:img {:class "logo" :src logo-src :alt "nanosamur.ai"}]
+            [:div {:class "brand-name"} "nanosamur.ai"]]
+           [:button {:class "btn ghost"
+                     :title "Close"
+                     :on-click (fn [_] (on-close))}
+            "×"]]
+          [:div {:class "sidebar-section"}
+           [:div {:class "sidebar-title"} "Navigation"]
+           (for [{:keys [label route active?]} items]
+             ^{:key (str "drawer-item-" label)}
+             [sidebar-item {:label label
+                            :route route
+                            :active? active?
+                            :on-click (fn [_] (on-close))}])]
+          (when (seq admin-items)
+            [:div {:class "sidebar-section" :style {:marginTop "18px"}}
+             [:div {:class "sidebar-title"} "Administration"]
+             (for [{:keys [label route active?]} admin-items]
+               ^{:key (str "drawer-admin-item-" label)}
+               [sidebar-item {:label label
+                              :route route
+                              :active? active?
+                              :on-click (fn [_] (on-close))}])])]]))))
 
 (defn sidebar
   "Left navigation sidebar.
@@ -104,13 +132,20 @@
   Returns: hiccup."
   [route]
   (let [page (:page route)
-        items (nav-items page)]
+        items (nav-items page)
+        admin-items (admin-nav-items page (permissions/use-capability? :manage_people))]
     [:aside {:class "sidebar"}
      [:div {:class "sidebar-section"}
       [:div {:class "sidebar-title"} "Navigation"]
       (for [{:keys [label route active?]} items]
         ^{:key (str "sidebar-item-" label)}
-        [sidebar-item {:label label :route route :active? active?}])]]))
+        [sidebar-item {:label label :route route :active? active?}])]
+     (when (seq admin-items)
+       [:div {:class "sidebar-section" :style {:marginTop "18px"}}
+        [:div {:class "sidebar-title"} "Administration"]
+        (for [{:keys [label route active?]} admin-items]
+          ^{:key (str "sidebar-admin-item-" label)}
+          [sidebar-item {:label label :route route :active? active?}])])]))
 
 (defn breadcrumbs
   "Breadcrumbs derived from current route.
@@ -129,6 +164,7 @@
                  :workflows [{:label "Workflows" :route {:page :workflows :params {}}}]
                  :speakers [{:label "Speakers" :route {:page :speakers :params {}}}]
                  :api-credentials [{:label "API Credentials" :route {:page :api-credentials :params {}}}]
+                 :people [{:label "People" :route {:page :people :params {}}}]
                  :recording [{:label "Sessions" :route {:page :recordings :params {}}}
                              {:label "Recording"
                               :route {:page :recording :params params}}]
@@ -152,6 +188,7 @@
   (let [{:keys [status detail]} (hooks/use-atom store/auth*)
         user (get detail :user)
         tenant-name (get detail :tenant_name)
+        role-label (access/role-label (get-in detail [:access :principal :role]))
         mobile? (hooks/use-media-query mobile-breakpoint-query)]
     [:header {:class "topbar"}
      (when (and mobile? (fn? on-open-menu))
@@ -174,6 +211,8 @@
            [:span {:class "badge muted"} (str tenant-name)])
          [:span {:class "badge ok"}
           (or (:preferred_username user) (:email user) (:sub user) "user")]
+         (when role-label
+           [:span {:class "badge muted" :title "Your role in this organization"} role-label])
          [:button {:class "btn"
                    :on-click (fn [_]
                                (-> (auth/logout!)
