@@ -158,6 +158,36 @@ Key properties:
 * The secret is returned to the UI only once (on create/rotate).
 * Tokens contain a `tenant_id` claim (protocol mapper) and are configured to include the BFF audience.
 
+Who manages credentials:
+
+* Admin: lists and manages every credential of the organization. Credentials
+  without a manager (created before access control) are Admin-managed.
+* Builder: lists and manages only the credentials they created.
+* Member and service principals: `403 forbidden`. A credential the caller
+  cannot manage returns `404 not-found`.
+
+Service principal:
+
+* Create registers a `service` principal in `app_users` for the client's
+  Keycloak service account (`issuer` = `[:auth :issuer]`, `external_id` =
+  service-account user id, `client_id` = Keycloak clientId) before the secret
+  is returned. If registration fails, the BFF deletes the client (or disables
+  it when delete fails) and returns `502 credential-provisioning-failed`.
+* Tokens of a client without a registered principal get
+  `403 access-not-provisioned`. Operators register clients that were created
+  outside the BFF.
+* Revoke sets `revoked_at` and suspends the principal in one transaction, so
+  existing tokens fail on their next request. Then the BFF disables the
+  Keycloak client. The response has `upstream`: `disabled`, or `pending` when
+  Keycloak did not confirm. Pending credentials have
+  `identity_sync_state = disable_pending`; repeat the revoke to retry.
+* Rotation keeps the principal active. A revoked credential cannot rotate
+  (`400 credential-revoked`).
+* When a Builder is demoted to Member or suspended, all credentials they
+  manage are revoked the same way. Reactivating the person does not restore
+  them.
+* Create, rotate and revoke write access audit events without secrets.
+
 ### Keycloak Admin API credentials (required only for managing M2M credentials)
 
 Environment variables:

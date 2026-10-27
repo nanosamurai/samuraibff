@@ -75,14 +75,15 @@ See:
 * `GET /api/api-credentials`
 * `POST /api/api-credentials`
 * `POST /api/api-credentials/{id}/rotate`
-* `DELETE /api/api-credentials/{id}`
+* `DELETE /api/api-credentials/{id}` (response `upstream`: `disabled` | `pending`)
 
-See:
+Admins manage all credentials, Builders their own. See:
 
 * `docs/security-auth.md`
 
 ### Webhooks + workflows
 
-See:
+Definitions are `personal` or `published`; roles decide who can list, edit,
+publish and set defaults. See:
 
 * `docs/features-webhooks-workflows.md`
