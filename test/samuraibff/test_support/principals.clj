@@ -2,7 +2,7 @@
   "Test helpers for provisioned principals and authorized Ring requests.
 
   Public API:
-  - `insert-tenant!`, `insert-principal!`, `request-for`"
+  - `insert-tenant!`, `insert-principal!`, `insert-guest!`, `request-for`"
   (:require
    [next.jdbc :as jdbc]
    [samuraibff.access.principal :as access.principal]
@@ -43,6 +43,34 @@
               :name (or name (when-not service? (str "User " (subs (str id) 0 8))))
               :email email})]
     (access.principal/row->principal row)))
+
+(def guest-tenant-id
+  "Default guest tenant used while authentication is disabled."
+  (UUID/fromString access.principal/default-guest-tenant-id))
+
+(def guest-principal-id
+  "Fixed id of the guest principal row created by deployments."
+  #uuid "00000000-0000-0000-0000-000000000001")
+
+(defn insert-guest!
+  "Insert the guest tenant and the guest Admin principal used when
+  authentication is disabled. Returns its principal map.
+
+  Option :tenant-id overrides the guest tenant (see [:auth :guest-tenant-id])."
+  ([ds] (insert-guest! ds {}))
+  ([ds {:keys [tenant-id] :or {tenant-id guest-tenant-id}}]
+   (insert-tenant! ds tenant-id "Guest")
+   (access.principal/row->principal
+    (db.principals/insert-principal!
+     ds
+     {:id guest-principal-id
+      :tenant-id tenant-id
+      :external-id "guest"
+      :issuer db.principals/guest-issuer
+      :principal-type "human"
+      :role "admin"
+      :status "active"
+      :name "Guest"}))))
 
 (defn request-for
   "Return a Ring request map authorized as principal, merged with extra keys."
