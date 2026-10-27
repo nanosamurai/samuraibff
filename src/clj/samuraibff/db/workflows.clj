@@ -106,6 +106,7 @@
                  prompt_text,
                  provider_type, provider_model_id, provider_params,
                  incremental_enabled, incremental_min_interval_sec,
+                 owner_user_id, availability,
                  created_at, updated_at
             FROM workflows
            WHERE tenant_id = ?
@@ -129,6 +130,7 @@
                     prompt_text,
                     provider_type, provider_model_id, provider_params,
                     incremental_enabled, incremental_min_interval_sec,
+                    owner_user_id, availability,
                     created_at, updated_at
                FROM workflows
               WHERE tenant_id = ? AND id = ?"
@@ -148,6 +150,7 @@
       and optional:
       :provider-params (map)
       :incremental-enabled :incremental-min-interval-sec
+      :owner_user_id (UUID) :availability (\"personal\" | \"published\")
 
   Returns:
   - {:id uuid}"
@@ -173,7 +176,9 @@
                   :provider_type (str provider-type)
                   :provider_model_id (str provider-model-id)
                   :incremental_enabled (boolean (or (:incremental_enabled wf) false))
-                  :incremental_min_interval_sec (:incremental_min_interval_sec wf)}
+                  :incremental_min_interval_sec (:incremental_min_interval_sec wf)
+                  :availability (or (:availability wf) "published")}
+                 (some? (:owner_user_id wf)) (assoc :owner_user_id (:owner_user_id wf))
                  (some? provider-params) (assoc :provider_params (->jsonb-pgobject provider-params)))
         q (-> (h/insert-into :workflows)
               (h/values [values]))
@@ -203,7 +208,8 @@
                               [:name :enabled
                                :trigger_type :trigger_track_id :prompt_text
                                :provider_type :provider_model_id :provider_params
-                               :incremental_enabled :incremental_min_interval_sec])
+                               :incremental_enabled :incremental_min_interval_sec
+                               :availability])
         allowed (cond-> allowed0
                   (contains? allowed0 :provider_params)
                   (assoc :provider_params (->jsonb-pgobject (or (:provider_params allowed0) {}))))

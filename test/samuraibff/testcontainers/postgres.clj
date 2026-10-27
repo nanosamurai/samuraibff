@@ -72,7 +72,8 @@
                ;; NOTE: 0001 already contains workflows/workflow_defaults.
                "migrations/0009_sessions_workflow_overrides.up.sql"
                "migrations/0010_workflow_results_latest.up.sql"
-               "migrations/0020_bind_workflows_to_tracks.up.sql"]]
+               "migrations/0020_bind_workflows_to_tracks.up.sql"
+               "migrations/0022_add_access_control.up.sql"]]
     (doseq [path paths]
       (let [sql (some-> (io/resource path) slurp)]
         (when-not (seq sql)

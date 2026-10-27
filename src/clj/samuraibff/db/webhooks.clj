@@ -121,7 +121,7 @@
                  hmac_secret_ref, oauth_client_secret_ref, api_key_ref,
                  oauth_token_url, oauth_client_id, oauth_scopes,
                  api_key_header_name, api_key_prefix,
-                 static_headers, created_at
+                 static_headers, owner_user_id, availability, created_at
             FROM webhooks
            WHERE tenant_id = ?
            ORDER BY created_at DESC"
@@ -144,7 +144,7 @@
                     hmac_secret_ref, oauth_client_secret_ref, api_key_ref,
                     oauth_token_url, oauth_client_id, oauth_scopes,
                     api_key_header_name, api_key_prefix,
-                    static_headers, created_at
+                    static_headers, owner_user_id, availability, created_at
                FROM webhooks
               WHERE tenant_id = ? AND id = ?"
             tenant-id webhook-id]
@@ -158,7 +158,8 @@
   - ds: DataSource
   - webhook map with keys:
       :id :tenant-id :name :url :enabled :auth-type
-      and optional columns.
+      and optional columns, including :owner_user_id (UUID) and
+      :availability (\"personal\" | \"published\", default published).
 
   Returns:
   - {:id uuid}" 
@@ -181,7 +182,9 @@
                         :name (str name)
                         :url (str url)
                         :enabled (boolean enabled)
-                        :auth_type (str auth-type)}
+                        :auth_type (str auth-type)
+                        :availability (or (:availability webhook) "published")}
+                 (some? (:owner_user_id webhook)) (assoc :owner_user_id (:owner_user_id webhook))
                  (some? static-headers-pg) (assoc :static_headers static-headers-pg)
                  :always (merge (select-keys webhook
                                              [:hmac_secret_ref
@@ -217,7 +220,7 @@
                               :hmac_secret_ref :oauth_client_secret_ref :api_key_ref
                               :oauth_token_url :oauth_client_id :oauth_scopes
                               :api_key_header_name :api_key_prefix
-                              :static_headers])
+                              :static_headers :availability])
         allowed (cond-> allowed0
                   (contains? allowed0 :static_headers)
                   (assoc :static_headers (->jsonb-pgobject (or (:static_headers allowed0) {}))))
