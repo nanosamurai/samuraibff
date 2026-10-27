@@ -11,14 +11,21 @@
     authenticated tenant (`:auth/tenant-id`).
   - WebSocket handlers should reject cross-tenant access based on this binding.
 
-  Note: for MVP, sessions are stored only in memory (ws registry)."
+  Ownership:
+  - Every new session is owned by the active request principal and starts
+    Private. Without a database the endpoint fails; it never creates an
+    ownerless session.
+  - Rename and finish are owner-only mutations."
   (:require
    [clojure.java.io :as io]
    [clojure.string :as str]
    [org.corfield.logging4j2 :as log]
    [ring.util.response :as resp]
    [samuraibff.auth.oidc :as oidc]
+   [samuraibff.access.integrations :as access.integrations]
+   [samuraibff.access.policy :as policy]
    [samuraibff.db.sessions :as db.sessions]
+   [samuraibff.http.session-guard :as session-guard]
    [samuraibff.features :as features]
    [samuraibff.kafka.producer :as kafka.producer]
    [samuraibff.schemas :as schemas]
@@ -68,20 +75,6 @@
        :headers {"content-type" "text/plain"}
        :body "Missing UI index.html"})))
 
-(def ^:private guest-tenant-id
-  "Tenant UUID used when auth is disabled.
-
-  This is a pragmatic dev-only fallback so we can still persist sessions even
-  without authentication.
-
-  Note: your DB must contain a row in `tenants` with this id if you want
-  persistence to work in unauthenticated mode."
-  (UUID/fromString "00000000-0000-0000-0000-000000000000"))
-
-(def ^:private guest-user-external-id
-  "External id used when auth is disabled."
-  "guest")
-
 (defn- request-contains-key?
   "Return true when a request body contains a key as keyword or string.
 
@@ -95,49 +88,6 @@
     (or (contains? body k)
         (contains? body k-str))))
 
-(defn- tenant-uuid
-  "Return a tenant UUID.
-
-  Inputs:
-  - config: full config map
-  - tenant-id: string or nil from request
-
-  Returns:
-  - java.util.UUID
-
-  Throws:
-  - ex-info when auth required and tenant-id missing."
-  [config tenant-id]
-  (cond
-    (and (oidc/auth-required? config) (nil? tenant-id))
-    (throw (ex-info "missing-tenant-id" {:type :samuraibff.http/missing-tenant-id}))
-
-    (some? tenant-id)
-    (UUID/fromString (str tenant-id))
-
-    :else
-    guest-tenant-id))
-
-(defn- resolve-user-id
-  "Resolve `app_users.id` for the current request.
-
-  Behavior:
-  - when authenticated: uses Keycloak `sub` as `app_users.external_id`
-  - when unauthenticated: uses external-id guest
-  - if no user record exists, returns nil (session.user_id is nullable)
-
-  Inputs:
-  - ds: datasource
-  - tenant-id-uuid: UUID
-  - req: ring request
-
-  Returns:
-  - UUID or nil"
-  [ds tenant-id-uuid req]
-  (let [external-id (or (some-> req :auth/user :sub)
-                        guest-user-external-id)]
-    (db.sessions/find-user-id-by-external-id ds tenant-id-uuid external-id)))
-
 (defn create-session-handler
   "Create a new session id, persist it to Postgres, and bind it to the ws registry.
 
@@ -148,20 +98,22 @@
     - :db          db component {:ds ...}
 
   Auth behavior:
-  - If auth is required, this endpoint expects `wrap-authenticate` +
-    `wrap-require-auth` to have run and will reject missing `:auth/tenant-id`.
-  - If auth is not required, we persist sessions under a dev fallback tenant id
-    (all-zero UUID) so the `sessions.tenant_id` NOT NULL constraint is satisfied.
+  - Expects `wrap-principal` to have attached an active principal. The session
+    is owned by that principal and bound to its tenant. With authentication
+    disabled this is the explicit guest principal.
+  - Requested workflow/webhook overrides must be usable by the owner.
 
   Returns:
   - Ring response (200 application/json) with body:
     `{ :session_id \"<uuid>\" }`.
-  - On missing tenant-id when auth required: 403 JSON.
-  - On DB failure: 500 JSON."
+  - 403 JSON when the principal may not record or use a requested definition.
+  - 503 JSON when the database is unavailable; 500 JSON on DB failure."
   [{:keys [config ws-registry db kafka-producer]}]
   (fn [req]
-    (let [tenant-id (:auth/tenant-id req)]
+    (let [principal (:auth/principal req)]
       (try
+        (when-not (:record (policy/capabilities principal))
+          (throw (ex-info "forbidden" {:type :samuraibff.http/forbidden})))
         (let [body (or (:body-params req) (:body req) {})
               feature-enabled? (features/workflow-webhook-runtime-enabled? config)
               webhook-overrides-present? (request-contains-key? body :webhook_overrides)
@@ -181,29 +133,30 @@
               default-title (format "Session %1$tF %1$tR" (java.time.ZonedDateTime/now))
               title' (or title default-title)
 
-              tenant-id-uuid (tenant-uuid config tenant-id)
+              tenant-id-uuid (:tenant-id principal)
               session-uuid (uuid/uuid7)
               session-id (str session-uuid)
               session-key session-id
               ds (get db :ds)]
           (log/info "Creating session" {:tenant_id (str tenant-id-uuid)
-                                        :user_id (some-> req :auth/user :sub str)
+                                        :principal_id (str (:id principal))
                                         :session_id session-id})
           (when-not ds
-            (log/warn "DB datasource missing; creating session without persistence" {:uri (:uri req)}))
-          (when ds
-            (let [user-id (resolve-user-id ds tenant-id-uuid req)]
-              (db.sessions/insert-session!
-               ds
-               {:id session-uuid
-                :tenant-id tenant-id-uuid
-                :user-id user-id
-                :session-key session-key
-                :title title'
-                :status "created"
-                :webhook-overrides webhook_overrides
-                :session-settings session_settings
-                :workflow-overrides workflow_overrides})))
+            (throw (ex-info "missing-datasource" {:type :samuraibff.http/missing-datasource})))
+          (when feature-enabled?
+            (access.integrations/assert-overrides-usable!
+             ds principal webhook_overrides workflow_overrides))
+          (db.sessions/insert-session!
+           ds
+           {:id session-uuid
+            :tenant-id tenant-id-uuid
+            :user-id (:id principal)
+            :session-key session-key
+            :title title'
+            :status "created"
+            :webhook-overrides webhook_overrides
+            :session-settings session_settings
+            :workflow-overrides workflow_overrides})
 
           ;; Create/bind session in registry immediately so WS endpoints can be
           ;; strict and disallow session creation via WS when auth is required.
@@ -243,17 +196,21 @@
                                                                :session_id session-id}))))
 
           (log/info "Session created" {:tenant_id (str tenant-id-uuid)
-                                       :user_id (some-> req :auth/user :sub str)
+                                       :principal_id (str (:id principal))
                                        :session_id session-id})
 
           (json-response 200 {:session_id session-id
                               :title title'}))
         (catch clojure.lang.ExceptionInfo e
           (case (:type (ex-data e))
-            :samuraibff.http/missing-tenant-id
-            (do
-              (log/warn "Refusing to create session without tenant-id" {:uri (:uri req)})
-              (json-response 403 {:ok false :message "missing-tenant-id"}))
+            :samuraibff.http/forbidden
+            (json-response 403 {:ok false :message "forbidden"})
+
+            :samuraibff.access/definition-not-usable
+            (json-response 403 {:ok false :message "definition-not-usable"})
+
+            :samuraibff.http/missing-datasource
+            (json-response 503 {:ok false :message "db-unavailable"})
 
             :samuraibff.http/feature-not-enabled
             (features/not-enabled-response config (or (:feature (ex-data e)) :workflow-webhook-runtime))
@@ -266,7 +223,7 @@
           (json-response 500 {:ok false :message "db-error"}))))))
 
 (defn rename-session-handler
-  "Rename a tenant-scoped session.
+  "Rename a session owned by the request principal.
 
   Endpoint:
   - PATCH /api/sessions/:session_id
@@ -286,8 +243,7 @@
   - 503 {:ok false :message db-unavailable}"
   [{:keys [config db]}]
   (fn [req]
-    (let [tenant-id (:auth/tenant-id req)
-          ds (:ds db)
+    (let [ds (:ds db)
           sid-str (or (get-in req [:path-params :session_id])
                       (get-in req [:path-params "session_id"]))
           body (or (:body-params req) (:body req) {})]
@@ -295,13 +251,13 @@
         (when-not ds
           (throw (ex-info "missing-datasource" {:type :samuraibff.http/missing-datasource})))
 
-        (let [tenant-id-uuid (tenant-uuid config tenant-id)
-              session-uuid (try
+        (let [session-uuid (try
                              (UUID/fromString (str sid-str))
                              (catch Exception _
                                (throw (ex-info "invalid-session-id"
                                                {:type :samuraibff.http/invalid-session-id
                                                 :session-id sid-str}))))
+              tenant-id-uuid (:tenant_id (session-guard/require-managed-session! ds req session-uuid))
               {:keys [title]} (schemas/decode-and-validate! schemas/UpdateSessionTitleRequest body)
               title (some-> title str str/trim)
               title (when-not (str/blank? (str title)) title)
@@ -316,6 +272,8 @@
               :samuraibff.http/missing-tenant-id (json-response 403 {:ok false :message "missing-tenant-id"})
               :samuraibff.http/invalid-session-id (json-response 400 {:ok false :message "invalid-session-id"})
               :samuraibff.http/missing-datasource (json-response 503 {:ok false :message "db-unavailable"})
+              (:samuraibff.http/not-found :samuraibff.http/read-only :samuraibff.http/forbidden)
+              (session-guard/error-response type)
               (do
                 (log/error e "Failed to rename session" {:uri (:uri req)})
                 (json-response 500 {:ok false :message "internal-error"})))))
@@ -325,7 +283,7 @@
           (json-response 500 {:ok false :message "internal-error"}))))))
 
 (defn finish-session-handler
-  "Finish a tenant-scoped session (state machine transition).
+  "Finish a session owned by the request principal (state machine transition).
 
   Endpoint:
   - POST /api/sessions/:session_id/finish
@@ -342,20 +300,19 @@
   - 503 {:ok false :message db-unavailable}"
   [{:keys [config db]}]
   (fn [req]
-    (let [tenant-id (:auth/tenant-id req)
-          ds (:ds db)
+    (let [ds (:ds db)
           sid-str (or (get-in req [:path-params :session_id])
                       (get-in req [:path-params "session_id"]))]
       (try
         (when-not ds
           (throw (ex-info "missing-datasource" {:type :samuraibff.http/missing-datasource})))
-        (let [tenant-id-uuid (tenant-uuid config tenant-id)
-              session-uuid (try
+        (let [session-uuid (try
                              (UUID/fromString (str sid-str))
                              (catch Exception _
                                (throw (ex-info "invalid-session-id"
                                                {:type :samuraibff.http/invalid-session-id
                                                 :session-id sid-str}))))
+              tenant-id-uuid (:tenant_id (session-guard/require-managed-session! ds req session-uuid))
               {:keys [updated?]} (db.sessions/finish-session! ds tenant-id-uuid session-uuid)]
           (if updated?
             (json-response 200 {:ok true
@@ -369,6 +326,8 @@
               :samuraibff.http/missing-tenant-id (json-response 403 {:ok false :message "missing-tenant-id"})
               :samuraibff.http/invalid-session-id (json-response 400 {:ok false :message "invalid-session-id"})
               :samuraibff.http/missing-datasource (json-response 503 {:ok false :message "db-unavailable"})
+              (:samuraibff.http/not-found :samuraibff.http/read-only :samuraibff.http/forbidden)
+              (session-guard/error-response type)
               (do
                 (log/error e "Failed to finish session" {:uri (:uri req) :session-id sid-str})
                 (json-response 500 {:ok false :message "internal-error"})))))
