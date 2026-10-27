@@ -14,6 +14,10 @@
   - closes /ws/audio while leaving /ws/events connected
   - asserts the gRPC request is completed and its terminal ASR response arrives
 
+  Authentication is disabled, so both sockets act as the guest principal. The
+  guest row and its session ownership come from
+  `samuraibff.test-support.principal-store` (no database container).
+
   Note on WebSocket client:
   - We intentionally use `com.neovisionaries/nv-websocket-client` here because
     the JDK `java.net.http.WebSocket` client has shown ProtocolExceptions against
@@ -29,6 +33,7 @@
    [samuraibff.kafka.producer :as kafka]
    [samuraibff.http.router]
    [samuraibff.http.server]
+   [samuraibff.test-support.principal-store :as store]
    [samuraibff.ws.registry :as reg])
   (:import
    (com.neovisionaries.ws.client WebSocket WebSocketAdapter WebSocketFactory)
@@ -129,6 +134,9 @@
            ["&realtime_tracks=faster&refinement_tracks=whisperx&final_tracks=whisperx" "faster" "whisperx"]]]
     (let [port (free-port)
           session-id (str (UUID/randomUUID))
+          guest (store/guest-row)
+          store* (doto (atom {:principals [guest]})
+                   (store/add-session! session-id guest))
           completed* (atom #{})
           sent-counts* (atom {})
           kafka-records* (atom [])
@@ -178,71 +186,75 @@
                     kafka/send-audio-chunk! (fn [_ key chunk opts]
                                               (swap! kafka-records* conj [key chunk opts]))
                     sessions.meta/resolve-sessions-meta (fn [& _] {})
+                    sessions.meta/resolve-admission-meta! (fn [& _] {})
                     grpc/get-capabilities (fn [client _]
                                             {:provider-profile-id (str (:id client) "-profile")})
                     grpc/start-stream! fake-start-stream!]
-        (let [system (ig/init cfg)
-              q (LinkedBlockingQueue.)
-              events* (atom nil)
-              audio* (atom nil)]
-          (try
-            (reset! events*
-                    (connect-ws!
-                     (ws-url port "/ws/events" (str "session_id=" session-id))
-                     {:on-text (fn [msg] (.offer q msg))
-                      :on-close (fn [status reason]
-                                  (.offer q (str "CLOSED:" status ":" reason)))}))
+        (store/with-store
+          store*
+          (fn []
+            (let [system (ig/init cfg)
+                  q (LinkedBlockingQueue.)
+                  events* (atom nil)
+                  audio* (atom nil)]
+              (try
+                (reset! events*
+                        (connect-ws!
+                         (ws-url port "/ws/events" (str "session_id=" session-id))
+                         {:on-text (fn [msg] (.offer q msg))
+                          :on-close (fn [status reason]
+                                      (.offer q (str "CLOSED:" status ":" reason)))}))
 
-            (reset! audio*
-                    (connect-ws!
-                     (ws-url port "/ws/audio" (str "session_id=" session-id
-                                                   "&lang=en&sample_rate=16000" selection))
-                     {:on-close (fn [_ _] nil)}))
+                (reset! audio*
+                        (connect-ws!
+                         (ws-url port "/ws/audio" (str "session_id=" session-id
+                                                       "&lang=en&sample_rate=16000" selection))
+                         {:on-close (fn [_ _] nil)}))
 
-            (let [ws-registry (get system :samuraibff/ws-registry)
-                  session (reg/get-session ws-registry "00000000-0000-0000-0000-000000000000" session-id)]
-              (is (= "en" (:lang session))
-                  (str "Expected :lang to be updated, got "
-                       (pr-str (select-keys session [:lang :sample-rate]))))
-              (is (= [track] (:realtime-track-ids session))))
+                (let [ws-registry (get system :samuraibff/ws-registry)
+                      session (reg/get-session ws-registry "00000000-0000-0000-0000-000000000000" session-id)]
+                  (is (= "en" (:lang session))
+                      (str "Expected :lang to be updated, got "
+                           (pr-str (select-keys session [:lang :sample-rate]))))
+                  (is (= [track] (:realtime-track-ids session))))
 
-            (dotimes [_ 3]
-              (.sendBinary ^WebSocket @audio* (byte-array 320)))
-            (is (.await accepted-audio 5 TimeUnit/SECONDS)
-                "The BFF must accept all audio frames before testing close-time draining")
-            (.disconnect ^WebSocket @audio*)
+                (dotimes [_ 3]
+                  (.sendBinary ^WebSocket @audio* (byte-array 320)))
+                (is (.await accepted-audio 5 TimeUnit/SECONDS)
+                    "The BFF must accept all audio frames before testing close-time draining")
+                (.disconnect ^WebSocket @audio*)
 
-            (let [msgs (drain-queue q 4000)
-                  decoded (->> msgs
-                               (keep (fn [message]
-                                       (when (and (string? message)
-                                                  (not (.startsWith ^String message "CLOSED:")))
-                                         (try
-                                           (json/read-value message mapper)
-                                           (catch Exception _
-                                             nil))))))]
-              (is (= {track 3} @sent-counts*)
-                  "Accepted audio should reach only the selected track")
-              (is (= #{track} @completed*)
-                  "Closing /ws/audio should half-close the selected request")
-              (is (= [320 320 320 0] (mapv #(.size (.getPcm16Le (second %))) @kafka-records*)))
-              (is (every? #(= session-id (first %)) @kafka-records*))
-              (doseq [header ["x-final-tracks" "x-refinement-tracks"]]
-                (is (every? #(= batch-track (String. ^bytes (get-in % [2 :headers header]) "UTF-8"))
-                            @kafka-records*)))
-              (is (= "true" (some-> (get-in (last @kafka-records*) [2 :headers "x-audio-end"])
-                                    (String. "UTF-8"))))
-              (is (every? #(nil? (get-in % [2 :headers "x-audio-end"])) (butlast @kafka-records*)))
-              (is (= #{[track (str track "-profile") true]}
-                     (->> decoded
-                          (filter #(and (= "asr" (:type %)) (true? (:final %))))
-                          (map (juxt :track :provider_profile_id :primary_track))
-                          set))
-                  (str "Expected labelled terminal events from the selected track, got " msgs))
-              (is (not-any? #(.startsWith ^String % "CLOSED:") msgs)
-                  (str "Events WebSocket should remain open through terminal delivery, got " msgs)))
+                (let [msgs (drain-queue q 4000)
+                      decoded (->> msgs
+                                   (keep (fn [message]
+                                           (when (and (string? message)
+                                                      (not (.startsWith ^String message "CLOSED:")))
+                                             (try
+                                               (json/read-value message mapper)
+                                               (catch Exception _
+                                                 nil))))))]
+                  (is (= {track 3} @sent-counts*)
+                      "Accepted audio should reach only the selected track")
+                  (is (= #{track} @completed*)
+                      "Closing /ws/audio should half-close the selected request")
+                  (is (= [320 320 320 0] (mapv #(.size (.getPcm16Le (second %))) @kafka-records*)))
+                  (is (every? #(= session-id (first %)) @kafka-records*))
+                  (doseq [header ["x-final-tracks" "x-refinement-tracks"]]
+                    (is (every? #(= batch-track (String. ^bytes (get-in % [2 :headers header]) "UTF-8"))
+                                @kafka-records*)))
+                  (is (= "true" (some-> (get-in (last @kafka-records*) [2 :headers "x-audio-end"])
+                                        (String. "UTF-8"))))
+                  (is (every? #(nil? (get-in % [2 :headers "x-audio-end"])) (butlast @kafka-records*)))
+                  (is (= #{[track (str track "-profile") true]}
+                         (->> decoded
+                              (filter #(and (= "asr" (:type %)) (true? (:final %))))
+                              (map (juxt :track :provider_profile_id :primary_track))
+                              set))
+                      (str "Expected labelled terminal events from the selected track, got " msgs))
+                  (is (not-any? #(.startsWith ^String % "CLOSED:") msgs)
+                      (str "Events WebSocket should remain open through terminal delivery, got " msgs)))
 
-            (finally
-              (when-let [^WebSocket audio @audio*] (.disconnect audio))
-              (when-let [^WebSocket events @events*] (.disconnect events))
-              (ig/halt! system))))))))
+                (finally
+                  (when-let [^WebSocket audio @audio*] (.disconnect audio))
+                  (when-let [^WebSocket events @events*] (.disconnect events))
+                  (ig/halt! system))))))))))
