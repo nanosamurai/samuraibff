@@ -172,6 +172,39 @@ shows the row range, First/Previous/Next/Last controls, and a **Rows** selector 
 to page one. Refresh keeps the current page, and deleting the last row on a
 page moves back to the last available page. Failed requests show a retry message.
 
+Access control in the UI (the BFF authorizes every request again; the UI only
+hides or disables controls):
+
+* An account that is not set up, pending setup, suspended, or that the BFF
+  cannot check sees one message page instead of the app. Logout stays available.
+* Sessions has **All**, **My sessions** and **Shared with me** views. Each row
+  shows the owner and audience, for example "By you · Private". Delete and
+  Record are disabled for sessions you do not own.
+* **Share** (session detail, owner only) and **Who can access → Change** (Record)
+  open the same dialog: Private, Selected people, or Everyone in the
+  organization. Sharing gives read-only access to audio, transcripts and
+  results, including live content. Save sends the full audience with its
+  revision; if someone changed it meanwhile, the dialog reloads and asks you to
+  review. **Copy link** does not give anyone access.
+* Record keeps the chosen audience (default Private) until the session is
+  created, then saves it. If that save fails, the session stays Private and
+  Record shows a notice. Record also lists the webhooks (destination host) and
+  workflows (model) that receive a new session.
+* Readers of a shared session see the owner and "read-only". They cannot
+  rename it, record into it or enroll speakers from it, and they do not see the
+  device-local real-time preview. When access ends, the page shows "This
+  session is no longer available to you."
+* Webhooks and Workflows show **Personal**/**Published** and the owner.
+  Members get a view-only list. Builders create Personal items and edit their
+  own. Admins choose availability, publish or unpublish, and change defaults
+  (published items only).
+* API Credentials: Members see an explanation; Builders see their own
+  credentials; Admins see all with a **Manager** column. A revoke whose
+  sign-in disable is pending shows **Retry disable**.
+* Admins get **Administration → People**: add a person (setup email), change
+  role, suspend or reactivate, resend the setup email, and retry a pending
+  sign-in sync.
+
 Install npm deps once:
 
 ```bash
