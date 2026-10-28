@@ -99,6 +99,12 @@ shows how many languages support aligned, diarized finals.
 accounts can discover tracks without an email claim; populated browser-user
 claims retain the same response shape.
 
+Authentication works with any OpenID Connect provider; the BFF reads the
+login, token and logout URLs from the provider's discovery document. Keycloak
+is tested end to end and has optional adapters for creating API keys and
+adding people in the app. With another provider, an operator command does
+both. See [identity provider](docs/security-auth.md#identity-provider).
+
 API and WebSocket authentication use the Authorization bearer header or the
 HttpOnly login cookie. URL tokens are not accepted; programmatic clients must
 send the header. Browser and Electron clients continue using the cookie.
@@ -211,7 +217,8 @@ hides or disables controls):
     The manager plays, shares and deletes the key's sessions.
 * Admins get **Administration → People**: add a person (setup email), change
   role, suspend or reactivate, resend the setup email, and retry a pending
-  sign-in sync.
+  sign-in sync. Adding people needs the Keycloak adapter; otherwise the
+  button is off and the operator adds accounts.
 * Without authentication (single-user install) everything runs as the guest
   Admin. Sharing, the Sessions views, owner and audience labels, and People
   are hidden: there is nobody to share with.

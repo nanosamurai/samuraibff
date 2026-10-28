@@ -1,6 +1,67 @@
-# Security + auth (OIDC / Keycloak)
+# Security + auth (OIDC)
 
-This repo supports OIDC authentication using Keycloak.
+The BFF works with any OpenID Connect (OIDC) identity provider. Keycloak is the
+provider we test end to end, and it is the only one with optional adapters
+that let the app create API keys and add people. Without those adapters, an
+operator does both with the `samuraibff.tools.principals` command (see
+[Identity provider](#identity-provider)).
+
+## Identity provider
+
+### What the provider must offer
+
+| Need | Detail |
+| --- | --- |
+| Discovery | `{issuer}/.well-known/openid-configuration` with `issuer` equal to `SAMURAIBFF_AUTH_ISSUER`, `jwks_uri`, `authorization_endpoint` and `token_endpoint`. `end_session_endpoint` is optional. |
+| Browser client | A public client (no secret) with Authorization Code + PKCE (S256), the redirect URI `<BFF origin>/auth/callback`, and the scopes `openid email profile`. |
+| Access tokens | JWT, RS256, with `iss`, `sub`, `exp`, and the audience in `aud` (or in `azp`). |
+| Tenant claim | A string UUID in the claim named by `SAMURAIBFF_AUTH_TENANT_CLAIM` (default `tenant_id`), on user and machine tokens. |
+| Email (optional) | `email` and `email_verified` on user tokens. Needed only to activate people added with **Add person** (Keycloak adapter). |
+| Machine clients (optional) | The `client_credentials` grant. The claim named by `SAMURAIBFF_AUTH_CLIENT_CLAIM` (default `azp`; Okta uses `cid`) must hold the client id. |
+
+The BFF reads the login, token and logout URLs from discovery. It does not
+assume Keycloak's URL layout. Discovery is cached for five minutes. If it is
+unavailable, `/auth/login` returns `503 identity-provider-unavailable` and
+the callback returns `502 token-exchange-failed`.
+
+The BFF never creates a person from a token. Identity is issuer + `sub`;
+email is never an identity key. Role and status live in Postgres
+(`app_users`), not in the provider.
+
+### What depends on Keycloak
+
+| Feature | With Keycloak adapters | With any other provider |
+| --- | --- | --- |
+| Sign-in, sign-out, REST, WebSockets | Works | Works |
+| First Admin | Operator `provision` command | Same |
+| Add people | **People → Add person** creates the account and sends the setup email (`SAMURAIBFF_KEYCLOAK_USER_ADMIN_*`) | Create the account at the provider, then run `provision` with its `sub`. **Add person** is off and says so. |
+| Change role, suspend | In the app (Postgres) | Same. Suspension does not disable the account at the provider. |
+| API keys | **API Credentials** creates, rotates and revokes keys (`SAMURAIBFF_KEYCLOAK_ADMIN_*`) | Create a confidential client at the provider, then run `register-key`. Admins see it, change its manager and audience, and revoke it in the app. Rotate the secret at the provider. |
+
+With another provider, **Revoke** blocks the key in the BFF at once, but the
+BFF cannot disable the client at the provider. The key stays in
+`disable_pending`. Disable the client at the provider as well.
+
+### Operator command
+
+Run it inside the BFF image; database settings come from `SAMURAIBFF_DB_*`.
+It prints ids and roles, never emails or secrets.
+
+```bash
+java -cp /app/samuraibff.jar clojure.main -m samuraibff.tools.principals provision \
+  --tenant <tenant UUID> --tenant-name "Acme" \
+  --issuer https://id.example.com/ --subject <user sub> \
+  --role admin --name "Ada" --email ada@example.com
+
+java -cp /app/samuraibff.jar clojure.main -m samuraibff.tools.principals register-key \
+  --tenant <tenant UUID> --issuer https://id.example.com/ \
+  --subject <client sub> --client-id <client id> --name "Reporting" \
+  [--audience tenant|private] [--manager <Builder or Admin UUID>]
+```
+
+`--issuer` must equal `SAMURAIBFF_AUTH_ISSUER` exactly. Other commands:
+`set-role`, `set-status`, `list`, `legacy-report` and `assign-owner` (see the
+namespace docstring).
 
 ## Browser login flow (Authorization Code + PKCE)
 
@@ -10,19 +71,20 @@ Endpoints:
 * `GET /auth/callback?code=...&state=...`
 * `POST /auth/logout`
 
-Logout clears the BFF cookies and, when authentication is required, returns
-`logout_url`: the identity provider's RP-initiated logout endpoint
-(`<issuer>/protocol/openid-connect/logout`) with `client_id`,
-`post_logout_redirect_uri=<BFF origin>/` and the ID token as
-`id_token_hint`. The browser opens it so Keycloak ends its single sign-on
-session; otherwise the next automatic login would sign the same person in
-again. The callback keeps the ID token only for this purpose, in an HttpOnly,
-SameSite=Lax cookie scoped to `/auth` (`id_token_hint`).
+Logout clears the BFF cookies and, when authentication is required and the
+provider advertises `end_session_endpoint`, returns `logout_url`: that
+endpoint with `client_id`, `post_logout_redirect_uri=<BFF origin>/` and the ID
+token as `id_token_hint`. The browser opens it so the provider ends its single
+sign-on session; otherwise the next automatic login would sign the same person
+in again. The callback keeps the ID token only for this purpose, in an
+HttpOnly, SameSite=Lax cookie scoped to `/auth` (`id_token_hint`). A provider
+without `end_session_endpoint` gets cookie-only logout.
 
-The browser client in Keycloak must allow the BFF origin followed by `/` as a
-valid post-logout redirect URI (for example `post.logout.redirect.uris` set to
-`+`, which reuses the login redirect URIs). Electron keeps cookie-only logout
-for now, because its main window may not navigate to the identity provider.
+The browser client must allow the BFF origin followed by `/` as a valid
+post-logout redirect URI (in Keycloak, for example, `post.logout.redirect.uris`
+set to `+`, which reuses the login redirect URIs). Electron keeps cookie-only
+logout for now, because its main window may not navigate to the identity
+provider.
 
 ## Electron login flow
 
@@ -103,7 +165,7 @@ No additional environment variables are required.
 
 Access tokens must have an RS256 signature from the configured issuer, a
 non-empty `sub`, and a valid `exp`. The configured audience must match `aud`
-or Keycloak's `azp`. The verifier checks `nbf` when present. REST verification
+or `azp`. The verifier checks `nbf` when present. REST verification
 allows a fixed 30-second clock skew; missing or malformed required claims,
 expired tokens outside that window, and tokens not yet valid are rejected.
 Keep BFF and identity-provider clocks synchronized.
@@ -161,7 +223,9 @@ Within a tenant, every session has one owner and an audience (Private,
 Selected people, or Everyone); see `samuraibff.access.policy`. Underneath,
 tenant isolation is always enforced:
 
-* `POST /api/sessions` binds the new session to the authenticated tenant (`tenant_id` claim).
+* `POST /api/sessions` binds the new session to the authenticated tenant
+  (the claim named by `SAMURAIBFF_AUTH_TENANT_CLAIM`, default `tenant_id`; HTTP
+  and WebSockets use the same claim).
 * `/ws/events` and `/ws/audio` accept a `session_id` only if it belongs to the authenticated tenant.
 * When auth is required, WS endpoints will not create sessions implicitly; unknown session ids are rejected.
 
@@ -169,8 +233,10 @@ This prevents a tenant from subscribing to another tenant’s session, even if a
 
 ## Machine-to-machine (M2M) credentials
 
-The BFF can create user-managed M2M credentials backed by Keycloak confidential clients
-(service accounts). The secret is returned only once and never stored in Postgres.
+With the Keycloak adapter, the BFF creates user-managed M2M credentials backed
+by Keycloak confidential clients (service accounts). With any other provider,
+an operator registers clients created there with `register-key`; the rest of
+this section applies to both, except that create and rotate need Keycloak.
 
 Key properties:
 
@@ -217,7 +283,7 @@ Service principal:
   it when delete fails) and returns `502 credential-provisioning-failed`.
 * Tokens of a client without a registered principal get
   `403 access-not-provisioned`. Operators register clients that were created
-  outside the BFF.
+  outside the BFF with `register-key`.
 * On every request the service principal is bound to its credential row: a
   revoked credential is denied, and a personal key resolves to its owner,
   who must still be an active Builder or Admin.
@@ -243,19 +309,21 @@ Environment variables:
 * `SAMURAIBFF_KEYCLOAK_ADMIN_CLIENT_ID`
 * `SAMURAIBFF_KEYCLOAK_ADMIN_CLIENT_SECRET`
 
-If the admin config is not present, the server will start, but M2M management endpoints return
-`503 keycloak-admin-unavailable`.
+If the admin config is not present, the server will start. Listing, editing
+and revoking keys still work; create and rotate return
+`503 keycloak-admin-unavailable`, and the UI says to ask the operator.
 
 ### Debugging redirect_uri
 
-You can see the computed Keycloak redirect URL without using the browser:
+You can see the computed authorization redirect URL without using the browser:
 
 ```bash
 curl -s -D - -o NUL --max-redirs 0 "http://localhost:8000/auth/login?next=%2Flive"
 ```
 
-If Keycloak shows `Invalid parameter: redirect_uri`, fix either:
+If the provider rejects the redirect URI (Keycloak: `Invalid parameter:
+redirect_uri`), fix either:
 
-* `resources/system.edn` `:bff :origin-uri`, or
-* Keycloak client settings → Valid Redirect URIs (e.g. `http://localhost:8000/*`).
+* `resources/system.edn` `:bff :origin-uri` (or `SAMURAIBFF_PUBLIC_ORIGIN_URI`), or
+* the browser client's allowed redirect URIs (e.g. `http://localhost:8000/auth/callback`).
 
