@@ -178,13 +178,35 @@ Key properties:
 * The secret is returned to the UI only once (on create/rotate).
 * Tokens contain a `tenant_id` claim (protocol mapper) and are configured to include the BFF audience.
 
+Two kinds of credential. Keycloak is identical for both (one confidential
+client per credential, client-credentials grant, secret held only by
+Keycloak); the kind and its rules are stored in Postgres (`api_credentials`):
+
+| | Personal key | Organization key |
+| --- | --- | --- |
+| Created by | Builder or Admin, for themselves | Admin only |
+| A request acts as | the key's owner, with the key attached | the key's own service principal |
+| Sessions it records | owned by the owner, marked "via API key" | owned by the key; start with its audience (`private` or `tenant`) |
+| Reads | `read_scope=credential` (default): only sessions it recorded; `owner`: everything the owner can read | its own sessions |
+| Who manages its sessions in the UI | the owner | the key's manager, or every Admin when it has none |
+| Rotated by | its owner only | its manager or an Admin |
+| When the owner/manager loses Builder rights | revoked | handed to Admins (manager cleared) |
+
+A key never administers: it cannot manage people, credentials, definitions,
+publishing or defaults, and manager rights never flow through a key. Only the
+owner rotates a personal key, because a new secret acts as that person; an
+Admin may still revoke it. Organization keys run published workflows and
+webhooks (personal keys run what their owner may run).
+
 Who manages credentials:
 
-* Admin: lists and manages every credential of the organization. Credentials
-  without a manager (created before access control) are Admin-managed.
-* Builder: lists and manages only the credentials they created.
-* Member and service principals: `403 forbidden`. A credential the caller
-  cannot manage returns `404 not-found`.
+* Admin: lists every credential of the organization, revokes any, creates
+  organization keys and changes their manager or audience
+  (`PATCH /api/api-credentials/{id}`). Credentials without a manager
+  (created before access control) are Admin-managed organization keys.
+* Builder: lists and manages only the credentials they manage.
+* Members, service principals and API keys: `403 forbidden`. A credential the
+  caller cannot manage returns `404 not-found`.
 
 Service principal:
 
@@ -196,6 +218,9 @@ Service principal:
 * Tokens of a client without a registered principal get
   `403 access-not-provisioned`. Operators register clients that were created
   outside the BFF.
+* On every request the service principal is bound to its credential row: a
+  revoked credential is denied, and a personal key resolves to its owner,
+  who must still be an active Builder or Admin.
 * Revoke sets `revoked_at` and suspends the principal in one transaction, so
   existing tokens fail on their next request. Then the BFF disables the
   Keycloak client. The response has `upstream`: `disabled`, or `pending` when
@@ -203,10 +228,11 @@ Service principal:
   `identity_sync_state = disable_pending`; repeat the revoke to retry.
 * Rotation keeps the principal active. A revoked credential cannot rotate
   (`400 credential-revoked`).
-* When a Builder is demoted to Member or suspended, all credentials they
-  manage are revoked the same way. Reactivating the person does not restore
-  them.
-* Create, rotate and revoke write access audit events without secrets.
+* When a Builder is demoted to Member or suspended, their personal keys are
+  revoked the same way and the organization keys they manage become
+  Admin-managed. Reactivating the person does not restore them.
+* Create, configure, rotate and revoke write access audit events without
+  secrets.
 
 ### Keycloak Admin API credentials (required only for managing M2M credentials)
 

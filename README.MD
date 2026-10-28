@@ -201,6 +201,14 @@ hides or disables controls):
 * API Credentials: Members see an explanation; Builders see their own
   credentials; Admins see all with a **Manager** column. A revoke whose
   sign-in disable is pending shows **Retry disable**.
+  * **Personal** keys (Builders and Admins) act as you: what they record is
+    yours, appears under My sessions as "via API key …", and you play, share
+    or delete it in the UI. Choose whether the key reads only what it records
+    or everything you can see. Only you can rotate it.
+  * **Organization** keys (Admins) own their sessions. Choose a manager (a
+    Builder or Admin, or none = Admins) and who sees new sessions (only the
+    manager, or everyone in the organization). **Edit** changes both later.
+    The manager plays, shares and deletes the key's sessions.
 * Admins get **Administration → People**: add a person (setup email), change
   role, suspend or reactivate, resend the setup email, and retry a pending
   sign-in sync.

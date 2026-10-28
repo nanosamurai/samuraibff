@@ -22,7 +22,9 @@ Roles:
 * Admin: sees and manages every definition. Creates published definitions by
   default (`availability` may be `personal`). Publishes and unpublishes with
   `availability` on update. Sets defaults.
-* Service principals (API credentials) get `403 forbidden` on these routes.
+* Organization API keys get `403 forbidden` on these routes. A personal API
+  key lists and views like its owner but never creates, edits, publishes or
+  sets defaults. Sessions of organization keys run published definitions.
 
 Each list item has `availability`, `owner` (`{id, display_name, is_me}` or
 null) and `can_manage`. A definition that the caller cannot see returns
