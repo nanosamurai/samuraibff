@@ -31,6 +31,9 @@
 
   Notes:
   - The JWKS cache is per-process with a five-minute maximum age.
+  - Only access tokens authenticate. ID tokens, refresh tokens and other
+    non-access tokens from the same issuer are rejected (see
+    `non-access-token?`).
   - Tests may inject the clock, cache and metadata fetch."
   (:require
    [clojure.string :as str]
@@ -148,6 +151,32 @@
     (or (contains? aud expected-audience)
         (= azp expected-audience))))
 
+(def ^:private id-token-only-claims
+  "Hash claims that OpenID Connect defines only for ID tokens."
+  ["at_hash" "c_hash" "s_hash"])
+
+(defn- non-access-token?
+  "Return true when the claims belong to an ID, refresh or logout token.
+
+  An ID token for the browser client carries the same issuer and audience as
+  an access token, so audience checks alone would accept it as a bearer
+  credential. The BFF keeps the ID token only as the logout hint, which the
+  browser sends to the identity provider in a URL; it must never
+  authenticate a request.
+
+  Signals:
+  - `typ` claim other than `Bearer` (Keycloak marks ID tokens `ID`, refresh
+    tokens `Refresh`, logout tokens `Logout`; most providers omit `typ`)
+  - an ID-token-only hash claim (`at_hash`, `c_hash`, `s_hash`)
+
+  Providers that issue ID tokens without either signal are covered by giving
+  access tokens their own audience (see docs/security-auth.md)."
+  [^JWTClaimsSet claims]
+  (let [typ (.getClaim claims "typ")]
+    (or (and (some? typ)
+             (not (and (string? typ) (= "bearer" (str/lower-case typ)))))
+        (boolean (some #(some? (.getClaim claims ^String %)) id-token-only-claims)))))
+
 (defn- jwt-processor
   "Build a Nimbus JWT processor for the given issuer/audience and JWKSet.
 
@@ -176,7 +205,9 @@
          (let [auds (.getAudience ^JWTClaimsSet claims)
                azp (try (.getStringClaim claims "azp") (catch Exception _ nil))]
            (when-not (audience-valid? audience auds azp)
-             (throw (BadJWTException. "Invalid audience")))))))
+             (throw (BadJWTException. "Invalid audience"))))
+         (when (non-access-token? claims)
+           (throw (BadJWTException. "Not an access token"))))))
     proc))
 
 (defn- parse-token

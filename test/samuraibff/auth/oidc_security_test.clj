@@ -59,6 +59,28 @@
     (is (rejected? (signed/token claims {:key @signed/key-b :kid "key-a"}) opts))
     (is (rejected? (signed/token claims {:algorithm JWSAlgorithm/RS512}) opts))))
 
+(deftest only-access-tokens-authenticate
+  (let [{:keys [now* opts]} (fixture)
+        claims (signed/claims @now*)]
+    (testing "ID, refresh and logout tokens of the same issuer and audience are rejected"
+      (doseq [[label changed]
+              [[:keycloak-id-token (assoc claims :typ "ID" :azp "bff-web" :at_hash "abc")]
+               [:keycloak-id-token-without-hash (assoc claims :typ "ID")]
+               [:refresh-token (assoc claims :typ "Refresh")]
+               [:logout-token (assoc claims :typ "Logout")]
+               [:non-string-typ (assoc claims :typ ["Bearer"])]
+               [:id-token-access-hash (assoc claims :at_hash "abc")]
+               [:id-token-code-hash (assoc claims :c_hash "abc")]
+               [:id-token-state-hash (assoc claims :s_hash "abc")]]]
+        (testing (name label)
+          (is (rejected? (signed/token changed) opts)))))
+    (testing "access tokens with or without the Keycloak typ claim are accepted"
+      (doseq [changed [claims
+                       (assoc claims :typ "Bearer")
+                       (assoc claims :typ "bearer")
+                       (assoc claims :nonce "n-1")]]
+        (is (= "test-user" (:sub (oidc/verify-token signed/config (signed/token changed) opts))))))))
+
 (deftest malformed-tokens-do-not-amplify-metadata-requests
   (let [{:keys [now* calls* opts]} (fixture)]
     (doseq [token [nil "" "not-a-jwt" (apply str (repeat 16385 "a"))

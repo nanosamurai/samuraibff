@@ -170,7 +170,9 @@
                                          (assoc claims :iss "https://other.example.test")
                                          (assoc claims :aud ["another-service"])
                                          (dissoc claims :sub)
-                                         (assoc claims :sub " ")])
+                                         (assoc claims :sub " ")
+                                         (assoc claims :typ "ID" :at_hash "abc")
+                                         (assoc claims :at_hash "abc")])
                                   (signed/token claims {:key @signed/key-b :kid "key-a"}))]
                 (is (= 401 (rest-status http-base token)))
                 (doseq [path ["/ws/audio" "/ws/events"]]

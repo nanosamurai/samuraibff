@@ -132,11 +132,12 @@
               session-a (UUID/fromString "00000000-0000-0000-0000-000000000010")
               session-b (UUID/fromString "00000000-0000-0000-0000-000000000011")
 
-              alice-token (tc.kc/password-token!
-                           token-endpoint
-                           {:client-id (:web-client-id provision)
-                            :username (get-in provision [:users :alice :username])
-                            :password (get-in provision [:users :alice :password])})
+              {alice-token :access-token
+               alice-id-token :id-token} (tc.kc/password-tokens!
+                                          token-endpoint
+                                          {:client-id (:web-client-id provision)
+                                           :username (get-in provision [:users :alice :username])
+                                           :password (get-in provision [:users :alice :password])})
               bob-token (tc.kc/password-token!
                          token-endpoint
                          {:client-id (:web-client-id provision)
@@ -175,6 +176,13 @@
               (is (= 200 (:status resp-a)))
               (is (= 1 (count items-a)))
               (is (= (str session-a) (get-in items-a [0 :session_id]))))
+
+            ;; --- A real Keycloak ID token is not a bearer credential ---
+            (is (some? alice-id-token))
+            (let [resp @(http/get (str base-url "/api/recordings")
+                                  {:timeout 5000
+                                   :headers (authz alice-id-token)})]
+              (is (= 401 (:status resp))))
 
             (let [resp-cross @(http/get (str base-url "/api/recordings/" session-a)
                                         {:timeout 5000
