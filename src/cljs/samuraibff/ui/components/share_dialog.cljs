@@ -326,7 +326,7 @@
         [open? set-open!] (react/useState false)
         tenant (permissions/tenant-name)
         can-share? (permissions/use-capability? :share_sessions)
-        owner? (or (nil? session-id) (nil? server-access) (true? (:is_owner server-access)))]
+        manager? (or (nil? session-id) (nil? server-access) (true? (:can_manage server-access)))]
     (react/useEffect
      (fn []
        (when session-id
@@ -351,7 +351,7 @@
         (when notice [:div {:class "badge bad" :role "alert"} notice])]
        extra
        [:div {:class "spacer"}]
-       (when owner?
+       (when manager?
          [:button {:class "btn" :type "button" :disabled (boolean disabled?)
                    :on-click (fn [_] (set-open! true))}
           "Change"])

@@ -13,6 +13,7 @@
   - `audience-label`, `owner-label`, `row-access-label`, `detail-access-label`
   - `share-request-body`, `toggle-recipient`, `clear-warning?`
   - `url-host`, `definition-badge`, `owner-name`
+  - `credential-kind-label`, `credential-access-label` (API Credentials)
   - `role-descriptions`, `person-status-label`, `setup-label`,
     `sync-pending-label` (People page)"
   (:require
@@ -183,11 +184,19 @@
     "Private"))
 
 (defn owner-label
-  "Return \"you\" or the owner's display name from a recording access summary."
+  "Return \"you\", the owner's display name or the owning API key from a
+  recording access summary. A session created with a personal API key adds
+  \"via API key\"."
   [access]
-  (if (true? (get-in access [:owner :is_me]))
-    "you"
-    (or (not-empty (str (get-in access [:owner :display_name] ""))) "a colleague")))
+  (let [via (not-empty (str (or (:via_api_key access) "")))
+        api-key-owner? (= "api_key" (get-in access [:owner :kind]))
+        base (cond
+               (true? (get-in access [:owner :is_me])) "you"
+               api-key-owner? (str "API key \u201c" (or (get-in access [:owner :display_name]) via "") "\u201d")
+               :else (or (not-empty (str (get-in access [:owner :display_name] ""))) "a colleague"))]
+    (if (and via (not api-key-owner?))
+      (str base " via API key \u201c" via "\u201d")
+      base)))
 
 (defn row-access-label
   "Return the compact owner/audience label for a Sessions row.
@@ -207,11 +216,20 @@
 (defn detail-access-label
   "Return the owner/audience label for the recording detail header.
 
-  Owners see the audience. Recipients see that the session is read-only."
+  Owners see the audience. Managers of an organization API key see that they
+  manage its session. Recipients see that the session is read-only."
   [access tenant-name]
   (when (map? access)
-    (if (true? (:is_owner access))
-      (str "By you · " (audience-label (:visibility access) tenant-name))
+    (cond
+      (true? (:is_owner access))
+      (str "By " (owner-label (assoc-in access [:owner :is_me] true))
+           " · " (audience-label (:visibility access) tenant-name))
+
+      (true? (:can_manage access))
+      (str "By " (owner-label access) " · " (audience-label (:visibility access) tenant-name)
+           " · you manage this key")
+
+      :else
       (str "By " (owner-label access)
            (if (= "tenant" (str (:visibility access)))
              (str " · " (audience-label "tenant" tenant-name) " · read-only")
@@ -265,6 +283,24 @@
     (if (true? (:is_me owner))
       "You"
       (not-empty (str (or (:display_name owner) ""))))))
+
+(defn credential-kind-label
+  "Return the API Credentials label for a key kind string."
+  [kind]
+  (if (= "organization" (str kind)) "Organization" "Personal"))
+
+(defn credential-access-label
+  "Return what an API key's sessions are and who sees them.
+
+  Inputs: credential item {:kind :read_scope :audience}, tenant name or nil."
+  [{:keys [kind read_scope audience]} tenant-name]
+  (if (= "organization" (str kind))
+    (str "Sessions: " (if (= "tenant" (str audience))
+                        (audience-label "tenant" tenant-name)
+                        "manager only"))
+    (if (= "owner" (str read_scope))
+      "Acts as its owner: reads all their sessions"
+      "Acts as its owner: reads sessions it recorded")))
 
 (def role-descriptions
   "Ordered role choices with their People page descriptions."

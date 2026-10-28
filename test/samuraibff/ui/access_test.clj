@@ -63,7 +63,31 @@
            (access/detail-access-label {:is_owner true :visibility "selected"} nil)))
     (is (= "By Bob · Shared with you · read-only"
            (access/detail-access-label {:is_owner false :visibility "selected"
-                                        :owner {:display_name "Bob"}} nil)))))
+                                        :owner {:display_name "Bob"}} nil))))
+  (testing "API key labels"
+    (is (= "By you via API key \u201csdk\u201d · Private"
+           (access/row-access-label {:visibility "private" :owner {:is_me true} :via_api_key "sdk"} "Acme")))
+    (is (= "By API key \u201ccrm-sync\u201d · Everyone in Acme"
+           (access/row-access-label {:visibility "tenant" :via_api_key "crm-sync"
+                                     :owner {:is_me false :display_name "crm-sync" :kind "api_key"}}
+                                    "Acme")))
+    (is (= "By you via API key \u201csdk\u201d · Private"
+           (access/detail-access-label {:is_owner true :visibility "private" :via_api_key "sdk"} nil)))
+    (is (= "By API key \u201ccrm-sync\u201d · Private · you manage this key"
+           (access/detail-access-label {:is_owner false :can_manage true :visibility "private"
+                                        :owner {:display_name "crm-sync" :kind "api_key"}} nil)))))
+
+(deftest credential-labels-test
+  (is (= "Personal" (access/credential-kind-label "personal")))
+  (is (= "Organization" (access/credential-kind-label "organization")))
+  (is (= "Acts as its owner: reads sessions it recorded"
+         (access/credential-access-label {:kind "personal" :read_scope "credential"} "Acme")))
+  (is (= "Acts as its owner: reads all their sessions"
+         (access/credential-access-label {:kind "personal" :read_scope "owner"} "Acme")))
+  (is (= "Sessions: Everyone in Acme"
+         (access/credential-access-label {:kind "organization" :audience "tenant"} "Acme")))
+  (is (= "Sessions: manager only"
+         (access/credential-access-label {:kind "organization" :audience "private"} "Acme"))))
 
 (deftest share-request-body-test
   (testing "selected sends the complete recipient list"

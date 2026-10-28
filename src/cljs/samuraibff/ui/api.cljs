@@ -458,6 +458,15 @@
       (.then (fn [body]
                (js->clj body :keywordize-keys true)))))
 
+(defn configure-api-credential!
+  "Change an organization key's manager and/or audience (Admin only).
+
+  Inputs: credential id string, {:manager_id string-or-nil? :audience string?}.
+  Returns: Promise of {:ok true :item {...}}."
+  [id changes]
+  (fetch-json! (str "/api/api-credentials/" (js/encodeURIComponent (str id)))
+               {:method "PATCH" :body changes}))
+
 (defn list-api-credentials!
   "List API credentials for the authenticated tenant.
 
@@ -578,7 +587,9 @@
   "Create a new API credential.
 
   Inputs:
-  - name: string (human label)
+  - name: string (human label), or a map {:name :kind :read_scope :audience
+    :manager_id} (kind \"personal\" by default; organization keys are
+    Admin-only)
 
   Returns:
   - Promise resolving to map:
@@ -589,11 +600,13 @@
 
   Notes:
   - The secret is returned only once; callers must treat it as transient."
-  [name]
+  [name-or-opts]
   (-> (js/fetch (api-url "/api/api-credentials")
                 #js {:method "POST"
                      :headers #js {"content-type" "application/json"}
-                     :body (.stringify js/JSON #js {:name (or name "")})})
+                     :body (.stringify js/JSON (clj->js (if (map? name-or-opts)
+                                                          (into {} (remove (comp nil? val)) name-or-opts)
+                                                          {:name (or name-or-opts "")})))})
       (.then ensure-ok!)
       (.then (fn [res] (.json res)))
       (.then (fn [body]
