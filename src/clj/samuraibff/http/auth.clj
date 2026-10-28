@@ -229,9 +229,15 @@
   (resp/set-cookie resp0 k v opts))
 
 (defn- clear-cookie
-  "Clear a cookie on a Ring response."
-  [resp0 k]
-  (resp/set-cookie resp0 k "" {:max-age 0 :path "/"}))
+  "Clear a cookie on a Ring response. path defaults to \"/\"."
+  ([resp0 k] (clear-cookie resp0 k "/"))
+  ([resp0 k path]
+   (resp/set-cookie resp0 k "" {:max-age 0 :path path})))
+
+(def ^:private id-token-cookie
+  "HttpOnly cookie that keeps the ID token as the logout hint. Sent only to
+  /auth/* so it never travels with API or asset requests."
+  {:name "id_token_hint" :path "/auth" :max-bytes 3500})
 
 (defn- api-path?
   "Return true if the request path is under /api.
@@ -387,7 +393,7 @@
 (defn- exchange-token!
   "Exchange a code without exposing upstream bodies or transport/parser errors.
 
-  Returns {:access-token string} on success, {:status int} on an HTTP rejection,
+  Returns {:access-token string :id-token string?} on success, {:status int} on an HTTP rejection,
   or {} when the transport or response is invalid. Logs only safe diagnostics."
   [url params]
   (try
@@ -395,10 +401,12 @@
           status (diagnostics/http-status status)]
       (if (and status (<= 200 status 299))
         (let [response (json/read-value body (json/object-mapper {:decode-key-fn keyword}))
-              token (:access_token response)]
+              token (:access_token response)
+              id-token (:id_token response)]
           (when-not (and (string? token) (not (str/blank? token)))
             (throw (ex-info "Invalid token response" {:type ::invalid-token-response})))
-          {:access-token token})
+          (cond-> {:access-token token}
+            (and (string? id-token) (not (str/blank? id-token))) (assoc :id-token id-token)))
         (do
           (log/warn "Token exchange rejected" {:status status})
           {:status status})))
@@ -417,6 +425,8 @@
 
   On success:
   - sets HttpOnly cookie with access token
+  - keeps the ID token in an HttpOnly cookie scoped to /auth, used only as
+    the `id_token_hint` for identity-provider logout
   - clears pkce cookies
   - redirects to remembered `post_login_next` cookie (or /recordings)
 
@@ -450,7 +460,7 @@
                          (throw (ex-info "Cannot determine request origin" {:type ::missing-origin})))
               redirect-uri (str origin "/auth/callback")
               token-url (token-endpoint issuer)
-              {:keys [status access-token]} (exchange-token!
+              {:keys [status access-token id-token]} (exchange-token!
                                              token-url
                                              {:grant_type "authorization_code"
                                               :client_id client-id
@@ -463,27 +473,63 @@
                              status (assoc :status status)))
             (let [cookie-name (token-cookie-name config)
                   secure? (cookie-secure? req)
-                  resp0 (resp/redirect next0)]
+                  resp0 (resp/redirect next0)
+                  keep-id-token? (and id-token (<= (count id-token) (:max-bytes id-token-cookie)))]
               (-> resp0
                   (set-cookie cookie-name access-token {:http-only true
                                                         :same-site :lax
                                                         :secure secure?
                                                         :path "/"})
+                  (cond-> keep-id-token?
+                    (set-cookie (:name id-token-cookie) id-token {:http-only true
+                                                                  :same-site :lax
+                                                                  :secure secure?
+                                                                  :path (:path id-token-cookie)}))
                   (clear-cookie "pkce_verifier")
                   (clear-cookie "pkce_state")
                   (clear-cookie "post_login_next")))))))))
 
+(defn- end-session-url
+  "Return the identity provider's RP-initiated logout URL, or nil.
+
+  The URL is built only from configured values: the issuer, the browser client
+  id and the BFF's own origin as `post_logout_redirect_uri`. The identity
+  provider additionally checks that redirect against the client's registered
+  post-logout redirect URIs. The ID token hint, when present, lets it end the
+  session without a confirmation prompt."
+  [config req id-token]
+  (let [issuer (get-in config [:auth :issuer])
+        client-id (or (get-in config [:auth :client-id])
+                      (get-in config [:auth :audience]))
+        origin (request-origin config req)]
+    (when (and (oidc/auth-required? config)
+               (not (str/blank? (str issuer)))
+               (not (str/blank? (str client-id)))
+               origin)
+      (str (str/replace issuer #"/+$" "") "/protocol/openid-connect/logout"
+           "?" (codec/form-encode
+                (cond-> {:client_id client-id
+                         :post_logout_redirect_uri (str origin "/")}
+                  id-token (assoc :id_token_hint id-token)))))))
+
 (defn logout-handler
   "Handler for `POST /auth/logout`.
 
-  Clears access token cookie.
+  Clears the access token and ID token cookies. When authentication is
+  required, also returns `logout_url`: the browser must open it to end the
+  identity-provider session. Without that step the provider's single sign-on
+  session would silently log the same person in again.
 
-  Returns: 204 response."
+  Returns: 200 {:ok true :logout_url string?}."
   [config]
-  (fn [_req]
-    (let [cookie-name (token-cookie-name config)]
-      (-> {:status 204 :headers {} :body ""}
-          (clear-cookie cookie-name)))))
+  (fn [req]
+    (let [cookie-name (token-cookie-name config)
+          id-token (some-> (get-in req [:cookies (:name id-token-cookie) :value]) str not-empty)
+          logout-url (end-session-url config req id-token)]
+      (-> (json-response 200 (cond-> {:ok true}
+                               logout-url (assoc :logout_url logout-url)))
+          (clear-cookie cookie-name)
+          (clear-cookie (:name id-token-cookie) (:path id-token-cookie))))))
 
 (defn- realtime-track-ids
   "Return the ordered operator-configured realtime track IDs safe for UI use.

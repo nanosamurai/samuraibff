@@ -361,8 +361,10 @@
                                            400 {:body schemas/ApiErrorResponse}}
                                :handler (http.auth/callback-handler config)}}]
            ["/logout" {:post {:summary "Logout"
-                              :description "Clears the access token cookie."
-                              :responses {204 {:description "No Content"}}
+                              :description "Clears the session cookies. When authentication is required, `logout_url` is the identity-provider logout the browser must open to end single sign-on."
+                              :responses {200 {:body [:map
+                                                      [:ok :boolean]
+                                                      [:logout_url {:optional true} :string]]}}
                               :handler (http.auth/logout-handler config)}}]]
 
            ;; API endpoints (all tenant-scoped; auth enforced by wrap-require-auth)

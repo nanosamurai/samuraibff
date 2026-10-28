@@ -216,7 +216,8 @@
          [:button {:class "btn"
                    :on-click (fn [_]
                                (-> (auth/logout!)
-                                   (.then (fn [_] (auth/fetch-me!)))))}
+                                   (.then (fn [leaving?]
+                                            (when-not leaving? (auth/fetch-me!))))))}
           "Logout"]]
 
         :else

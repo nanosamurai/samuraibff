@@ -100,15 +100,27 @@
         nil))))
 
 (defn logout!
-  "Logout by POSTing to /auth/logout (clears cookie).
+  "Logout by POSTing to /auth/logout (clears the BFF cookies).
+
+  When the BFF returns `logout_url`, navigates there so the identity provider
+  ends its single sign-on session too; otherwise the next login would silently
+  sign the same person in again. The auth state is left untouched while the
+  page leaves, so the automatic login does not race the logout redirect.
+  Resolves to true when the page is leaving for the identity provider.
 
   Returns: Promise"
   []
   (-> (js/fetch (str (env/backend-base-url) "/auth/logout") #js {:method "POST"})
-      (.then (fn [_]
-               (store/set-auth-status! :anonymous nil)
-               (store/append-log! "[auth] logged out")
-               true))
+      (.then (fn [resp]
+               (if (.-ok resp)
+                 (-> (.json resp) (.catch (fn [_] #js {})))
+                 #js {})))
+      (.then (fn [body]
+               (let [logout-url (some-> body (aget "logout_url") str)]
+                 (store/append-log! "[auth] logged out")
+                 (if (seq logout-url)
+                   (do (set! (.-location js/window) logout-url) true)
+                   (do (store/set-auth-status! :anonymous nil) false)))))
       (.catch (fn [e]
                 (store/append-log! (str "[auth] logout failed: " e))
                 (throw e)))))

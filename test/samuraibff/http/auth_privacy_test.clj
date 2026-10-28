@@ -103,3 +103,31 @@
             (is (identical? failure (:value result)))
             (is (= 1 @calls))
             (is (empty? (:events result)))))))))
+
+(deftest successful-login-keeps-the-id-token-only-for-auth-routes
+  (let [result (callback-with-response
+                (fn [_ _] {:status 200 :body (json/write-value-as-string
+                                              {:access_token "access" :id_token marker})}))
+        cookie (get-in result [:value :cookies "id_token_hint"])]
+    (is (= marker (:value cookie)))
+    (is (= "/auth" (:path cookie)))
+    (is (:http-only cookie))
+    (is (:secure cookie))
+    (is (not (.contains (pr-str (:events result)) marker)))))
+
+(deftest logout-ends-the-identity-provider-session
+  (testing "auth required: clears cookies and returns the provider logout URL"
+    (let [resp ((auth/logout-handler (assoc-in config [:auth :required?] true))
+                {:uri "/auth/logout" :scheme :https
+                 :cookies {"id_token_hint" {:value "hint"} "access_token" {:value "a"}}})
+          url (get-in resp [:body :logout_url])]
+      (is (= 200 (:status resp)))
+      (is (.startsWith ^String url "https://identity.example.test/realms/example/protocol/openid-connect/logout?"))
+      (is (.contains ^String url "client_id=browser"))
+      (is (.contains ^String url "id_token_hint=hint"))
+      (is (.contains ^String url (str "post_logout_redirect_uri=" (java.net.URLEncoder/encode "https://app.example.test/" "UTF-8"))))
+      (is (= 0 (get-in resp [:cookies "access_token" :max-age])))
+      (is (= {:value "" :max-age 0 :path "/auth"} (get-in resp [:cookies "id_token_hint"])))))
+  (testing "auth disabled: only clears cookies"
+    (let [resp ((auth/logout-handler (assoc-in config [:auth :required?] false)) {:uri "/auth/logout"})]
+      (is (= {:ok true} (:body resp))))))
