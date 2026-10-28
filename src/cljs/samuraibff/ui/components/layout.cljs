@@ -221,6 +221,12 @@
                                             (when-not leaving? (auth/fetch-me!))))))}
           "Logout"]]
 
+        (true? (get-in detail [:access :principal :guest]))
+        [:div {:class "account" :title "Authentication is disabled: this is a single-user install"}
+         [:span {:class "account-id"}
+          [:span {:class "account-name"} "Local mode"]
+          [:span {:class "account-role"} "Sign-in is off"]]]
+
         :else
         [:div {:class "row"}
          [:span {:class "badge muted"} "anonymous"]
