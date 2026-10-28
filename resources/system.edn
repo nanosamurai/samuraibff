@@ -26,8 +26,10 @@
          ;; Recommended value for local dev:
          ;; "00000000-0000-0000-0000-000000000000"
          :guest-tenant-id nil
-         :issuer "https://auth.nanosamur.ai/realms/nanosamurai"
-         ;; JWT audience (Keycloak client id used by the browser)
+         ;; Your OIDC provider's issuer URL (SAMURAIBFF_AUTH_ISSUER). There is
+         ;; no default: required when :required? is true.
+         :issuer nil
+         ;; JWT audience (the browser client id)
          :audience "bff-web"
          ;; OAuth client id for /auth/login (defaults to :audience if omitted)
          :client-id "bff-web"

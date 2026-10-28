@@ -1,9 +1,9 @@
 (ns samuraibff.auth.oidc
-  "OIDC (Keycloak) helpers.
+  "OIDC helpers, for any standards-compliant identity provider.
 
   This namespace provides:
   - token extraction from Ring requests (Authorization header / cookie)
-  - verification of Keycloak-issued JWT access tokens via OIDC discovery + JWKS
+  - verification of JWT access tokens via OIDC discovery + JWKS
   - helpers to derive tenant identifiers from claims
 
   Signing keys are resolved through bounded OIDC discovery and JWKS caching:
@@ -25,8 +25,8 @@
 
   This namespace expects the *full* samuraibff config map, specifically:
 
-  [:auth :issuer]        string (e.g. https://auth.nanosamur.ai/realms/nanosamurai)
-  [:auth :audience]      string (Keycloak client-id / audience)
+  [:auth :issuer]        string (e.g. https://id.example.com/realms/acme)
+  [:auth :audience]      string (browser client id / audience)
   [:auth :cookie-name]   string (defaults to \"access_token\")
 
   Notes:
@@ -193,7 +193,7 @@
     jwt))
 
 (defn verify-token
-  "Verify a Keycloak-issued JWT access token.
+  "Verify a JWT access token from the configured issuer.
 
   Arity:
   - (verify-token config token)

@@ -19,6 +19,20 @@ operator does both with the `samuraibff.tools.principals` command (see
 | Email (optional) | `email` and `email_verified` on user tokens. Needed only to activate people added with **Add person** (Keycloak adapter). |
 | Machine clients (optional) | The `client_credentials` grant. The claim named by `SAMURAIBFF_AUTH_CLIENT_CLAIM` (default `azp`; Okta uses `cid`) must hold the client id. |
 
+### Settings
+
+| Env | Default | Purpose |
+| --- | --- | --- |
+| `SAMURAIBFF_AUTH_REQUIRED` | `false` | Require sign-in. Without it, every request runs as the local guest Admin. |
+| `SAMURAIBFF_AUTH_ISSUER` | none | Exact issuer URL. Required when sign-in is on. |
+| `SAMURAIBFF_AUTH_AUDIENCE` | `bff-web` | Audience every access token must carry. |
+| `SAMURAIBFF_AUTH_CLIENT_ID` | `bff-web` | Browser client id for login. |
+| `SAMURAIBFF_AUTH_TENANT_CLAIM` | `tenant_id` | Claim with the tenant UUID. |
+| `SAMURAIBFF_AUTH_CLIENT_CLAIM` | `azp` | Claim with the client id of machine tokens. New. |
+
+The issuer had a built-in default before (our hosted realm). It now has none,
+so an install never trusts an issuer it did not configure.
+
 The BFF reads the login, token and logout URLs from discovery. It does not
 assume Keycloak's URL layout. Discovery is cached for five minutes. If it is
 unavailable, `/auth/login` returns `503 identity-provider-unavailable` and
