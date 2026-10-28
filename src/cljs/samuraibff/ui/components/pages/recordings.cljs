@@ -319,15 +319,15 @@
         sharing? (permissions/use-capability? :share_sessions)]
     [:div {:class "card" :aria-busy (boolean loading?)}
      [:div {:class "row sessions-table-header"}
-      [:div {:class "card-title"} "Sessions"]
-      (when sharing?
-        [:div {:class "tabs" :role "tablist" :aria-label "Sessions view" :style {:marginBottom 0}}
+      (if sharing?
+        [:div {:class "tabs sessions-scope-tabs" :role "tablist" :aria-label "Sessions view"}
          (for [[value label] scopes]
            [:button {:key value :type "button" :role "tab"
                      :class (str "tab " (when (= value scope) "active"))
                      :aria-selected (= value scope)
                      :on-click (fn [_] (set-scope! value))}
-            label])])
+            label])]
+        [:div {:class "card-title"} "Sessions"])
       [:div {:class "spacer"}]
       (when (or show-drafts? (pos? drafts-count))
         [:label {:class "muted sessions-drafts"}
