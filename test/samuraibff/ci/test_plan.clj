@@ -22,7 +22,8 @@
   Some namespaces are named *integration-test* but are still lightweight
   (bind local ephemeral ports, use mocks, and skip when dependencies are not
   reachable). Those are acceptable here as long as they are Docker-free."
-  '[samuraibff.access.watch-test
+  '[samuraibff.access.last-seen-test
+    samuraibff.access.watch-test
     samuraibff.auth.oidc-audience-test
     samuraibff.auth.oidc-jwks-fetch-test
     samuraibff.auth.oidc-test
