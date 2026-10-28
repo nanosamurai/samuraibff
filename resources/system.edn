@@ -45,9 +45,11 @@
 
   ;; --- Keycloak Admin API (optional; required only for managing M2M credentials) ---
   ;; If not set, /api/api-credentials will return 503 (keycloak-admin-unavailable).
-  :keycloak {:admin {:issuer "https://auth.nanosamur.ai/realms/nanosamurai"
-                     :realm "nanosamurai"
-                     :client-id "bff-admin"
+  ;; Enabled only when issuer, realm, client id and secret are all set; there
+  ;; are no built-in defaults, so a secret alone never reaches another realm.
+  :keycloak {:admin {:issuer nil
+                     :realm nil
+                     :client-id nil
                      :client-secret nil}
              ;; --- Restricted user provisioning for Settings -> People (optional) ---
              ;; Disabled by default. When disabled, operators provision people with

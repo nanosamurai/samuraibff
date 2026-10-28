@@ -30,8 +30,10 @@ operator does both with the `samuraibff.tools.principals` command (see
 | `SAMURAIBFF_AUTH_TENANT_CLAIM` | `tenant_id` | Claim with the tenant UUID. |
 | `SAMURAIBFF_AUTH_CLIENT_CLAIM` | `azp` | Claim with the client id of machine tokens. New. |
 
-The issuer had a built-in default before (our hosted realm). It now has none,
-so an install never trusts an issuer it did not configure.
+The issuer and the Keycloak admin adapter had built-in defaults before (our
+hosted realm). They now have none: an install never trusts an issuer it did
+not configure, and the admin adapter starts only when its issuer, realm, client
+id and secret are all set.
 
 The BFF reads the login, token and logout URLs from discovery. It does not
 assume Keycloak's URL layout. Discovery is cached for five minutes. If it is
