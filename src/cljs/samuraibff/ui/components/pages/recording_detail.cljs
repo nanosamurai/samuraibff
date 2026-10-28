@@ -295,7 +295,8 @@
         created-at-ms (util/iso->ms (:created_at session))
         title (or (not-empty (str/trim (or (:title session) "")))
                   (util/default-session-title created-at-ms) "Recording")
-        access-label (access/detail-access-label session-access (permissions/tenant-name))
+        access-label (when can-share?
+                       (access/detail-access-label session-access (permissions/tenant-name)))
         on-load-error (fn [e]
                         (if (unavailable-error? e)
                           (do (set-detail! nil) (set-gone! true))

@@ -204,6 +204,9 @@ hides or disables controls):
 * Admins get **Administration → People**: add a person (setup email), change
   role, suspend or reactivate, resend the setup email, and retry a pending
   sign-in sync.
+* Without authentication (single-user install) everything runs as the guest
+  Admin. Sharing, the Sessions views, owner and audience labels, and People
+  are hidden: there is nobody to share with.
 
 Install npm deps once:
 

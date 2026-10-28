@@ -84,11 +84,14 @@
   "Return {:can-manage? boolean :access-label string?} for a recording row.
 
   A row without an :access summary (older BFF) stays manageable, as before.
-  The BFF still rejects mutations by non-owners with 403."
+  The BFF still rejects mutations by non-owners with 403. The owner and
+  audience label is shown only when sharing is available (not to the guest of
+  a single-user install)."
   [rec]
   (let [summary (:access rec)]
     {:can-manage? (not (false? (:can_manage summary)))
-     :access-label (access/row-access-label summary (permissions/tenant-name))}))
+     :access-label (when (permissions/capability? :share_sessions)
+                     (access/row-access-label summary (permissions/tenant-name)))}))
 
 (def ^:private scopes
   [["all" "All"] ["mine" "My sessions"] ["shared" "Shared with me"]])

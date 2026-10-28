@@ -145,15 +145,21 @@ For emergency signing-key revocation, remove the compromised key at the
 issuer and terminate existing BFF connections (for example, restart all BFF
 instances); do not rely on the five-minute cache TTL to close existing sockets.
 
-When authentication is disabled, HTTP and WebSocket requests run under the
-configured development guest tenant (`SAMURAIBFF_AUTH_GUEST_TENANT_ID`). This
-keeps tenant-scoped sessions, recordings, and speakers usable for the
+When authentication is disabled, HTTP and WebSocket requests run as the guest
+principal (issuer `urn:nanosamurai:guest`) of the configured guest tenant
+(`SAMURAIBFF_AUTH_GUEST_TENANT_ID`), created by the deployment seed. If it is
+missing, requests fail with 503 instead of falling back to another identity.
+The guest is the tenant's Admin for authoring, but sharing, the colleague
+directory and People are off for it (403): a single-user install has nobody to
+share with. This keeps sessions, recordings, and speakers usable for the
 localhost-only Community Edition quickstart. Do not use guest mode on a shared
 or publicly reachable deployment.
 
-## Tenant isolation (current model)
+## Tenant isolation
 
-At the moment, isolation is enforced **per-tenant** (not per-user):
+Within a tenant, every session has one owner and an audience (Private,
+Selected people, or Everyone); see `samuraibff.access.policy`. Underneath,
+tenant isolation is always enforced:
 
 * `POST /api/sessions` binds the new session to the authenticated tenant (`tenant_id` claim).
 * `/ws/events` and `/ws/audio` accept a `session_id` only if it belongs to the authenticated tenant.
