@@ -45,6 +45,7 @@
    [ring.util.codec :as codec]
    [ring.util.response :as resp]
    [samuraibff.access.policy :as policy]
+   [samuraibff.auth.jwks :as jwks]
    [samuraibff.auth.oidc :as oidc]
    [samuraibff.db.tenants :as db.tenants]
    [samuraibff.features :as features]
@@ -319,10 +320,23 @@
         (handler req)
         (json-response 403 {:ok false :message "missing-token"})))))
 
+(defn- provider-endpoints
+  "Return the configured issuer's OIDC discovery endpoints, or nil.
+
+  Login, code exchange and logout use the endpoints the identity provider
+  advertises, so any standard OIDC provider works, not only Keycloak."
+  [config]
+  (try
+    (jwks/provider-endpoints! (get-in config [:auth :issuer]) {})
+    (catch Exception failure
+      (log/warn "OIDC discovery unavailable" (diagnostics/failure-details failure))
+      nil)))
+
 (defn login-handler
   "Handler for `GET /auth/login`.
 
-  Redirects to Keycloak authorization endpoint using PKCE.
+  Redirects to the identity provider's authorization endpoint (from OIDC
+  discovery) using PKCE. Returns 503 when discovery is unavailable.
 
   Cookies set:
   - pkce_verifier (HttpOnly)
@@ -334,8 +348,8 @@
   Returns: Ring redirect response."
   [config]
   (fn [{:keys [params] :as req}]
-    (let [issuer (or (get-in config [:auth :issuer])
-                     (throw (ex-info "Missing auth issuer" {:type ::missing-issuer})))
+    (let [_ (or (get-in config [:auth :issuer])
+                (throw (ex-info "Missing auth issuer" {:type ::missing-issuer})))
           client-id (or (get-in config [:auth :client-id])
                         (get-in config [:auth :audience])
                         (throw (ex-info "Missing auth client id" {:type ::missing-client-id})))
@@ -346,9 +360,12 @@
                      (throw (ex-info "Cannot determine request origin" {:type ::missing-origin})))
           redirect-uri (str origin "/auth/callback")
           next0 (or (get params :next) (get params "next") "/recordings")
-          auth-url (str (str/replace issuer #"/+$" "") "/protocol/openid-connect/auth")
-          url (str auth-url
-                   "?" (codec/form-encode
+          auth-url (:authorization-endpoint (provider-endpoints config))]
+      (if-not auth-url
+        (json-response 503 {:ok false :message "identity-provider-unavailable"})
+        (let [url (str auth-url
+                       (if (str/includes? auth-url "?") "&" "?")
+                       (codec/form-encode
                         {:client_id client-id
                          :response_type "code"
                          :scope "openid email profile"
@@ -356,21 +373,17 @@
                          :code_challenge_method "S256"
                          :code_challenge challenge
                          :state state}))
-          resp0 (resp/redirect url)
-          secure? (cookie-secure? req)
-          common {:http-only true
-                  :same-site :lax
-                  :secure secure?
-                  :path "/"
-                  :max-age 600}]
-      (-> resp0
-          (set-cookie "pkce_verifier" verifier common)
-          (set-cookie "pkce_state" state common)
-          (set-cookie "post_login_next" (str next0) (assoc common :http-only false))))))
-
-(defn- token-endpoint
-  [issuer]
-  (str (str/replace issuer #"/+$" "") "/protocol/openid-connect/token"))
+              resp0 (resp/redirect url)
+              secure? (cookie-secure? req)
+              common {:http-only true
+                      :same-site :lax
+                      :secure secure?
+                      :path "/"
+                      :max-age 600}]
+          (-> resp0
+              (set-cookie "pkce_verifier" verifier common)
+              (set-cookie "pkce_state" state common)
+              (set-cookie "post_login_next" (str next0) (assoc common :http-only false))))))))
 
 (defn- form-body
   "Encode map as x-www-form-urlencoded string."
@@ -452,21 +465,21 @@
         (json-response 400 {:ok false :message "missing-pkce-verifier"})
 
         :else
-        (let [issuer (or (get-in config [:auth :issuer])
-                         (throw (ex-info "Missing auth issuer" {:type ::missing-issuer})))
-              client-id (or (get-in config [:auth :client-id])
+        (let [client-id (or (get-in config [:auth :client-id])
                             (get-in config [:auth :audience]))
               origin (or (request-origin config req)
                          (throw (ex-info "Cannot determine request origin" {:type ::missing-origin})))
               redirect-uri (str origin "/auth/callback")
-              token-url (token-endpoint issuer)
-              {:keys [status access-token id-token]} (exchange-token!
-                                             token-url
-                                             {:grant_type "authorization_code"
-                                              :client_id client-id
-                                              :code code
-                                              :redirect_uri redirect-uri
-                                              :code_verifier verifier})]
+              token-url (:token-endpoint (provider-endpoints config))
+              {:keys [status access-token id-token]} (if token-url
+                                                       (exchange-token!
+                                                        token-url
+                                                        {:grant_type "authorization_code"
+                                                         :client_id client-id
+                                                         :code code
+                                                         :redirect_uri redirect-uri
+                                                         :code_verifier verifier})
+                                                       {})]
           (if-not access-token
             (json-response (if status 400 502)
                            (cond-> {:ok false :message "token-exchange-failed"}
@@ -492,31 +505,34 @@
 (defn- end-session-url
   "Return the identity provider's RP-initiated logout URL, or nil.
 
-  The URL is built only from configured values: the issuer, the browser client
-  id and the BFF's own origin as `post_logout_redirect_uri`. The identity
-  provider additionally checks that redirect against the client's registered
-  post-logout redirect URIs. The ID token hint, when present, lets it end the
-  session without a confirmation prompt."
+  The endpoint is the `end_session_endpoint` from OIDC discovery; a provider
+  without one gets cookie-only logout. The query uses only configured values:
+  the browser client id and the BFF's own origin as `post_logout_redirect_uri`.
+  The identity provider additionally checks that redirect against the client's
+  registered post-logout redirect URIs. The ID token hint, when present, lets
+  it end the session without a confirmation prompt."
   [config req id-token]
-  (let [issuer (get-in config [:auth :issuer])
-        client-id (or (get-in config [:auth :client-id])
+  (let [client-id (or (get-in config [:auth :client-id])
                       (get-in config [:auth :audience]))
-        origin (request-origin config req)]
-    (when (and (oidc/auth-required? config)
-               (not (str/blank? (str issuer)))
+        origin (request-origin config req)
+        end-session (when (oidc/auth-required? config)
+                      (:end-session-endpoint (provider-endpoints config)))]
+    (when (and end-session
                (not (str/blank? (str client-id)))
                origin)
-      (str (str/replace issuer #"/+$" "") "/protocol/openid-connect/logout"
-           "?" (codec/form-encode
-                (cond-> {:client_id client-id
-                         :post_logout_redirect_uri (str origin "/")}
-                  id-token (assoc :id_token_hint id-token)))))))
+      (str end-session
+           (if (str/includes? end-session "?") "&" "?")
+           (codec/form-encode
+            (cond-> {:client_id client-id
+                     :post_logout_redirect_uri (str origin "/")}
+              id-token (assoc :id_token_hint id-token)))))))
 
 (defn logout-handler
   "Handler for `POST /auth/logout`.
 
   Clears the access token and ID token cookies. When authentication is
-  required, also returns `logout_url`: the browser must open it to end the
+  required and the identity provider advertises an `end_session_endpoint`,
+  also returns `logout_url`: the browser must open it to end the
   identity-provider session. Without that step the provider's single sign-on
   session would silently log the same person in again.
 
