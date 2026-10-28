@@ -2,6 +2,7 @@
   "Principal resolution writes last_seen_at at most once per interval per process."
   (:require
    [clojure.test :refer [deftest is]]
+   [samuraibff.access.principal]
    [samuraibff.db.principals :as db.principals]))
 
 (deftest last-seen-skips-the-database-inside-the-interval
