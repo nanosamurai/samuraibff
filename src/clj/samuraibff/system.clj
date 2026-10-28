@@ -174,6 +174,7 @@
              :client-id (s "SAMURAIBFF_AUTH_CLIENT_ID")
              :cookie-name (s "SAMURAIBFF_AUTH_COOKIE_NAME")
              :tenant-claim (s "SAMURAIBFF_AUTH_TENANT_CLAIM")
+             :client-claim (s "SAMURAIBFF_AUTH_CLIENT_CLAIM")
              :allowed-origins (some->> (s "SAMURAIBFF_AUTH_ALLOWED_ORIGINS")
                                        (#(str/split % #","))
                                        (map str/trim)

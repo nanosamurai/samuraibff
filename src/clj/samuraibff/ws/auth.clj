@@ -154,7 +154,7 @@
           {:ok? true :user nil :tenant-id guest-tid}))
       (try
         (let [user (oidc/verify-token config token)
-              tenant-id0 (oidc/extract-tenant-from-claims user)
+              tenant-id0 (oidc/extract-tenant-from-claims* config user)
               tenant-id (or tenant-id0 guest-tid)]
           (when-not (authenticated-now? config user)
             (throw (ex-info "Expired WebSocket authentication" {})))

@@ -160,7 +160,13 @@
         (is (= :active (:state (access.principal/resolve-principal
                                 config ds (user (:external_id service-row) {:azp (:client_id service-row)})))))
         (is (= :not-provisioned (:state (access.principal/resolve-principal
-                                         config ds (user (:external_id service-row) {:azp "bff-web"}))))))
+                                         config ds (user (:external_id service-row) {:azp "bff-web"})))))
+        (testing "with a configured client claim (for example Okta's cid)"
+          (let [cid-config (assoc-in config [:auth :client-claim] "cid")]
+            (is (= :active (:state (access.principal/resolve-principal
+                                    cid-config ds (user (:external_id service-row) {:cid (:client_id service-row)})))))
+            (is (= :not-provisioned (:state (access.principal/resolve-principal
+                                             cid-config ds (user (:external_id service-row) {:azp (:client_id service-row)}))))))))
       (testing "pending activates only with a verified email; suspended never"
         (let [pending (tp/insert-principal! ds {:tenant-id tenant :status :pending})
               sub (:external_id (db.principals/find-by-id ds tenant (:id pending)))]

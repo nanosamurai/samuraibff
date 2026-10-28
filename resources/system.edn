@@ -35,6 +35,8 @@
          :cookie-name "access_token"
          ;; where to find tenant in claims; we’ll standardize on this later
          :tenant-claim "tenant_id"
+         ;; Claim that names the OAuth client of a machine token (Okta: "cid")
+         :client-claim "azp"
          ;; Extra browser origins allowed for cookie mutations and WebSockets.
          ;; The BFF's own public origin is always allowed.
          :allowed-origins []}

@@ -9,8 +9,8 @@
   - A verified token maps to `app_users` by issuer + subject only. Email is
     never an identity key.
   - The token's tenant claim must equal the principal's immutable tenant.
-  - Machine principals must present a token whose authorized party (`azp`)
-    is the bound client id. Type is read from the database, never inferred
+  - Machine principals must present a token whose client claim (`azp` by
+    default, `[:auth :client-claim]`) is the bound client id. Type is read from the database, never inferred
     from usernames or missing email.
   - An API key's service principal is then bound to its credential row. A
     revoked credential is suspended. A personal key resolves to its owner,
@@ -124,8 +124,10 @@
   (true? (get-in user [:raw :email_verified])))
 
 (defn- authorized-party
-  [user]
-  (some-> (get-in user [:raw :azp]) str))
+  "Return the token's client id from the configured claim (default `azp`)."
+  [config user]
+  (let [claim (or (some-> (get-in config [:auth :client-claim]) str str/trim not-empty) "azp")]
+    (some-> (get-in user [:raw (keyword claim)]) str)))
 
 (defn- tenant-matches?
   [config user row]
@@ -147,7 +149,7 @@
         {:state :not-provisioned})
 
       (and (= "service" (:principal_type row))
-           (not= (:client_id row) (authorized-party user)))
+           (not= (:client_id row) (authorized-party config user)))
       (do
         (log/warn "Service principal client binding mismatch" {:principal_id (str (:id row))})
         {:state :not-provisioned})
