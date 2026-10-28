@@ -220,8 +220,9 @@ hides or disables controls):
   sign-in sync. Adding people needs the Keycloak adapter; otherwise the
   button is off and the operator adds accounts.
 * Without authentication (single-user install) everything runs as the guest
-  Admin. Sharing, the Sessions views, owner and audience labels, and People
-  are hidden: there is nobody to share with.
+  Admin. Sharing, the Sessions views, owner and audience labels, People and
+  API Credentials are hidden: there is nobody to share with, and no request
+  needs a key.
 
 Install npm deps once:
 

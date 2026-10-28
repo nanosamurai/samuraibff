@@ -26,10 +26,11 @@
 
   Inputs:
   - active-page: keyword
+  - guest?: boolean; local mode hides API Credentials (no request needs a key)
 
   Returns:
   - vector of item maps {:label string :route route-map :active? boolean}."
-  [active-page]
+  [active-page guest?]
   (cond-> [{:label "Sessions"
             :route {:page :recordings :params {}}
             :active? (= active-page :recordings)}
@@ -45,12 +46,14 @@
            :active? (= active-page :workflows)})
 
     true
-    (into [{:label "Speakers"
-            :route {:page :speakers :params {}}
-            :active? (= active-page :speakers)}
-           {:label "API Credentials"
-            :route {:page :api-credentials :params {}}
-            :active? (= active-page :api-credentials)}])))
+    (conj {:label "Speakers"
+           :route {:page :speakers :params {}}
+           :active? (= active-page :speakers)})
+
+    (not guest?)
+    (conj {:label "API Credentials"
+           :route {:page :api-credentials :params {}}
+           :active? (= active-page :api-credentials)})))
 
 (defn- admin-nav-items
   "Return Administration navigation items for the current principal.
@@ -85,11 +88,12 @@
   Returns:
   - hiccup nodes (overlay + drawer) or nil when closed."
   [{:keys [route open? on-close]}]
-  (let [manage-people? (permissions/use-capability? :manage_people)]
+  (let [manage-people? (permissions/use-capability? :manage_people)
+        guest? (permissions/use-guest?)]
     (when (true? open?)
       (let [on-close (or on-close (fn [] nil))
             page (:page route)
-            items (nav-items page)
+            items (nav-items page guest?)
             admin-items (admin-nav-items page manage-people?)]
         [:div
          [:div {:class "drawer-overlay"
@@ -132,7 +136,7 @@
   Returns: hiccup."
   [route]
   (let [page (:page route)
-        items (nav-items page)
+        items (nav-items page (permissions/use-guest?))
         admin-items (admin-nav-items page (permissions/use-capability? :manage_people))]
     [:aside {:class "sidebar"}
      [:div {:class "sidebar-section"}

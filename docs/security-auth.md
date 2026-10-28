@@ -226,8 +226,8 @@ principal (issuer `urn:nanosamurai:guest`) of the configured guest tenant
 (`SAMURAIBFF_AUTH_GUEST_TENANT_ID`), created by the deployment seed. If it is
 missing, requests fail with 503 instead of falling back to another identity.
 The guest is the tenant's Admin for authoring, but sharing, the colleague
-directory and People are off for it (403): a single-user install has nobody to
-share with. This keeps sessions, recordings, and speakers usable for the
+directory, People and API keys are off for it (403): a single-user install has
+nobody to share with, and requests need no key. This keeps sessions, recordings, and speakers usable for the
 localhost-only Community Edition quickstart. Do not use guest mode on a shared
 or publicly reachable deployment.
 

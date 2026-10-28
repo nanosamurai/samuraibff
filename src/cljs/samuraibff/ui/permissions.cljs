@@ -7,7 +7,7 @@
 
   Public API:
   - `current-access`, `capability?`, `tenant-name`
-  - `use-access`, `use-capability?` (React hooks)
+  - `use-access`, `use-capability?`, `use-guest?` (React hooks)
   - `note-access-error!`, `note-access-revoked!`, `use-revoked-session-id`"
   (:require
    [samuraibff.ui.access :as access]
@@ -39,6 +39,11 @@
   "React hook: return the current access block and re-render when it changes."
   []
   (get-in (hooks/use-atom store/auth*) [:detail :access]))
+
+(defn use-guest?
+  "React hook: true in local mode, where everything runs as the guest."
+  []
+  (true? (get-in (use-access) [:principal :guest])))
 
 (defn use-capability?
   "React hook: return whether the current principal has a capability hint."

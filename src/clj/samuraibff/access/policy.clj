@@ -179,10 +179,11 @@
   "Return which machine credentials the principal may manage.
 
   :all for Admin, :own for Builder, nil for everyone else (Members, services,
-  API keys)."
+  API keys, and the guest: without sign-in no request needs a key)."
   [principal]
   (cond
     (api-key? principal) nil
+    (guest? principal) nil
     (admin? principal) :all
     (builder? principal) :own
     :else nil))

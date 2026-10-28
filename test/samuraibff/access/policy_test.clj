@@ -176,6 +176,11 @@
       (is (not (policy/can-manage-people? guest)))
       (is (false? (:share_sessions caps)))
       (is (false? (:manage_people caps))))
+    (testing "API keys are off without login: no request needs one"
+      (is (nil? (policy/credential-scope guest)))
+      (is (not (policy/can-create-credential? guest :personal)))
+      (is (false? (:manage_credentials caps)))
+      (is (false? (:manage_own_credentials caps))))
     (testing "real Admins are unaffected"
       (is (policy/can-share-session? admin (session admin "private")))
       (is (true? (:share_sessions (policy/capabilities admin)))))))
