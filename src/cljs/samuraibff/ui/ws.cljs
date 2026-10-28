@@ -143,8 +143,7 @@
               (store/set-ws-status! :events :disconnected (str "code=" (.-code e)))
               (store/append-log! (str "[events] closed code=" (.-code e)
                                       " reason=" (.-reason e)))
-              (when (and (= 1008 (.-code e)) (= "access-revoked" (.-reason e)))
-                (permissions/note-access-revoked! session-id)
+              (when (permissions/note-socket-stop! session-id (.-code e))
                 (store/set-running! false))
               (reset! events-ws* nil)))
 
