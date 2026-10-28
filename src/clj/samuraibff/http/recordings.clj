@@ -20,6 +20,7 @@
    [samuraibff.db.recordings :as db.recordings]
    [samuraibff.db.workflow-results :as db.workflow-results]
    [samuraibff.db.webhook-delivery-outcomes :as db.wh.outcomes]
+   [samuraibff.access.watch :as watch]
    [samuraibff.http.revocable-stream :as revocable-stream]
    [samuraibff.http.session-guard :as session-guard]
    [samuraibff.s3.client :as s3.client]
@@ -445,7 +446,7 @@
         (let [tenant-uuid (tenant-id-uuid req)
               session-uuid (parse-session-uuid req)
               _ (session-guard/require-readable-session! ds req session-uuid)
-              still-readable? (revocable-stream/session-read-check ds req session-uuid)
+              watcher (watch/for-deps (:samuraibff/deps req))
               recording (db.recordings/find-latest-recording ds tenant-uuid session-uuid)
               recording-url (some-> (:recording_url recording) str)
               range (parse-range-header (or (get-in req [:headers "range"])
@@ -463,7 +464,7 @@
                   f (safe-file-under-root root recording-url)]
               (if (and (.exists ^File f) (.isFile ^File f))
                 (-> (ring-stream-file f range)
-                    (update :body revocable-stream/wrap still-readable?)
+                    (update :body #(revocable-stream/watched-body watcher req session-uuid %))
                     (assoc-in [:headers "Cache-Control"] "no-store"))
                 (json-response 404 {:ok false :message "audio-file-not-found"})))
 
@@ -485,7 +486,7 @@
                     resp0 (ring-stream-s3 s3 bucket key range)
                     body' (close-on-close ^InputStream (:body resp0) #(.close s3))]
                 (-> resp0
-                    (assoc :body (revocable-stream/wrap body' still-readable?))
+                    (assoc :body (revocable-stream/watched-body watcher req session-uuid body'))
                     (assoc-in [:headers "Cache-Control"] "no-store"))))
 
             :else

@@ -10,7 +10,17 @@
 
   ;; Safe-by-default: bind to localhost. Override in k8s via SAMURAIBFF_WS_HOST=0.0.0.0
   :ws   {:host "127.0.0.1"
-         :port 8000}
+         :port 8000
+         ;; Open authenticated WebSockets close after this many seconds
+         ;; (SAMURAIBFF_WS_MAX_DURATION_S). The token is checked only at upgrade.
+         :max-duration-s 14400}
+
+  ;; Background re-check of open WebSockets and playback streams
+  ;; (samuraibff.access.watch). One batched check per interval; failed or slow
+  ;; checks are retried until the grace period ends.
+  :access {:recheck-interval-s 30
+           :recheck-grace-s 120
+           :recheck-timeout-s 5}
 
   ;; --- Edition / product feature flags ---
   ;; Community Edition mode hides/disables workflow and webhook runtime features.
@@ -185,9 +195,14 @@
   {:config #ig/ref :samuraibff/config
    :ws-registry #ig/ref :samuraibff/ws-registry}
 
+ :samuraibff/access-watch
+ {:config #ig/ref :samuraibff/config
+  :db     #ig/ref :samuraibff/db}
+
  :samuraibff/router
  {:config      #ig/ref :samuraibff/config
   :db          #ig/ref :samuraibff/db
+  :access-watch #ig/ref :samuraibff/access-watch
   :kafka-producer #ig/ref :samuraibff/kafka-producer
   :ws-registry #ig/ref :samuraibff/ws-registry
   :grpc        #ig/ref :samuraibff/grpc-client

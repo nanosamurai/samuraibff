@@ -29,8 +29,8 @@
   - `:auth/tenant-id`    the principal's tenant id string (replaces the claim)
 
   Public API:
-  - `row->principal`, `resolve-principal`, `wrap-principal`,
-    `denied-response`, `principal-log-context`"
+  - `row->principal`, `resolve-principal`, `recheck-principal`,
+    `wrap-principal`, `denied-response`, `principal-log-context`"
   (:require
    [clojure.string :as str]
    [org.corfield.logging4j2 :as log]
@@ -105,6 +105,30 @@
 
       :else
       {:state :active :principal (assoc principal :credential (credential-map credential))})))
+
+(defn recheck-principal
+  "Rebuild the principal of an open delivery from freshly read rows, or nil.
+
+  Used by the background re-check of WebSockets and playback. The delivery was
+  authorized with `principal`; `row` is its current `app_users` row and
+  `credential` the current row of its API key (nil without a key). Applies the
+  same rules as `resolve-principal` without its side effects: the principal
+  must still be active in the same tenant, a revoked key loses access, and a
+  personal key's owner must still be allowed to use keys."
+  [principal row credential]
+  (let [current (row->principal row)
+        key-kind (get-in principal [:credential :kind])]
+    (cond
+      (not (policy/active? current)) nil
+      (not= (str (:tenant-id principal)) (str (:tenant-id current))) nil
+      (nil? key-kind) current
+      (or (nil? credential) (some? (:revoked_at credential))) nil
+      (= :personal key-kind)
+      (when (and (policy/human? current)
+                 (not (policy/guest? current))
+                 (policy/can-create-credential? current :personal))
+        (assoc current :credential (credential-map credential)))
+      :else (assoc current :credential (credential-map credential)))))
 
 (defn- guest-tenant-uuid
   [config]

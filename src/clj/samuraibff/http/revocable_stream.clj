@@ -1,55 +1,45 @@
 (ns samuraibff.http.revocable-stream
   "Stop recording playback when the reader loses access.
 
-  Audio responses can stream for minutes. The wrapped body re-checks the
-  reader's principal and session access through
-  `samuraibff.access.revocation/bounded-checker` and aborts the response with
-  an IOException once access is revoked or cannot be verified within the bound.
+  Audio responses can stream for minutes. The wrapped body is registered with
+  the process-wide access watcher (`samuraibff.access.watch`) and fails reads
+  with an IOException once access is revoked or cannot be verified within the
+  grace period. Reads check cached state only; they never query the database.
   Future Range requests are authorized again from scratch.
 
   Public API:
-  - `session-read-check`, `wrap`"
+  - `watched-body`"
   (:require
-   [samuraibff.access.policy :as policy]
-   [samuraibff.access.principal :as access.principal]
-   [samuraibff.access.revocation :as revocation]
-   [samuraibff.db.session-access :as session-access])
+   [samuraibff.access.watch :as watch])
   (:import
    (java.io FilterInputStream IOException InputStream)
-   (java.util UUID)
-   (javax.sql DataSource)))
+   (java.util UUID)))
 
-(defn session-read-check
-  "Return a bounded predicate that is true while the request may read the session.
+(defn watched-body
+  "Wrap a playback body so reads fail once the reader loses access.
 
-  Inputs: DataSource, Ring request (with :auth/user and :samuraibff/deps),
-  session UUID. The predicate re-resolves the principal from the database."
-  [^DataSource ds req ^UUID session-id]
-  (let [config (get-in req [:samuraibff/deps :config])
-        user (:auth/user req)]
-    (revocation/bounded-checker
-     (fn []
-       (let [{:keys [state principal]} (access.principal/resolve-principal config ds user)]
-         (when (= :unavailable state)
-           (throw (ex-info "Authorization store unavailable" {:type ::unavailable})))
-         (and (policy/active? principal)
-              (some? (session-access/find-accessible-session ds principal session-id))))))))
-
-(defn wrap
-  "Wrap an InputStream so reads fail once `allowed?` returns false.
-
-  Returns the original value when it is not an InputStream."
-  [body allowed?]
+  Inputs: watcher, Ring request (with :auth/principal), session UUID, body.
+  Returns the original value when it is not an InputStream. Closing the
+  stream stops watching it."
+  [w req ^UUID session-id body]
   (if-not (instance? InputStream body)
     body
-    (proxy [FilterInputStream] [^InputStream body]
-      (read
-        ([]
-         (when-not (allowed?) (throw (IOException. "access-revoked")))
-         (.read ^InputStream body))
-        ([^bytes buf]
-         (when-not (allowed?) (throw (IOException. "access-revoked")))
-         (.read ^InputStream body buf))
-        ([^bytes buf off len]
-         (when-not (allowed?) (throw (IOException. "access-revoked")))
-         (.read ^InputStream body buf (int off) (int len)))))))
+    (let [entry (watch/register! w {:principal (:auth/principal req)
+                                    :session-id session-id
+                                    :mode :read
+                                    :max-duration? false})
+          check! (fn [] (when-not (watch/allowed? w entry) (throw (IOException. "access-revoked"))))]
+      (proxy [FilterInputStream] [^InputStream body]
+        (read
+          ([]
+           (check!)
+           (.read ^InputStream body))
+          ([^bytes buf]
+           (check!)
+           (.read ^InputStream body buf))
+          ([^bytes buf off len]
+           (check!)
+           (.read ^InputStream body buf (int off) (int len))))
+        (close []
+          (watch/unregister! w entry)
+          (.close ^InputStream body))))))

@@ -5,9 +5,11 @@
   from the database. This PR-gate test stays Docker-free: the signed token's
   issuer, subject and tenant are provisioned in
   `samuraibff.test-support.principal-store`, and every WS session used here is
-  owned by that principal."
+  owned by that principal. Open sockets are watched by a test watcher with a
+  controllable clock and check result."
   (:require [clojure.test :refer [deftest is testing]]
             [integrant.core :as ig]
+            [samuraibff.access.watch :as watch]
             [org.httpkit.server :as http]
             [ring.middleware.cookies :refer [wrap-cookies]]
             [ring.middleware.params :refer [wrap-params]]
@@ -108,8 +110,61 @@
             (finally
               (registry/close-session! ws-registry signed/tenant-id session-id "transport-test-complete"))))))))
 
+(defn- connect-pair!
+  "Open audio (header) and events (cookie) sockets; record server close codes."
+  [ws-base session-id token]
+  (let [closed (CountDownLatch. 2)
+        codes (atom [])
+        sockets [(socket ws-base "/ws/audio" session-id token :header)
+                 (socket ws-base "/ws/events" session-id token :cookie)]]
+    (doseq [ws sockets]
+      (.addListener ws (proxy [WebSocketAdapter] []
+                         (onDisconnected [_ server-close _ _]
+                           (swap! codes conj (some-> server-close .getCloseCode))
+                           (.countDown closed))))
+      (.connect ws))
+    {:sockets sockets :codes codes :closed closed}))
+
+(defn- watched
+  "Return the modes of the watcher's open entries for a session id."
+  [watcher sid]
+  (set (keep #(when (= (str (:session-id %)) sid) (:mode %)) (vals @(:entries* watcher)))))
+
+(defn- await-watched!
+  "Wait until both sockets of a session are watched (http-kit runs on-open
+  just after the client handshake returns)."
+  [watcher sid]
+  (loop [tries 100]
+    (when (and (pos? tries) (not= #{:read :manage} (watched watcher sid)))
+      (Thread/sleep 20)
+      (recur (dec tries)))))
+
+(defn- await-unwatched!
+  "Wait until the watcher has no open entries; returns the remaining entries."
+  [watcher]
+  (loop [tries 100]
+    (if (and (pos? tries) (seq @(:entries* watcher)))
+      (do (Thread/sleep 20) (recur (dec tries)))
+      (mapv (juxt (comp str :session-id) :mode) (vals @(:entries* watcher))))))
+
+(defn- disconnect-pair!
+  [{:keys [sockets]}]
+  (doseq [ws sockets] (.disconnect ws)))
+
 (deftest real-signatures-protect-rest-and-websocket-lifetimes
   (let [config (assoc-in signed/config [:auth :cookie-name] "ns_access_token")
+        now* (atom (System/currentTimeMillis))
+        result* (atom true)
+        watcher (watch/start!
+                 (watch/watcher nil
+                                {:interval-ms 3600000 :grace-ms 120000 :timeout-s 1
+                                 :max-duration-ms 600000 :jitter 0}
+                                {:now #(deref now*)
+                                 :check-batch (fn [_ _ entries]
+                                                (let [r @result*]
+                                                  (if (instance? Exception r)
+                                                    (throw r)
+                                                    (zipmap (map :id entries) (repeat r)))))}))
         ws-registry (ig/init-key :samuraibff/ws-registry {:config config})
         session-id (str (UUID/randomUUID))
         store* (atom {:principals [token-principal]})
@@ -119,7 +174,7 @@
               :fetch-json (signed/metadata-fetch (atom [@signed/key-a]) (atom []))}
         verify oidc/verify-token
         audio-received (promise)
-        deps {:config config :ws-registry ws-registry :db {:ds :test-database}}
+        deps {:config config :ws-registry ws-registry :db {:ds :test-database} :access-watch watcher}
         audio-handler (audio/handler deps)
         events-handler (events/handler deps)
         rest-handler (auth/wrap-authenticate
@@ -181,39 +236,60 @@
                 (let [token (signed/token (assoc claims :exp (dec now-s)))]
                   (is (= 200 (rest-status http-base token)))
                   (is (= 403 (handshake-status (socket ws-base "/ws/events" session-id token :header)))))))
-            (testing "authenticated idle audio and events sockets close at token expiry"
-              (let [expiry (+ 3 (quot (System/currentTimeMillis) 1000))
+            (testing "open sockets outlive their handshake token"
+              (let [expiry (+ 2 (quot (System/currentTimeMillis) 1000))
                     token (signed/token (assoc (signed/claims (System/currentTimeMillis)) :exp expiry))
-                    closed (CountDownLatch. 2)
-                    close-codes (atom [])
-                    sockets [(socket ws-base "/ws/audio" session-id token :header)
-                             (socket ws-base "/ws/events" session-id token :cookie)]]
+                    pair (connect-pair! ws-base session-id token)]
                 (try
-                  (doseq [ws sockets]
-                    (.addListener ws (proxy [WebSocketAdapter] []
-                                       (onDisconnected [_ server-close _ _]
-                                         (swap! close-codes conj (some-> server-close .getCloseCode))
-                                         (.countDown closed))))
-                    (.connect ws))
-                  (.sendBinary (first sockets) (byte-array [0 1 2 3]))
-                  (is (= 4 (deref audio-received 1000 :timeout)))
-                  (is (.await closed 6 TimeUnit/SECONDS) "Idle connections must not outlive their token")
-                  (is (= [1008 1008] @close-codes))
-                  (is (>= (System/currentTimeMillis) (* expiry 1000)))
-                  (finally (doseq [ws sockets] (.disconnect ws)))))))))
+                  (Thread/sleep (max 0 (- (+ (* expiry 1000) 1500) (System/currentTimeMillis))))
+                  (is (= 2 (.getCount ^CountDownLatch (:closed pair))) "Token expiry does not close open sockets")
+                  (.sendBinary (first (:sockets pair)) (byte-array [0 1 2 3]))
+                  (is (= 4 (deref audio-received 2000 :timeout)) "Audio after token expiry is accepted")
+                  (testing "a definite denial closes both sockets with 4403"
+                    (reset! result* false)
+                    (is (= :ok (watch/check-now! watcher)))
+                    (is (.await ^CountDownLatch (:closed pair) 3 TimeUnit/SECONDS))
+                    (is (= [4403 4403] @(:codes pair))))
+                  (finally
+                    (reset! result* true)
+                    (disconnect-pair! pair)))
+                (is (= [] (await-unwatched! watcher)) "closed sockets leave no entries")))
+            (testing "sockets close with 4408 at the maximum duration"
+              (let [sid (str (UUID/randomUUID))
+                    _ (store/add-session! store* sid token-principal)
+                    _ (registry/ensure-session! ws-registry signed/tenant-id sid {})
+                    pair (connect-pair! ws-base sid (signed/token (signed/claims (System/currentTimeMillis))))]
+                (try
+                  (await-watched! watcher sid)
+                  (swap! now* + 600001)
+                  (watch/tick! watcher)
+                  (is (.await ^CountDownLatch (:closed pair) 3 TimeUnit/SECONDS))
+                  (is (= [4408 4408] @(:codes pair)))
+                  (finally (disconnect-pair! pair)))
+                (is (= [] (await-unwatched! watcher)) "closed sockets leave no entries")))
+            (testing "a slow database keeps sockets open within the grace period"
+              (let [sid (str (UUID/randomUUID))
+                    _ (store/add-session! store* sid token-principal)
+                    _ (registry/ensure-session! ws-registry signed/tenant-id sid {})
+                    pair (connect-pair! ws-base sid (signed/token (signed/claims (System/currentTimeMillis))))]
+                (try
+                  (await-watched! watcher sid)
+                  (reset! result* (ex-info "statement timeout" {}))
+                  (swap! now* + 45000)
+                  (is (= :started (watch/tick! watcher)))
+                  (is (= :failed @@(:in-flight* watcher)))
+                  (Thread/sleep 300)
+                  (is (= 2 (.getCount ^CountDownLatch (:closed pair))) "A 45 s stall does not close sockets")
+                  (testing "and closes them with 4503 once the grace period ends"
+                    (swap! now* + 80000)
+                    (watch/tick! watcher)
+                    (is (.await ^CountDownLatch (:closed pair) 3 TimeUnit/SECONDS))
+                    (is (= [4503 4503] @(:codes pair))))
+                  (finally
+                    (reset! result* true)
+                    (disconnect-pair! pair)))
+                (is (= [] (await-unwatched! watcher)) "closed sockets leave no entries"))))))
       (finally
+        (watch/stop! watcher)
         @(http/server-stop! server)
         (ig/halt-key! :samuraibff/ws-registry ws-registry)))))
-
-(deftest late-audio-is-rejected-even-before-the-expiry-timer-runs
-  (let [received (atom 0)
-        closed (atom 0)
-        callbacks {:on-receive (fn [_ _] (swap! received inc))}
-        user {:expires-at-ms (dec (System/currentTimeMillis))}]
-    (with-redefs-fn {#'samuraibff.ws.auth/close-expired! (fn [_] (swap! closed inc))}
-      #(do
-         ((:on-receive (ws.auth/expiry-callbacks signed/config user callbacks)) :channel :audio)
-         (is (zero? @received))
-         (is (= 1 @closed))))
-    (is (identical? callbacks
-                    (ws.auth/expiry-callbacks {:auth {:required? false}} nil callbacks)))))
