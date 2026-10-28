@@ -17,16 +17,24 @@ the Authorization header instead; browser and Electron clients use the cookie.
 
 When authentication is required, both endpoints reject invalid tokens before
 upgrade with HTTP 403. The token must not have reached `exp`; the REST clock
-skew does not extend a WebSocket connection. Each connection closes at its
-token expiry with code `1008` (no close reason), even when idle.
-Audio received and events sent after that deadline are rejected.
+skew does not extend a WebSocket connection. The token is checked only at the
+upgrade: an open connection keeps running after it expires.
 
-Clients must sign in or obtain a fresh token and start a new session. The
-browser and Electron stop microphone capture on socket closure and do not
-silently refresh tokens. This is an abnormal audio close, so normal completion
-markers are not emitted; the recorder's existing idle fallback still applies.
-For signing-key and account revocation limits, see
-[Security + auth](security-auth.md#token-validation-and-lifetime).
+Open connections are re-checked in the background. The server closes them on
+purpose with these codes (http-kit sends no close reason, so match on the
+code):
+
+| Code | Reason | Meaning |
+| --- | --- | --- |
+| 4403 | `access-revoked` | Suspension, demotion, key revocation or removed sharing |
+| 4408 | `max-duration` | The configured maximum duration (default 4 h) was reached |
+| 4503 | `access-unverified` | Access could not be checked within the grace period |
+
+After any of them, start a new session. The browser and Electron stop
+microphone capture and show the reason. This is an abnormal audio close, so
+normal completion markers are not emitted; the recorder's existing idle
+fallback still applies. For the re-check settings and revocation limits, see
+[Security + auth](security-auth.md#open-websockets-and-playback).
 
 ## `/ws/audio`
 
