@@ -10,6 +10,20 @@ Endpoints:
 * `GET /auth/callback?code=...&state=...`
 * `POST /auth/logout`
 
+Logout clears the BFF cookies and, when authentication is required, returns
+`logout_url`: the identity provider's RP-initiated logout endpoint
+(`<issuer>/protocol/openid-connect/logout`) with `client_id`,
+`post_logout_redirect_uri=<BFF origin>/` and the ID token as
+`id_token_hint`. The browser opens it so Keycloak ends its single sign-on
+session; otherwise the next automatic login would sign the same person in
+again. The callback keeps the ID token only for this purpose, in an HttpOnly,
+SameSite=Lax cookie scoped to `/auth` (`id_token_hint`).
+
+The browser client in Keycloak must allow the BFF origin followed by `/` as a
+valid post-logout redirect URI (for example `post.logout.redirect.uris` set to
+`+`, which reuses the login redirect URIs). Electron keeps cookie-only logout
+for now, because its main window may not navigate to the identity provider.
+
 ## Electron login flow
 
 Electron loads the UI from the configured BFF origin, so REST requests,

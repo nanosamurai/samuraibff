@@ -106,6 +106,8 @@
   ends its single sign-on session too; otherwise the next login would silently
   sign the same person in again. The auth state is left untouched while the
   page leaves, so the automatic login does not race the logout redirect.
+  Electron keeps the cookie-only logout: its main window may not navigate to
+  the identity provider.
   Resolves to true when the page is leaving for the identity provider.
 
   Returns: Promise"
@@ -118,7 +120,7 @@
       (.then (fn [body]
                (let [logout-url (some-> body (aget "logout_url") str)]
                  (store/append-log! "[auth] logged out")
-                 (if (seq logout-url)
+                 (if (and (seq logout-url) (not (env/electron?)))
                    (do (set! (.-location js/window) logout-url) true)
                    (do (store/set-auth-status! :anonymous nil) false)))))
       (.catch (fn [e]
