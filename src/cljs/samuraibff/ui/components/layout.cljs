@@ -186,8 +186,8 @@
   Returns: hiccup."
   [{:keys [route on-open-menu]}]
   (let [{:keys [status detail]} (hooks/use-atom store/auth*)
-        user (get detail :user)
         tenant-name (get detail :tenant_name)
+        person-name (access/account-name detail)
         role-label (access/role-label (get-in detail [:access :principal :role]))
         mobile? (hooks/use-media-query mobile-breakpoint-query)]
     [:header {:class "topbar"}
@@ -206,14 +206,15 @@
         [:span {:class "muted"} "auth: loading…"]
 
         (= status :authenticated)
-        [:div {:class "row"}
+        [:div {:class "account"}
          (when (seq (str tenant-name))
-           [:span {:class "badge muted"} (str tenant-name)])
-         [:span {:class "badge ok"}
-          (or (:preferred_username user) (:email user) (:sub user) "user")]
-         (when role-label
-           [:span {:class "badge muted" :title "Your role in this organization"} role-label])
-         [:button {:class "btn"
+           [:span {:class "account-org" :title "Your organization"} (str tenant-name)])
+         [:span {:class "avatar" :aria-hidden true} (access/initials person-name)]
+         [:span {:class "account-id"}
+          [:span {:class "account-name" :title person-name} person-name]
+          (when role-label
+            [:span {:class "account-role" :title "Your role in this organization"} role-label])]
+         [:button {:class "btn ghost account-logout"
                    :on-click (fn [_]
                                (-> (auth/logout!)
                                    (.then (fn [leaving?]

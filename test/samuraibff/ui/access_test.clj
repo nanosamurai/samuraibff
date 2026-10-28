@@ -107,3 +107,17 @@
     (is (nil? (access/sync-pending-label "synced"))))
   (testing "roles are offered from least to most rights"
     (is (= ["member" "builder" "admin"] (mapv :value access/role-descriptions)))))
+
+(deftest account-block-test
+  (testing "the provisioned display name wins over token claims"
+    (is (= "Bob Novak" (access/account-name {:access {:principal {:display_name "Bob Novak"}}
+                                             :user {:preferred_username "bob"}})))
+    (is (= "bob" (access/account-name {:user {:preferred_username "bob" :email "b@x.test"}})))
+    (is (= "Signed in" (access/account-name {}))))
+  (testing "initials use the first two words or the email local part"
+    (is (= "BN" (access/initials "Bob Novak")))
+    (is (= "A" (access/initials "alice")))
+    (is (= "JD" (access/initials "jane.doe@acme.example")))
+    (is (= "ÉL" (access/initials "élise laurent")))
+    (is (= "?" (access/initials "")))
+    (is (= "?" (access/initials nil)))))

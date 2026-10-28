@@ -8,12 +8,15 @@
 
   Public API:
   - `access-state`, `active?`, `capability?`, `role-label`
+  - `account-name`, `initials` (topbar account block)
   - `inactive-message`, `error-code`, `error-message`
   - `audience-label`, `owner-label`, `row-access-label`, `detail-access-label`
   - `share-request-body`, `toggle-recipient`, `clear-warning?`
   - `url-host`, `definition-badge`, `owner-name`
   - `role-descriptions`, `person-status-label`, `setup-label`,
-    `sync-pending-label` (People page)")
+    `sync-pending-label` (People page)"
+  (:require
+   [clojure.string :as str]))
 
 (def ^:private legacy-capabilities
   "Capabilities assumed when the BFF does not send an `access` block.
@@ -74,6 +77,30 @@
     "builder" "Builder"
     "admin" "Admin"
     nil))
+
+(defn account-name
+  "Return the name shown for the signed-in person in the topbar.
+
+  Inputs: the /api/me detail map. Prefers the provisioned display name, then
+  the token's username or email. Returns: string."
+  [detail]
+  (let [user (:user detail)]
+    (or (some-> (get-in detail [:access :principal :display_name]) str not-empty)
+        (some-> (:preferred_username user) str not-empty)
+        (some-> (:email user) str not-empty)
+        "Signed in")))
+
+(defn initials
+  "Return up to two upper-case initials for a display name, or \"?\".
+
+  Uses the first letter of the first two words; an email uses its local part."
+  [display-name]
+  (let [base (first (str/split (str display-name) #"@"))
+        words (remove str/blank? (str/split base #"[\s._-]+"))
+        letters (keep #(some-> % first str) (take 2 words))]
+    (if (seq letters)
+      (str/upper-case (apply str letters))
+      "?")))
 
 (defn inactive-message
   "Return {:title string :text string} for an inactive access state keyword."
