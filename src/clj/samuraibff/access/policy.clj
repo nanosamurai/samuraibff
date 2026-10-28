@@ -14,8 +14,13 @@
   Roles gate authoring and administration only. Every active human can record
   with all capture settings. No role reads another user's private session.
 
+  The guest principal (authentication disabled) is the only person in a
+  single-user install. It keeps Admin authoring rights but has nobody to share
+  with and no identity provider to add people to, so sharing, the directory
+  and People are off for it.
+
   Public API:
-  - `active?`, `human?`, `service?`, `admin?`, `builder?`
+  - `active?`, `human?`, `service?`, `admin?`, `builder?`, `guest?`
   - `owns-session?`, `can-manage-session?`, `session-visible-to?`
   - `can-manage-people?`, `can-share-session?`, `can-use-directory?`
   - `credential-scope`, `can-manage-credential?`
@@ -55,6 +60,11 @@
   "True for an active human Builder or Admin (integration authoring)."
   [principal]
   (and (human? principal) (contains? #{:builder :admin} (:role principal))))
+
+(defn guest?
+  "True for the guest principal used while authentication is disabled."
+  [principal]
+  (true? (:guest? principal)))
 
 (defn- same-tenant?
   [principal tenant-id]
@@ -98,17 +108,18 @@
 (defn can-share-session?
   "Sharing is an owner mutation; services keep their sessions private in v1."
   [principal session]
-  (and (human? principal) (can-manage-session? principal session)))
+  (and (human? principal) (not (guest? principal)) (can-manage-session? principal session)))
 
 (defn can-use-directory?
-  "Any active human can look up colleagues to share with."
+  "Any active human except the guest can look up colleagues to share with."
   [principal]
-  (human? principal))
+  (and (human? principal) (not (guest? principal))))
 
 (defn can-manage-people?
-  "Only an active human Admin manages membership and roles."
+  "Only an active human Admin manages membership and roles. The guest of a
+  single-user install has no membership to manage."
   [principal]
-  (admin? principal))
+  (and (admin? principal) (not (guest? principal))))
 
 (defn credential-scope
   "Return which machine credentials the principal may manage.
@@ -189,7 +200,7 @@
   Returns a map of snake_case keyword -> boolean."
   [principal]
   {:record (or (human? principal) (service? principal))
-   :share_sessions (human? principal)
+   :share_sessions (can-use-directory? principal)
    :manage_people (can-manage-people? principal)
    :manage_credentials (= :all (credential-scope principal))
    :manage_own_credentials (some? (credential-scope principal))

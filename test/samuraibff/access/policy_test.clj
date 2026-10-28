@@ -90,3 +90,23 @@
       (is (checker) "within the bound")
       (reset! now* (inc revocation/revocation-bound-ms))
       (is (false? (checker)) "beyond the bound"))))
+
+(deftest guest-policy-test
+  (let [guest (assoc (principal #uuid "00000000-0000-0000-0000-000000000001" :admin) :guest? true)
+        own (session guest "private")
+        caps (policy/capabilities guest)]
+    (testing "the single-user guest keeps recording, ownership and authoring"
+      (is (policy/can-manage-session? guest own))
+      (is (policy/session-visible-to? guest own false))
+      (is (policy/can-publish-definitions? guest))
+      (is (true? (:record caps)))
+      (is (true? (:author_integrations caps))))
+    (testing "sharing, the directory and People are off without login"
+      (is (not (policy/can-share-session? guest own)))
+      (is (not (policy/can-use-directory? guest)))
+      (is (not (policy/can-manage-people? guest)))
+      (is (false? (:share_sessions caps)))
+      (is (false? (:manage_people caps))))
+    (testing "real Admins are unaffected"
+      (is (policy/can-share-session? admin (session admin "private")))
+      (is (true? (:share_sessions (policy/capabilities admin)))))))
