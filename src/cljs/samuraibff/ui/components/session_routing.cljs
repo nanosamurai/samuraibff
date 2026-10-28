@@ -343,6 +343,8 @@
   enabled) plus selected items, enabled items only. Shows webhook destination
   hosts and workflow models so the recorder sees where results go without
   opening Session settings. Renders nothing when the runtime is disabled.
+  Subscribes to the auth store so it appears once `/api/me` reports the
+  runtime, even when it first rendered before that response.
 
   Returns: hiccup or nil."
   []
@@ -351,7 +353,8 @@
         wh-defaults-st (hooks/use-atom store/webhook-defaults*)
         workflows-st (hooks/use-atom store/workflows*)
         wf-defaults-st (hooks/use-atom store/workflow-defaults*)
-        runtime-enabled? (store/workflow-webhook-runtime-enabled?)
+        auth (hooks/use-atom store/auth*)
+        runtime-enabled? (true? (get-in auth [:detail :features :workflow_webhook_runtime_enabled]))
         webhooks (destinations/effective-items (:items webhooks-st) (:webhook_overrides session)
                                                (:webhook_ids wh-defaults-st) :webhook_ids)
         workflows (destinations/effective-items (:items workflows-st) (:workflow_overrides session)
