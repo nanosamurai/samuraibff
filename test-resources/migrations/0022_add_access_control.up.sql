@@ -3,8 +3,9 @@
 -- Application principals, fixed roles, recording audiences, integration
 -- ownership and a payload-free access audit trail.
 --
--- Keycloak stays authoritative for identity and credentials. These tables are
--- authoritative for membership, role, suspension and session visibility.
+-- The OIDC identity provider stays authoritative for identity and credentials.
+-- These tables are authoritative for membership, role, suspension and session
+-- visibility.
 --
 -- Compatibility:
 -- - Existing app_users rows were created explicitly by operators. They keep

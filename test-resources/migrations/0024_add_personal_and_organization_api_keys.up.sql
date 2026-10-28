@@ -1,8 +1,8 @@
 -- 024-add-personal-and-organization-api-keys
 --
--- Two kinds of machine credentials. Keycloak is unchanged: every credential
--- is still one confidential client (client_credentials grant) with its own
--- service-account principal in app_users. These columns decide, in Postgres,
+-- Two kinds of machine credentials. The identity provider is unchanged: every
+-- credential is still one confidential client (client_credentials grant) with
+-- its own service-account principal in app_users. These columns decide, in Postgres,
 -- what a request made with the credential may do.
 --
 -- - personal: requests act as the credential's manager (its owner). Sessions
