@@ -10,8 +10,13 @@
                    [--role member|builder|admin] [--name N] [--email E]
                    [--client-id ID] [--tenant-name NAME]
                    Creates an active principal. --tenant-name also creates a
-                   missing tenant. Use it to nominate the first Admin and to
-                   register existing machine clients.
+                   missing tenant. Use it to nominate the first Admin.
+  - register-key   --tenant UUID --subject SUB --issuer URL --client-id ID --name N
+                   [--audience tenant|private] [--manager UUID]
+                   Registers a machine client created at any identity provider
+                   as an organization API key: its service principal plus the
+                   key row the UI lists. Its sessions start with --audience
+                   (default tenant). Without --manager, Admins manage it.
   - set-role       --tenant UUID --id UUID --role ROLE
   - set-status     --tenant UUID --id UUID --status active|suspended
   - list           --tenant UUID
@@ -29,6 +34,7 @@
    [honey.sql.helpers :as h]
    [next.jdbc :as jdbc]
    [next.jdbc.result-set :as rs]
+   [samuraibff.db.api-credentials :as db.api-creds]
    [samuraibff.db.audit :as db.audit]
    [samuraibff.db.principals :as db.principals])
   (:import
@@ -102,6 +108,48 @@
         (audit! tx tenant-id "principal.provision" (:id row) {:type type :role role})
         row))))
 
+(defn register-key!
+  "Register an externally created machine client as an organization API key.
+
+  Creates the active service principal and its `api_credentials` row in one
+  transaction. The secret stays at the identity provider. Returns the
+  service principal row."
+  [ds options]
+  (let [tenant-id (uuid! options :tenant)
+        audience (get options :audience "tenant")
+        manager-id (when (:manager options) (uuid! options :manager))]
+    (doseq [k [:subject :issuer :client-id :name]]
+      (when (str/blank? (get options k)) (fail! (str "--" (name k) " is required"))))
+    (when-not (#{"tenant" "private"} audience) (fail! "--audience must be tenant or private"))
+    (jdbc/with-transaction [tx ds]
+      (when manager-id
+        (let [manager (db.principals/find-by-id tx tenant-id manager-id)]
+          (when-not (and (= "human" (:principal_type manager)) (= "active" (:status manager))
+                         (#{"builder" "admin"} (:role manager)))
+            (fail! "--manager must be an active Builder or Admin of this tenant"))))
+      (let [row (db.principals/insert-principal!
+                 tx {:id (UUID/randomUUID)
+                     :tenant-id tenant-id
+                     :external-id (:subject options)
+                     :issuer (:issuer options)
+                     :principal-type "service"
+                     :status "active"
+                     :client-id (:client-id options)
+                     :name (:name options)})
+            credential-id (UUID/randomUUID)]
+        (db.api-creds/insert-credential!
+         tx {:id credential-id
+             :tenant-id tenant-id
+             :name (:name options)
+             :keycloak-client-id (:client-id options)
+             :service-user-id (:id row)
+             :manager-user-id manager-id
+             :kind "organization"
+             :default-visibility audience})
+        (audit! tx tenant-id "api_credential.register" (:id row)
+                {:credential_id (str credential-id) :audience audience})
+        row))))
+
 (defn- update-membership!
   [ds options changes]
   (let [tenant-id (uuid! options :tenant)
@@ -158,6 +206,7 @@
           ds (datasource)]
       (case command
         "provision" (print-principal (provision! ds options))
+        "register-key" (print-principal (register-key! ds options))
         "set-role" (print-principal (update-membership! ds options {:role (:role options)}))
         "set-status" (print-principal (update-membership! ds options {:status (:status options)}))
         "list" (run! print-principal (:items (db.principals/list-people ds (uuid! options :tenant) {:limit 200})))
