@@ -240,6 +240,33 @@
   /auth/* so it never travels with API or asset requests."
   {:name "id_token_hint" :path "/auth" :max-bytes 3500})
 
+(def ^:private refresh-token-cookie
+  "HttpOnly, SameSite=Strict cookie that keeps the refresh token. Sent only to
+  `POST /auth/refresh`, so it never travels with API, asset or cross-site
+  requests. JavaScript never sees it."
+  {:name "refresh_token" :path "/auth/refresh" :max-bytes 3500})
+
+(defn- set-session-cookies
+  "Set the access token cookie and, when present and small enough, the ID
+  token and refresh token cookies."
+  [resp0 config req {:keys [access-token id-token refresh-token]}]
+  (let [secure? (cookie-secure? req)]
+    (cond-> (set-cookie resp0 (token-cookie-name config) access-token {:http-only true
+                                                                        :same-site :lax
+                                                                        :secure secure?
+                                                                        :path "/"})
+      (and id-token (<= (count id-token) (:max-bytes id-token-cookie)))
+      (set-cookie (:name id-token-cookie) id-token {:http-only true
+                                                    :same-site :lax
+                                                    :secure secure?
+                                                    :path (:path id-token-cookie)})
+
+      (and refresh-token (<= (count refresh-token) (:max-bytes refresh-token-cookie)))
+      (set-cookie (:name refresh-token-cookie) refresh-token {:http-only true
+                                                              :same-site :strict
+                                                              :secure secure?
+                                                              :path (:path refresh-token-cookie)}))))
+
 (defn- api-path?
   "Return true if the request path is under /api.
 
@@ -404,10 +431,12 @@
      :body (.body resp)}))
 
 (defn- exchange-token!
-  "Exchange a code without exposing upstream bodies or transport/parser errors.
+  "Call the token endpoint without exposing upstream bodies or transport/parser errors.
 
-  Returns {:access-token string :id-token string?} on success, {:status int} on an HTTP rejection,
-  or {} when the transport or response is invalid. Logs only safe diagnostics."
+  Used for the authorization code and the refresh token grants.
+  Returns {:access-token string :id-token string? :refresh-token string?} on
+  success, {:status int} on an HTTP rejection, or {} when the transport or
+  response is invalid. Logs only safe diagnostics."
   [url params]
   (try
     (let [{:keys [status body]} (http-post-form! url params)
@@ -415,11 +444,13 @@
       (if (and status (<= 200 status 299))
         (let [response (json/read-value body (json/object-mapper {:decode-key-fn keyword}))
               token (:access_token response)
-              id-token (:id_token response)]
+              id-token (:id_token response)
+              refresh-token (:refresh_token response)]
           (when-not (and (string? token) (not (str/blank? token)))
             (throw (ex-info "Invalid token response" {:type ::invalid-token-response})))
           (cond-> {:access-token token}
-            (and (string? id-token) (not (str/blank? id-token))) (assoc :id-token id-token)))
+            (and (string? id-token) (not (str/blank? id-token))) (assoc :id-token id-token)
+            (and (string? refresh-token) (not (str/blank? refresh-token))) (assoc :refresh-token refresh-token)))
         (do
           (log/warn "Token exchange rejected" {:status status})
           {:status status})))
@@ -440,6 +471,8 @@
   - sets HttpOnly cookie with access token
   - keeps the ID token in an HttpOnly cookie scoped to /auth, used only as
     the `id_token_hint` for identity-provider logout
+  - keeps the refresh token, when the provider issues one, in an HttpOnly
+    SameSite=Strict cookie scoped to /auth/refresh
   - clears pkce cookies
   - redirects to remembered `post_login_next` cookie (or /recordings)
 
@@ -471,7 +504,7 @@
                          (throw (ex-info "Cannot determine request origin" {:type ::missing-origin})))
               redirect-uri (str origin "/auth/callback")
               token-url (:token-endpoint (provider-endpoints config))
-              {:keys [status access-token id-token]} (if token-url
+              {:keys [status access-token] :as tokens} (if token-url
                                                        (exchange-token!
                                                         token-url
                                                         {:grant_type "authorization_code"
@@ -484,23 +517,66 @@
             (json-response (if status 400 502)
                            (cond-> {:ok false :message "token-exchange-failed"}
                              status (assoc :status status)))
-            (let [cookie-name (token-cookie-name config)
-                  secure? (cookie-secure? req)
-                  resp0 (resp/redirect next0)
-                  keep-id-token? (and id-token (<= (count id-token) (:max-bytes id-token-cookie)))]
-              (-> resp0
-                  (set-cookie cookie-name access-token {:http-only true
-                                                        :same-site :lax
-                                                        :secure secure?
-                                                        :path "/"})
-                  (cond-> keep-id-token?
-                    (set-cookie (:name id-token-cookie) id-token {:http-only true
-                                                                  :same-site :lax
-                                                                  :secure secure?
-                                                                  :path (:path id-token-cookie)}))
-                  (clear-cookie "pkce_verifier")
-                  (clear-cookie "pkce_state")
-                  (clear-cookie "post_login_next")))))))))
+            (-> (resp/redirect next0)
+                (set-session-cookies config req tokens)
+                (clear-cookie "pkce_verifier")
+                (clear-cookie "pkce_state")
+                (clear-cookie "post_login_next"))))))))
+
+(defn refresh-handler
+  "Handler for `POST /auth/refresh`.
+
+  Exchanges the refresh token cookie at the provider's `token_endpoint` (from
+  OIDC discovery) and replaces the session cookies. The browser calls it
+  before the access token expires and once after a 401. Tokens never appear
+  in the response.
+
+  Requires an allowed `Origin` header. The new access token is verified like
+  any request token before it is set.
+
+  Returns:
+  - 200 {:ok true :access_expires_at epoch-ms}
+  - 401 `refresh-unavailable` (no refresh cookie) or `refresh-failed` (the
+    provider rejected it; the refresh cookie is cleared). Sign in again.
+  - 403 `forbidden` (missing or foreign Origin)
+  - 502 `token-exchange-failed`, 503 `identity-provider-unavailable`"
+  [config]
+  (fn [{:keys [cookies] :as req}]
+    (let [refresh-token (some-> cookies (get (:name refresh-token-cookie)) :value str not-empty)
+          origin (some-> (get-in req [:headers "origin"]) str not-empty)
+          allowed-origin? (requiring-resolve 'samuraibff.http.origin/allowed-origin?)
+          clear-refresh #(clear-cookie % (:name refresh-token-cookie) (:path refresh-token-cookie))]
+      (cond
+        (not (and origin (allowed-origin? config req origin)))
+        (json-response 403 {:ok false :message "forbidden"})
+
+        (or (not (oidc/auth-required? config)) (nil? refresh-token))
+        (json-response 401 {:ok false :message "refresh-unavailable"})
+
+        :else
+        (if-let [token-url (:token-endpoint (provider-endpoints config))]
+          (let [{:keys [status access-token] :as tokens}
+                (exchange-token! token-url
+                                 {:grant_type "refresh_token"
+                                  :client_id (or (get-in config [:auth :client-id])
+                                                 (get-in config [:auth :audience]))
+                                  :refresh_token refresh-token})
+                user (when access-token
+                       (try (oidc/verify-token config access-token)
+                            (catch Exception failure
+                              (log/warn "Refreshed access token rejected" (diagnostics/failure-details failure))
+                              nil)))]
+            (cond
+              user
+              (-> (json-response 200 {:ok true :access_expires_at (:expires-at-ms user)})
+                  (set-session-cookies config req tokens))
+
+              (or status access-token)
+              (clear-refresh (json-response 401 {:ok false :message "refresh-failed"}))
+
+              :else
+              (json-response 502 {:ok false :message "token-exchange-failed"})))
+          (json-response 503 {:ok false :message "identity-provider-unavailable"}))))))
 
 (defn- end-session-url
   "Return the identity provider's RP-initiated logout URL, or nil.
@@ -530,7 +606,7 @@
 (defn logout-handler
   "Handler for `POST /auth/logout`.
 
-  Clears the access token and ID token cookies. When authentication is
+  Clears the access token, ID token and refresh token cookies. When authentication is
   required and the identity provider advertises an `end_session_endpoint`,
   also returns `logout_url`: the browser must open it to end the
   identity-provider session. Without that step the provider's single sign-on
@@ -545,7 +621,8 @@
       (-> (json-response 200 (cond-> {:ok true}
                                logout-url (assoc :logout_url logout-url)))
           (clear-cookie cookie-name)
-          (clear-cookie (:name id-token-cookie) (:path id-token-cookie))))))
+          (clear-cookie (:name id-token-cookie) (:path id-token-cookie))
+          (clear-cookie (:name refresh-token-cookie) (:path refresh-token-cookie))))))
 
 (defn- realtime-track-ids
   "Return the ordered operator-configured realtime track IDs safe for UI use.
@@ -657,9 +734,11 @@
                                     :realtime_track_capabilities (realtime-track-capabilities config grpc)
                                     :features (features/feature-state config)
                                     :access (access-state req)
+                                    :access_expires_at (:expires-at-ms user)
                                     :user (into {} (remove (comp nil? val))
                                                 (select-keys user [:sub :preferred_username :email]))}
                              (nil? tenant-id-str) (dissoc :tenant_id)
+                             (not (integer? (:expires-at-ms user))) (dissoc :access_expires_at)
                              (some? tenant-name) (assoc :tenant_name tenant-name))))
       (if (oidc/auth-required? config)
         (json-response 401 {:ok false :authenticated false :message "not-authenticated"})

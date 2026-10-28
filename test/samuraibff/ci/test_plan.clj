@@ -31,6 +31,7 @@
     samuraibff.grpc.transport-test
     samuraibff.http.auth-test
     samuraibff.http.auth-privacy-test
+    samuraibff.http.auth-refresh-test
     samuraibff.http.error-security-test
     samuraibff.http.readiness-integration-test
     samuraibff.http.server-integration-test

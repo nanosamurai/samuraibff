@@ -650,6 +650,8 @@
                     [:default_selected :boolean]]]]
    [:tenant_id {:optional true} Uuid]
    [:tenant_name {:optional true} :string]
+   ;; Expiry of the current access token (epoch ms); the UI refreshes before it.
+   [:access_expires_at {:optional true} :int]
    [:user {:optional true}
     [:map
      [:sub {:optional true} :string]
