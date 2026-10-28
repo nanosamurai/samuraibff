@@ -101,7 +101,7 @@
   confirm the disable yet; sending DELETE again retries it."
   [id name refresh! retry?]
   (when (or retry?
-            (js/confirm (str "Revoke credential " name "?\n\nThis will disable the Keycloak client.")))
+            (js/confirm (str "Revoke credential " name "?\n\nApps using this credential stop working.")))
     (store/api-credentials-set-loading! true)
     (store/api-credentials-set-error! nil)
     (-> (api/revoke-api-credential! id)

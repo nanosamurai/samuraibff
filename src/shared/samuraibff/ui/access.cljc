@@ -159,6 +159,7 @@
    "not-pending" "This person has already finished setup."
    "credential-revoked" "This credential is revoked. Create a new credential instead."
    "credential-provisioning-failed" "The credential could not be created. Try again later."
+   "keycloak-admin-unavailable" "API key secrets can't be created or rotated in this app. Ask your operator."
    "access-not-provisioned" "Your account is not set up for this organization yet. Contact an Admin."
    "account-setup-pending" "Finish setting up your account from the email we sent, then sign in again."
    "account-suspended" "Your account is suspended. Contact an Admin."
