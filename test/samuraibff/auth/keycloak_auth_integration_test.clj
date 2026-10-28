@@ -198,21 +198,36 @@
 
               (let [service-id (:app_users/id (jdbc/execute-one! ds ["SELECT id FROM app_users WHERE client_id = ? AND tenant_id = ? AND principal_type = 'service'"
                                                                      client-id tenant-a]))
-                    service-session (UUID/randomUUID)
-                    _ (insert-session! ds service-session tenant-a service-id)
                     m2m-token (tc.kc/client-credentials-token!
                                token-endpoint
                                {:client-id client-id
                                 :client-secret client-secret})
-                    resp-m2m @(http/get (str base-url "/api/recordings")
-                                        {:timeout 5000
-                                         :headers (authz m2m-token)})
-                    body-m2m (parse-json-body resp-m2m)
-                    items-m2m (:items body-m2m)]
+                    me-m2m (parse-json-body @(http/get (str base-url "/api/me")
+                                                       {:timeout 5000 :headers (authz m2m-token)}))
+                    list-m2m (fn []
+                               (let [resp @(http/get (str base-url "/api/recordings")
+                                                     {:timeout 5000 :headers (authz m2m-token)})]
+                                 {:status (:status resp)
+                                  :ids (mapv :session_id (:items (parse-json-body resp)))}))
+                    before (list-m2m)
+                    created (parse-json-body @(http/post (str base-url "/api/sessions")
+                                                         {:timeout 5000
+                                                          :headers (merge (authz m2m-token)
+                                                                          {"Content-Type" "application/json"})
+                                                          :body (cheshire/generate-string {:title "via SDK"})}))
+                    after (list-m2m)
+                    owner-row (jdbc/execute-one! ds ["SELECT user_id, created_via_credential_id FROM sessions WHERE id = ?"
+                                                     (UUID/fromString (:session_id created))])]
                 (is (some? service-id) "Credential creation registers a tenant-A service principal")
-                (is (= 200 (:status resp-m2m)))
-                (is (= [(str service-session)] (mapv :session_id items-m2m))
-                    "M2M reads only its own sessions: not Alice's private session, never tenant B")))
+                (is (= "personal" (get-in me-m2m [:access :principal :api_key :kind]))
+                    "A Builder's default key is personal and acts as its owner")
+                (is (= "human" (get-in me-m2m [:access :principal :type])))
+                (is (= 200 (:status before)))
+                (is (= [] (:ids before))
+                    "A restricted personal key reads neither Alice's private session nor tenant B")
+                (is (= [(:session_id created)] (:ids after)) "It reads the session it recorded")
+                (is (some? (:sessions/created_via_credential_id owner-row)))
+                (is (not= service-id (:sessions/user_id owner-row)) "The session belongs to Alice, not the key")))
 
             (finally
               (stop-system! running))))))))
