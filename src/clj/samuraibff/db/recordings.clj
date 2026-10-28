@@ -57,9 +57,14 @@
                 :where accessible}
         page {:select [:s.id :s.tenant_id :s.user_id :s.session_key :s.title :s.status
                        :s.started_at :s.ended_at :s.created_at :s.visibility
-                       [:o.name :owner_name] [:o.email :owner_email]]
+                       :s.created_via_credential_id
+                       [:o.name :owner_name] [:o.email :owner_email]
+                       [:o.principal_type :owner_type] [:cv.name :created_via_name]
+                       [(session-access/key-manager-expr principal) :key_manager]]
               :from [[:sessions :s]]
-              :left-join [[:app_users :o] [:= :o.id :s.user_id]]
+              :left-join [[:app_users :o] [:= :o.id :s.user_id]
+                          [:api_credentials :cv] [:and [:= :cv.id :s.created_via_credential_id]
+                                                  [:= :cv.tenant_id :s.tenant_id]]]
               :where (cond-> [:and accessible]
                        (not show-drafts?) (conj visible-status))
               :order-by [[:s.created_at :desc] [:s.id :desc]]
@@ -79,6 +84,7 @@
     {:select [:counts.total :counts.drafts_count
               :p.id :p.user_id :p.session_key :p.title :p.status :p.started_at :p.ended_at :p.created_at
               :p.visibility :p.owner_name :p.owner_email
+              :p.created_via_credential_id :p.owner_type :p.created_via_name :p.key_manager
               :lr.recording_created_at :lr.duration_s :lr.sample_rate :lr.lang
               [[:is-not :lr.session_id nil] :has_recording]
               [[:is-not :ft.session_id nil] :has_final_transcript]]

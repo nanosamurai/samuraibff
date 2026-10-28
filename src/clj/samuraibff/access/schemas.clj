@@ -28,7 +28,9 @@
    [:can_manage :boolean]
    [:owner [:map
             [:display_name [:maybe :string]]
-            [:is_me :boolean]]]])
+            [:is_me :boolean]
+            [:kind {:optional true} [:enum "api_key"]]]]
+   [:via_api_key {:optional true} :string]])
 
 (def MeAccess
   "Access state and capability hints returned by GET /api/me."
@@ -40,7 +42,13 @@
      [:type [:enum "human" "service"]]
      [:role {:optional true} [:maybe Role]]
      [:display_name {:optional true} [:maybe :string]]
-     [:guest :boolean]]]
+     [:guest :boolean]
+     [:api_key {:optional true}
+      [:map
+       [:id Uuid]
+       [:name [:maybe :string]]
+       [:kind [:enum "personal" "organization"]]
+       [:read_scope {:optional true} [:enum "credential" "owner"]]]]]]
    [:capabilities {:optional true} [:map-of :keyword :boolean]]])
 
 (def UpdateSessionAccessRequest

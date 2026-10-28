@@ -2,9 +2,11 @@
   "Session read policy in SQL and atomic recording-audience changes.
 
   The read condition mirrors `samuraibff.access.policy/session-visible-to?`:
-  an active principal reads a session of its own tenant when it owns it, or,
-  for humans only, when the audience is `tenant` (Everyone) or `selected`
-  with a read grant for that principal. Ownerless legacy sessions are never
+  an active principal reads a session of its own tenant when it owns it, when
+  it manages the organization API key that owns it, or, for humans only, when
+  the audience is `tenant` (Everyone) or `selected` with a read grant for that
+  principal. A personal API key with read scope `credential` reads only the
+  sessions created with that key. Ownerless legacy sessions are never
   readable. The caller's own status is checked before any query runs.
 
   Policy is applied in the WHERE clause, before pagination, counts and column
@@ -12,7 +14,7 @@
   are matched with EXISTS, so they cannot duplicate list rows.
 
   Public API:
-  - `readable-condition`, `scope-condition`
+  - `readable-condition`, `scope-condition`, `key-manager-expr`
   - `find-accessible-session`, `list-recipients`
   - `set-audience!`"
   (:require
@@ -33,6 +35,29 @@
 (def ^:private row-opts
   {:builder-fn rs/as-unqualified-lower-maps})
 
+(defn key-manager-expr
+  "Return a HoneySQL boolean expression: the principal manages the
+  organization API key whose service principal owns session `s`.
+
+  True when the key's manager is the principal, or when the key has no
+  manager and the principal is an Admin. Always false for services and for
+  requests made with an API key (keys never get delegated rights).
+  Mirrored by `samuraibff.access.policy/manages-key-session?` through the
+  `:key_manager` column."
+  [principal]
+  (if (and (policy/human? principal) (not (policy/api-key? principal)))
+    (let [pid (:id principal)
+          tid (:tenant-id principal)]
+      [:exists {:select [1]
+                :from [[:api_credentials :kc]]
+                :where [:and [:= :kc.tenant_id tid]
+                        [:= :kc.service_user_id :s.user_id]
+                        [:= :kc.kind "organization"]
+                        (if (policy/admin? principal)
+                          [:or [:= :kc.manager_user_id pid] [:= :kc.manager_user_id nil]]
+                          [:= :kc.manager_user_id pid])]}])
+    [:= 1 0]))
+
 (defn readable-condition
   "Return a HoneySQL condition on sessions alias `s` for the principal's reads.
 
@@ -42,31 +67,42 @@
   (if-not (policy/active? principal)
     [:= 1 0]
     (let [pid (:id principal)
-          tid (:tenant-id principal)]
-      (cond-> [:and [:= :s.tenant_id tid] [:is-not :s.user_id nil]]
-        true
-        (conj (if (policy/human? principal)
-                [:or
-                 [:= :s.user_id pid]
-                 [:= :s.visibility "tenant"]
-                 [:and [:= :s.visibility "selected"]
-                  [:exists {:select [1]
-                            :from [[:session_access_grants :g]]
-                            :where [:and [:= :g.session_id :s.id]
-                                    [:= :g.tenant_id tid]
-                                    [:= :g.user_id pid]]}]]]
-                [:= :s.user_id pid]))))))
+          tid (:tenant-id principal)
+          key-id (get-in principal [:credential :id])
+          restricted? (and (policy/personal-key? principal)
+                           (not= :owner (get-in principal [:credential :read-scope])))]
+      (conj [:and [:= :s.tenant_id tid] [:is-not :s.user_id nil]]
+            (cond
+              restricted?
+              [:and [:= :s.user_id pid] [:= :s.created_via_credential_id key-id]]
+
+              (policy/human? principal)
+              [:or
+               [:= :s.user_id pid]
+               (key-manager-expr principal)
+               [:= :s.visibility "tenant"]
+               [:and [:= :s.visibility "selected"]
+                [:exists {:select [1]
+                          :from [[:session_access_grants :g]]
+                          :where [:and [:= :g.session_id :s.id]
+                                  [:= :g.tenant_id tid]
+                                  [:= :g.user_id pid]]}]]]
+
+              :else
+              [:= :s.user_id pid])))))
 
 (defn scope-condition
   "Return the condition for a Sessions view scope.
 
-  Inputs: principal map, scope keyword :all | :mine | :shared.
+  Inputs: principal map, scope keyword :all | :mine | :shared. `:mine`
+  includes sessions of organization keys the principal manages.
   Returns: HoneySQL condition vector on sessions alias `s`."
   [principal scope]
-  (let [readable (readable-condition principal)]
+  (let [readable (readable-condition principal)
+        mine [:or [:= :s.user_id (:id principal)] (key-manager-expr principal)]]
     (case scope
-      :mine [:and readable [:= :s.user_id (:id principal)]]
-      :shared [:and readable [:<> :s.user_id (:id principal)]]
+      :mine [:and readable mine]
+      :shared [:and readable [:not mine]]
       readable)))
 
 (defn find-accessible-session
@@ -77,16 +113,21 @@
 
   Inputs: connectable, principal map, session UUID.
   Returns: session row with :visibility :access_revision :owner_name
-  :owner_email, or nil."
+  :owner_email :owner_type :created_via_credential_id :created_via_name
+  :key_manager, or nil."
   [connectable principal ^UUID session-id]
   (jdbc/execute-one!
    connectable
    (sql/format {:select [:s.id :s.session_key :s.tenant_id :s.user_id :s.title :s.status
                          :s.started_at :s.ended_at :s.stream_controls :s.created_at
-                         :s.visibility :s.access_revision
-                         [:o.name :owner_name] [:o.email :owner_email]]
+                         :s.visibility :s.access_revision :s.created_via_credential_id
+                         [:o.name :owner_name] [:o.email :owner_email]
+                         [:o.principal_type :owner_type] [:cv.name :created_via_name]
+                         [(key-manager-expr principal) :key_manager]]
                 :from [[:sessions :s]]
-                :left-join [[:app_users :o] [:= :o.id :s.user_id]]
+                :left-join [[:app_users :o] [:= :o.id :s.user_id]
+                            [:api_credentials :cv] [:and [:= :cv.id :s.created_via_credential_id]
+                                                    [:= :cv.tenant_id :s.tenant_id]]]
                 :where [:and [:= :s.id session-id] (readable-condition principal)]})
    row-opts))
 
@@ -106,13 +147,16 @@
         row-opts)))
 
 (defn- lock-session!
+  "Lock the session row with the columns the sharing policy needs."
   [tx principal ^UUID session-id]
   (jdbc/execute-one!
    tx
-   (sql/format (-> (h/select :id :tenant_id :user_id :visibility :access_revision)
-                   (h/from :sessions)
-                   (h/where [:= :id session-id] [:= :tenant_id (:tenant-id principal)])
-                   (h/for :update)))
+   (sql/format {:select [:s.id :s.tenant_id :s.user_id :s.visibility :s.access_revision
+                         :s.created_via_credential_id
+                         [(key-manager-expr principal) :key_manager]]
+                :from [[:sessions :s]]
+                :where [:and [:= :s.id session-id] [:= :s.tenant_id (:tenant-id principal)]]
+                :for [:update :s]})
    row-opts))
 
 (defn- granted?
@@ -161,7 +205,7 @@
 
   Inputs: DataSource, principal map, session UUID,
   {:visibility string :recipient-ids [uuid] :revision long}.
-  Returns {:ok? true :visibility :revision :recipients} or
+  Returns {:ok? true :visibility :revision :recipients :owner?} or
   {:ok? false :error kw :revision long?} with error one of :not-found
   :forbidden :conflict :invalid-visibility :recipients-required
   :recipients-not-allowed :too-many-recipients :invalid-recipients."
@@ -213,4 +257,5 @@
             {:ok? true
              :visibility visibility
              :revision new-revision
+             :owner? (policy/owns-session? principal row)
              :recipients (list-recipients tx tenant-id session-id)}))))))

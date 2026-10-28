@@ -100,6 +100,10 @@
   - Expects `wrap-principal` to have attached an active principal. The session
     is owned by that principal and bound to its tenant. With authentication
     disabled this is the explicit guest principal.
+  - A session created with an API key records that key. A personal key's
+    session is owned by the key's owner; an organization key's session is
+    owned by its service principal and starts with the key's default
+    audience.
   - Requested workflow/webhook overrides must be usable by the owner.
 
   Returns:
@@ -150,6 +154,9 @@
            {:id session-uuid
             :tenant-id tenant-id-uuid
             :user-id (:id principal)
+            :created-via-credential-id (get-in principal [:credential :id])
+            :visibility (when (= :organization (get-in principal [:credential :kind]))
+                          (get-in principal [:credential :default-visibility]))
             :session-key session-key
             :title title'
             :status "created"

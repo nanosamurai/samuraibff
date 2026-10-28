@@ -2,7 +2,8 @@
   "Authorize session-scoped HTTP operations before any content is loaded.
 
   Read operations need `can-read` (owner, Everyone audience or a read grant).
-  Mutations need `can-manage` (active owner only). An inaccessible session is
+  Mutations need `can-manage` (active owner, or the manager of the
+  organization API key that owns the session). An inaccessible session is
   reported as not found, so responses never confirm that it exists. A reader
   who attempts a mutation receives 403 `read-only-access`.
 
@@ -52,14 +53,19 @@
   "Return the caller-relative access fields for a session row.
 
   Output: {:visibility string :is_owner boolean :can_manage boolean
-           :owner {:display_name string? :is_me boolean}}."
+           :owner {:display_name string? :is_me boolean :kind string?}
+           :via_api_key string?}. `:owner :kind` is \"api_key\" for sessions
+  owned by an organization API key; `:via_api_key` names the API key that
+  created the session."
   [principal session]
   (let [owner? (policy/owns-session? principal session)]
-    {:visibility (or (:visibility session) "private")
-     :is_owner owner?
-     :can_manage (policy/can-manage-session? principal session)
-     :owner {:display_name (or (:owner_name session) (:owner_email session))
-             :is_me owner?}}))
+    (cond-> {:visibility (or (:visibility session) "private")
+             :is_owner owner?
+             :can_manage (policy/can-manage-session? principal session)
+             :owner (cond-> {:display_name (or (:owner_name session) (:owner_email session))
+                             :is_me owner?}
+                      (= "service" (:owner_type session)) (assoc :kind "api_key"))}
+      (:created_via_name session) (assoc :via_api_key (:created_via_name session)))))
 
 (defn error-response
   "Map an access ex-info type to a fixed JSON response, or nil when unrelated."

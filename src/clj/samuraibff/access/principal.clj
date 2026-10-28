@@ -12,6 +12,11 @@
   - Machine principals must present a token whose authorized party (`azp`)
     is the bound client id. Type is read from the database, never inferred
     from usernames or missing email.
+  - An API key's service principal is then bound to its credential row. A
+    revoked credential is suspended. A personal key resolves to its owner,
+    who must be an active Builder or Admin, with `:credential` attached; an
+    organization key stays its service principal with `:credential`
+    attached. Keycloak is not involved in this step.
   - Unknown identities are not provisioned automatically.
   - A pending human becomes active only after a login with a verified email.
   - Authentication-disabled mode resolves the explicit guest principal.
@@ -31,6 +36,7 @@
    [org.corfield.logging4j2 :as log]
    [samuraibff.access.policy :as policy]
    [samuraibff.auth.oidc :as oidc]
+   [samuraibff.db.api-credentials :as db.api-creds]
    [samuraibff.db.principals :as db.principals]
    [samuraibff.observability.diagnostics :as diagnostics])
   (:import
@@ -62,7 +68,43 @@
   (cond-> {}
     principal (assoc :tenant_id (str (:tenant-id principal))
                      :principal_id (str (:id principal))
-                     :principal_type (some-> (:type principal) name))))
+                     :principal_type (some-> (:type principal) name))
+    (:credential principal) (assoc :credential_id (str (get-in principal [:credential :id])))))
+
+(defn- credential-map
+  [row]
+  {:id (:id row)
+   :name (:name row)
+   :kind (keyword (:kind row))
+   :read-scope (keyword (:read_scope row))
+   :default-visibility (:default_visibility row)})
+
+(defn- bind-credential
+  "Attach the API key of an active service principal, or resolve a personal
+  key to its owner. Returns {:state keyword :principal map?}."
+  [ds principal]
+  (let [credential (when (= :service (:type principal))
+                     (db.api-creds/find-by-service-user ds (:tenant-id principal) (:id principal)))]
+    (cond
+      (nil? credential)
+      {:state :active :principal principal}
+
+      (some? (:revoked_at credential))
+      {:state :suspended}
+
+      (= "personal" (:kind credential))
+      (let [owner (some->> (:manager_user_id credential)
+                           (db.principals/find-by-id ds (:tenant-id principal))
+                           row->principal)]
+        (if (and (policy/human? owner)
+                 (not (policy/guest? owner))
+                 (policy/can-create-credential? owner :personal))
+          {:state :active :principal (assoc owner :credential (credential-map credential))}
+          (do (log/info "Personal API key owner cannot use keys" {:credential_id (str (:id credential))})
+              {:state :suspended})))
+
+      :else
+      {:state :active :principal (assoc principal :credential (credential-map credential))})))
 
 (defn- guest-tenant-uuid
   [config]
@@ -120,7 +162,7 @@
                   row)]
         (case (:status row)
           "active" (do (db.principals/touch-last-seen! ds (:id row))
-                       {:state :active :principal (row->principal row)})
+                       (bind-credential ds (row->principal row)))
           "pending" {:state :pending}
           {:state :suspended})))))
 

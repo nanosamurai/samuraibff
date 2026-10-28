@@ -45,12 +45,12 @@
 
 (defn- access-body
   [principal session recipients]
-  (let [owner? (policy/owns-session? principal session)]
+  (let [manager? (policy/can-manage-session? principal session)]
     (cond-> (merge {:ok true
                     :session_id (str (:id session))
                     :revision (long (:access_revision session))}
                    (session-guard/access-summary principal session))
-      owner? (assoc :recipients (mapv recipient->api recipients)))))
+      manager? (assoc :recipients (mapv recipient->api recipients)))))
 
 (defn- handle-errors
   [e]
@@ -65,15 +65,16 @@
 (defn get-access-handler
   "Handler for GET /api/sessions/:session_id/access.
 
-  Readers get the audience and their own read-only state; only the owner sees
-  the recipient list. Inaccessible sessions return 404."
+  Readers get the audience and their own read-only state; only whoever may
+  manage the session (owner or organization key manager) sees the recipient
+  list. Inaccessible sessions return 404."
   [{:keys [db]}]
   (fn [req]
     (try
       (let [ds (or (:ds db) (throw (ex-info "db" {:type :samuraibff.http/missing-datasource})))
             principal (session-guard/require-principal! req)
             session (session-guard/require-readable-session! ds req (path-session-id req))
-            recipients (when (policy/owns-session? principal session)
+            recipients (when (policy/can-manage-session? principal session)
                          (session-access/list-recipients ds (:tenant-id principal) (:id session)))]
         (json-response 200 (access-body principal session recipients)))
       (catch clojure.lang.ExceptionInfo e (handle-errors e)))))
@@ -120,7 +121,7 @@
                                 :session_id (str session-id)
                                 :visibility (:visibility result)
                                 :revision (:revision result)
-                                :is_owner true
+                                :is_owner (boolean (:owner? result))
                                 :can_manage true
                                 :recipients (mapv recipient->api (:recipients result))}))
           (let [[status message] (get error-statuses (:error result) [400 "invalid-request"])]

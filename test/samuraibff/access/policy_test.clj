@@ -50,8 +50,77 @@
     (is (policy/can-manage-definition? admin personal))
     (is (not (policy/can-manage-definition? bob published)))
     (is (not (policy/can-view-definition? alice personal)))
-    (is (not (policy/can-use-definition? service published)))
+    (is (policy/can-use-definition? service published) "organization keys run published definitions")
+    (is (not (policy/can-use-definition? service personal)))
     (is (not (policy/can-use-definition? (assoc bob :role :member) personal)) "demotion stops use")))
+
+(def ^:private key-id #uuid "00000000-0000-0000-0000-0000000000c1")
+(def ^:private other-key-id #uuid "00000000-0000-0000-0000-0000000000c2")
+
+(defn- personal-key [owner read-scope]
+  (assoc owner :credential {:id key-id :name "sdk" :kind :personal :read-scope read-scope}))
+
+(deftest personal-key-policy-test
+  (let [restricted (personal-key admin :credential)
+        broad (personal-key admin :owner)
+        via-key (assoc (session admin "private") :created_via_credential_id key-id)
+        via-other (assoc (session admin "private") :created_via_credential_id other-key-id)
+        ui-session (session admin "private")
+        colleague (session alice "tenant")]
+    (testing "a restricted key reads and manages only sessions it created"
+      (is (policy/session-visible-to? restricted via-key false))
+      (is (policy/can-manage-session? restricted via-key))
+      (is (not (policy/session-visible-to? restricted via-other false)))
+      (is (not (policy/session-visible-to? restricted ui-session false)))
+      (is (not (policy/can-manage-session? restricted ui-session)))
+      (is (not (policy/session-visible-to? restricted colleague false))))
+    (testing "an owner-scope key reads what its owner reads"
+      (is (policy/session-visible-to? broad ui-session false))
+      (is (policy/session-visible-to? broad colleague false))
+      (is (policy/can-manage-session? broad ui-session)))
+    (testing "keys never administer, even for an Admin owner"
+      (doseq [k [restricted broad]]
+        (is (not (policy/can-manage-people? k)))
+        (is (nil? (policy/credential-scope k)))
+        (is (not (policy/can-create-credential? k :personal)))
+        (is (not (policy/can-author-integrations? k)))
+        (is (not (policy/can-publish-definitions? k)))
+        (is (not (policy/can-manage-defaults? k)))
+        (is (not (policy/can-manage-definition? k {:availability "published"})))))
+    (testing "the owner's definitions still run for key sessions"
+      (is (policy/can-use-definition? restricted {:availability "personal" :owner_user_id (:id admin)})))))
+
+(deftest organization-key-policy-test
+  (let [org-key (assoc service :credential {:id key-id :kind :organization :default-visibility "tenant"})
+        key-session (session service "private")
+        managed (assoc key-session :key_manager true)]
+    (testing "the service principal owns its sessions"
+      (is (policy/can-manage-session? org-key key-session)))
+    (testing "the key manager manages key sessions; others only read by audience"
+      (is (policy/can-manage-session? bob managed))
+      (is (policy/session-visible-to? bob managed false))
+      (is (not (policy/can-manage-session? alice key-session)))
+      (is (not (policy/session-visible-to? alice key-session false))))
+    (testing "manager rights never flow through an API key"
+      (is (not (policy/can-manage-session? (personal-key bob :owner) managed))))
+    (testing "manager rights stay within the tenant"
+      (is (not (policy/can-manage-session? foreign managed))))))
+
+(deftest credential-rights-test
+  (let [bob-personal {:kind "personal" :manager_user_id (:id bob)}
+        org {:kind "organization" :manager_user_id (:id bob)}]
+    (is (policy/can-create-credential? bob :personal))
+    (is (not (policy/can-create-credential? bob :organization)))
+    (is (policy/can-create-credential? admin :organization))
+    (is (not (policy/can-create-credential? alice :personal)) "Members do not create keys")
+    (is (policy/can-rotate-credential? bob bob-personal))
+    (is (policy/can-manage-credential? admin bob-personal) "Admins may revoke any key")
+    (is (not (policy/can-rotate-credential? admin bob-personal))
+        "a rotated personal secret would act as its owner")
+    (is (policy/can-rotate-credential? bob org))
+    (is (policy/can-configure-credential? admin org))
+    (is (not (policy/can-configure-credential? bob org)))
+    (is (not (policy/can-configure-credential? admin bob-personal)))))
 
 (deftest capability-and-credential-test
   (is (= :all (policy/credential-scope admin)))

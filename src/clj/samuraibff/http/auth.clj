@@ -582,17 +582,24 @@
 (defn- access-state
   "Return the /api/me access block for the request principal.
 
-  Inactive states carry no principal, tenant or capability data."
+  Inactive states carry no principal, tenant or capability data. A request
+  made with an API key also describes that key (`api_key`)."
   [req]
   (let [principal (:auth/principal req)
-        state (or (:auth/access-state req) :unavailable)]
+        state (or (:auth/access-state req) :unavailable)
+        credential (:credential principal)]
     (if (policy/active? principal)
       {:state "active"
-       :principal {:id (str (:id principal))
-                   :type (name (:type principal))
-                   :role (some-> (:role principal) name)
-                   :display_name (or (:name principal) (:email principal))
-                   :guest (boolean (:guest? principal))}
+       :principal (cond-> {:id (str (:id principal))
+                           :type (name (:type principal))
+                           :role (some-> (:role principal) name)
+                           :display_name (or (:name principal) (:email principal))
+                           :guest (boolean (:guest? principal))}
+                    credential (assoc :api_key (cond-> {:id (str (:id credential))
+                                                        :name (:name credential)
+                                                        :kind (name (:kind credential))}
+                                                 (= :personal (:kind credential))
+                                                 (assoc :read_scope (name (:read-scope credential))))))
        :capabilities (policy/capabilities principal)}
       {:state (case state
                 :not-provisioned "not_provisioned"
