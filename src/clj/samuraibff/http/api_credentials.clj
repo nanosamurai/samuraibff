@@ -4,15 +4,21 @@
   Endpoints (under /api, auth required):
   - GET    /api/api-credentials              ; list
   - POST   /api/api-credentials              ; create (returns secret once)
+  - PATCH  /api/api-credentials/:id          ; organization key manager/audience
   - POST   /api/api-credentials/:id/rotate   ; rotate secret (returns secret once)
   - DELETE /api/api-credentials/:id          ; revoke
 
+  Kinds: `personal` (default; acts as its creator, Builder or Admin) and
+  `organization` (Admin only; owns its sessions, which start with the key's
+  audience and are managed by its manager).
+
   Access (`samuraibff.access.policy/credential-scope`):
-  - Admin lists and manages every tenant credential. Legacy credentials
-    without a manager are Admin-managed.
+  - Admin lists every tenant credential, revokes any, and configures
+    organization keys. Legacy credentials without a manager are Admin-managed.
   - Builder lists and manages only credentials they manage.
-  - Members and services get 403. A credential the caller may not manage is
-    reported as 404.
+  - Only a personal key's owner rotates it (a new secret acts as the owner).
+  - Members, services and API keys get 403. A credential the caller may not
+    manage is reported as 404.
 
   Lifecycle rules (service principal, compensation, revocation) live in
   `samuraibff.api-credentials.lifecycle`.
@@ -23,7 +29,7 @@
   - We never store secrets in Postgres; only Keycloak client id and audit.
 
   Public API:
-  - the four handlers
+  - the five handlers
   - `revoke-managed-credentials-for-manager!` (People flow hook)"
   (:require
    [clojure.string :as str]
@@ -84,6 +90,8 @@
    :samuraibff.http/missing-keycloak-admin [503 "keycloak-admin-unavailable"]
    :samuraibff.api-credentials/issuer-missing [503 "auth-issuer-not-configured"]
    :samuraibff.api-credentials/revoked [400 "credential-revoked"]
+   :samuraibff.api-credentials/invalid-manager [400 "invalid-manager"]
+   :samuraibff.api-credentials/rotate-forbidden [403 "owner-only-rotation"]
    :samuraibff.api-credentials/provisioning-failed [502 "credential-provisioning-failed"]})
 
 (defn- failure-response
@@ -127,9 +135,14 @@
    :last_used_at (some-> (:last_used_at row) str)
    :revoked_at (some-> (:revoked_at row) str)
    :manager (manager-view principal row)
+   :kind (or (:kind row) "organization")
+   :read_scope (or (:read_scope row) "credential")
+   :audience (or (:default_visibility row) "private")
    :service_principal_registered (some? (:service_user_id row))
    :identity_sync_state (or (:identity_sync_state row) "synced")
-   :can_manage (policy/can-manage-credential? principal row)})
+   :can_manage (policy/can-manage-credential? principal row)
+   :can_rotate (policy/can-rotate-credential? principal row)
+   :can_configure (policy/can-configure-credential? principal row)})
 
 (defn list-api-credentials-handler
   "Handler for GET /api/api-credentials.
@@ -158,12 +171,15 @@
 (defn create-api-credential-handler
   "Handler for POST /api/api-credentials.
 
-  Body (JSON): {\"name\": \"...\"}. Builder or Admin only; the caller becomes
-  the credential manager.
+  Body (JSON): {\"name\": \"...\", \"kind\": \"personal\"|\"organization\",
+  \"read_scope\": \"credential\"|\"owner\" (personal), \"audience\":
+  \"private\"|\"tenant\" (organization), \"manager_id\": uuid (organization)}.
+  Personal keys: Builder or Admin, owned by the caller. Organization keys:
+  Admin only.
 
   Returns:
   - 200 {ok true, credential_id, client_id, client_secret}
-  - 400 missing-name, 403 forbidden
+  - 400 missing-name / invalid-manager, 403 forbidden
   - 502 keycloak-admin-error / credential-provisioning-failed
   - 503 db-unavailable / keycloak-admin-unavailable / auth-issuer-not-configured"
   [{:keys [config db keycloak-admin]}]
@@ -171,13 +187,24 @@
     (try
       (let [principal (require-credential-manager! req)
             ds (require-ds! db)
-            name (some-> (or (get-in req [:body-params :name]) (get-in req [:params :name])) str str/trim)
+            body (or (get-in req [:parameters :body]) (:body-params req) {})
+            name (some-> (or (:name body) (get-in req [:params :name])) str str/trim)
             _ (when (str/blank? name)
                 (throw (ex-info "Missing name" {:type :samuraibff.http/missing-name})))
+            kind (or (some-> (:kind body) str) "personal")
+            _ (when-not (policy/can-create-credential? principal (keyword kind))
+                (throw (ex-info "Forbidden" {:type :samuraibff.http/forbidden})))
+            manager-id (when (some? (:manager_id body))
+                         (or (parse-uuid-or-nil (:manager_id body))
+                             (throw (ex-info "Invalid manager" {:type :samuraibff.api-credentials/invalid-manager}))))
             kc (require-keycloak-admin! keycloak-admin)
             {:keys [credential-id client-id client-secret]}
             (lifecycle/create-credential! ds config kc principal
                                           {:name name
+                                           :kind kind
+                                           :read-scope (or (some-> (:read_scope body) str) "credential")
+                                           :default-visibility (or (some-> (:audience body) str) "private")
+                                           :manager-id manager-id
                                            :created-by-sub (get-in req [:auth/user :sub])})]
         (json-response 200 {:ok true
                             :credential_id (str credential-id)
@@ -186,12 +213,46 @@
       (catch Exception e
         (failure-response e "Failed creating api credential")))))
 
+(defn configure-api-credential-handler
+  "Handler for PATCH /api/api-credentials/:id (organization keys, Admin only).
+
+  Body (JSON): {\"manager_id\": uuid|null, \"audience\": \"private\"|\"tenant\"};
+  absent keys stay. A null manager hands the key to Admins. The audience
+  applies to sessions created afterwards.
+
+  Returns:
+  - 200 {ok true, item}
+  - 400 invalid-id / invalid-manager, 403 forbidden, 404 not-found"
+  [{:keys [db]}]
+  (fn [req]
+    (try
+      (let [principal (require-credential-manager! req)
+            ds (require-ds! db)
+            cred-uuid (require-path-id! req)
+            body (or (get-in req [:parameters :body]) (:body-params req) {})
+            changes (cond-> {}
+                      (contains? body :manager_id)
+                      (assoc :manager-id (when (some? (:manager_id body))
+                                           (or (parse-uuid-or-nil (:manager_id body))
+                                               (throw (ex-info "Invalid manager"
+                                                               {:type :samuraibff.api-credentials/invalid-manager})))))
+                      (contains? body :audience)
+                      (assoc :default-visibility (str (:audience body))))
+            _ (lifecycle/configure-credential! ds principal cred-uuid changes)
+            row (some #(when (= cred-uuid (:id %)) %)
+                      (db.api-creds/list-credentials ds (:tenant-id principal) {}))]
+        (json-response 200 {:ok true
+                            :item (credential-row->api-item principal (:tenant-id principal) row)}))
+      (catch Exception e
+        (failure-response e "Failed configuring api credential")))))
+
 (defn rotate-api-credential-handler
   "Handler for POST /api/api-credentials/:id/rotate.
 
   Returns:
   - 200 {ok true, credential_id, client_id, client_secret}
-  - 400 invalid-id / credential-revoked, 403 forbidden, 404 not-found
+  - 400 invalid-id / credential-revoked, 403 forbidden / owner-only-rotation,
+    404 not-found
   - 503 keycloak-admin-unavailable"
   [{:keys [db keycloak-admin]}]
   (fn [req]
@@ -236,6 +297,7 @@
 
   Inputs: router deps map {:db {:ds DataSource} :keycloak-admin KeycloakAdmin?},
   tenant UUID, manager UUID. Call after the demotion or suspension commits.
+  Personal keys are revoked; organization keys become Admin-managed.
   Delegates to `samuraibff.api-credentials.lifecycle/revoke-managed-credentials!`
   (audited as system). Upstream failures never throw: they leave
   `disable_pending`. Returns nil. Throws only when the local revocation

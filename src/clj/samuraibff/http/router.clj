@@ -686,7 +686,17 @@
                                 503 {:body schemas/ApiErrorResponse}}
                     :handler (http.api-creds/rotate-api-credential-handler deps)}}]
            ["/api-credentials/:id"
-            {:delete {:summary "Revoke API credential"
+            {:patch {:summary "Configure organization API key"
+                     :description "Changes the manager or default audience of an organization API key (Admin only)."
+                     :parameters {:path [:map [:id :string]]
+                                  :body schemas/ConfigureApiCredentialRequest}
+                     :responses {200 {:body schemas/ConfigureApiCredentialResponse}
+                                 400 {:body schemas/ApiErrorResponse}
+                                 403 {:body schemas/ApiErrorResponse}
+                                 404 {:body schemas/ApiErrorResponse}
+                                 503 {:body schemas/ApiErrorResponse}}
+                     :handler (http.api-creds/configure-api-credential-handler deps)}
+             :delete {:summary "Revoke API credential"
                       :description "Revokes the API credential for the current tenant."
                       :parameters {:path [:map [:id :string]]}
                       :responses {200 {:body schemas/ApiOkResponse}

@@ -9,6 +9,13 @@
   - suspending the principal stops every token of the client on the next
     request, before Keycloak is updated.
 
+  Kinds (stored in Postgres only; the Keycloak client is identical):
+  - personal: owned by its creator (the manager). Requests act as that person,
+    limited by the key's read scope. Only the owner rotates it.
+  - organization: created by an Admin. Requests act as the service principal,
+    which owns its sessions; new sessions get the key's default audience.
+    The manager (any Builder/Admin, or none = Admin-managed) manages them.
+
   Rules:
   - Create registers the principal before the secret is returned. When
     registration fails, the Keycloak client is deleted (or at least disabled)
@@ -19,17 +26,20 @@
     `pending`. Repeating the revoke retries the upstream call.
   - Rotation keeps the principal active. Revoked credentials cannot rotate.
   - Nothing reactivates a suspended service principal.
+  - When a person loses Builder rights or is suspended, their personal keys
+    are revoked and their organization keys become Admin-managed.
 
   Audit events never contain secrets.
 
   Public API:
   - `register-credential!`, `create-credential!`, `rotate-credential!`,
-    `revoke-credential!`, `revoke-managed-credentials!`"
+    `revoke-credential!`, `revoke-managed-credentials!`, `configure-credential!`"
   (:require
    [clojure.string :as str]
    [next.jdbc :as jdbc]
    [org.corfield.logging4j2 :as log]
    [samuraibff.access.policy :as policy]
+   [samuraibff.access.principal :as access.principal]
    [samuraibff.db.api-credentials :as db.api-creds]
    [samuraibff.db.audit :as db.audit]
    [samuraibff.db.principals :as db.principals]
@@ -57,10 +67,12 @@
 
   Inputs: DataSource and
   {:tenant-id uuid :credential-id uuid :name string :client-id string
-   :service-account-id string :issuer string :manager principal-map
+   :service-account-id string :issuer string :actor principal-map
+   :manager-id uuid? :kind string :read-scope string :default-visibility string
    :created-by-sub string?}
   Returns: {:credential-id uuid :service-user-id uuid}. Throws on DB failure."
-  [ds {:keys [tenant-id credential-id name client-id service-account-id issuer manager created-by-sub]}]
+  [ds {:keys [tenant-id credential-id name client-id service-account-id issuer actor manager-id
+              kind read-scope default-visibility created-by-sub]}]
   (jdbc/with-transaction [tx ds]
     (let [service-user-id (util.uuid/uuid7)]
       (db.principals/insert-principal! tx {:id service-user-id
@@ -77,10 +89,14 @@
                                            :name name
                                            :keycloak-client-id client-id
                                            :created-by-sub created-by-sub
-                                           :manager-user-id (:id manager)
-                                           :service-user-id service-user-id})
-      (audit! tx tenant-id manager "credential.create" credential-id "succeeded"
-              {:name name :service_user_id (str service-user-id)})
+                                           :manager-user-id manager-id
+                                           :service-user-id service-user-id
+                                           :kind kind
+                                           :read-scope read-scope
+                                           :default-visibility default-visibility})
+      (audit! tx tenant-id actor "credential.create" credential-id "succeeded"
+              {:name name :kind kind :read_scope read-scope :default_visibility default-visibility
+               :manager_user_id (some-> manager-id str) :service_user_id (str service-user-id)})
       {:credential-id credential-id :service-user-id service-user-id})))
 
 (defn- compensate-client!
@@ -103,27 +119,52 @@
                             :tenant_id (str tenant-id)
                             :keycloak_client_id client-id)))))))
 
+(defn- eligible-manager!
+  "Return the id of an active Builder/Admin of the tenant, else throw."
+  [ds tenant-id manager-id]
+  (let [manager (some->> manager-id (db.principals/find-by-id ds tenant-id) access.principal/row->principal)]
+    (if (and (policy/human? manager)
+             (not (policy/guest? manager))
+             (policy/can-create-credential? manager :personal))
+      (:id manager)
+      (throw (ex-info "Invalid manager" {:type :samuraibff.api-credentials/invalid-manager})))))
+
 (defn create-credential!
   "Create a Keycloak client, register its service principal and return the secret.
 
   Inputs: DataSource, config map (uses [:auth :issuer] and [:auth :audience]),
-  KeycloakAdmin, manager principal map (Builder/Admin), {:name string
-  :created-by-sub string?}.
+  KeycloakAdmin, creator principal map (Builder/Admin), {:name string
+  :created-by-sub string? :kind \"personal\"|\"organization\"
+  :read-scope \"credential\"|\"owner\" :default-visibility \"private\"|\"tenant\"
+  :manager-id uuid?}. A personal key is managed by its creator; an
+  organization key by manager-id (an active Builder/Admin) or by Admins.
   Returns: {:credential-id uuid :client-id string :client-secret string}.
   Throws:
+  - ex-info {:type :samuraibff.http/forbidden} when the creator may not
+    create this kind, {:type :samuraibff.api-credentials/invalid-manager}
+    for an ineligible manager, both before any upstream call;
   - ex-info {:type :samuraibff.api-credentials/issuer-missing} before any
     upstream call when the token issuer is not configured;
   - Keycloak admin ex-info from client creation (nothing to compensate);
   - ex-info {:type :samuraibff.api-credentials/provisioning-failed} after the
     client was created but the principal could not be registered (the client
     is deleted or disabled first)."
-  [ds config keycloak-admin manager {:keys [name created-by-sub]}]
-  (let [tenant-id (:tenant-id manager)
+  [ds config keycloak-admin creator {:keys [name created-by-sub kind read-scope default-visibility manager-id]
+                                     :or {kind "personal" read-scope "credential" default-visibility "private"}}]
+  (let [tenant-id (:tenant-id creator)
+        personal? (= "personal" kind)
+        _ (when-not (policy/can-create-credential? creator (keyword kind))
+            (throw (ex-info "Forbidden" {:type :samuraibff.http/forbidden})))
+        manager-id (cond
+                     personal? (:id creator)
+                     (some? manager-id) (eligible-manager! ds tenant-id manager-id)
+                     :else nil)
         issuer (some-> (get-in config [:auth :issuer]) str str/trim not-empty)
         _ (when-not issuer
             (throw (ex-info "Token issuer not configured" {:type :samuraibff.api-credentials/issuer-missing})))
         _ (log/info "Creating API credential" {:tenant_id (str tenant-id)
-                                               :principal_id (str (:id manager))})
+                                               :principal_id (str (:id creator))
+                                               :kind kind})
         {:keys [client-id client-secret]} (kc.admin/create-m2m-client!
                                            keycloak-admin
                                            {:tenant-id (str tenant-id)
@@ -140,7 +181,11 @@
                                   :client-id client-id
                                   :service-account-id service-account-id
                                   :issuer issuer
-                                  :manager manager
+                                  :actor creator
+                                  :manager-id manager-id
+                                  :kind kind
+                                  :read-scope (if personal? read-scope "credential")
+                                  :default-visibility (if personal? "private" default-visibility)
                                   :created-by-sub created-by-sub}))
       (catch Exception failure
         (log/error "Failed registering API credential principal" (diagnostics/failure-details failure))
@@ -158,6 +203,33 @@
     row
     (throw (ex-info "Not found" {:type :samuraibff.http/not-found}))))
 
+(defn configure-credential!
+  "Change an organization key's manager and/or default audience (Admin only).
+
+  Inputs: DataSource, Admin principal, credential UUID,
+  {:manager-id uuid-or-nil? :default-visibility \"private\"|\"tenant\"?}
+  (absent keys stay; a nil manager-id hands the key to Admins). The new
+  audience applies to sessions created afterwards.
+  Returns: the updated credential row.
+  Throws :samuraibff.http/not-found (absent, personal or not configurable)
+  or :samuraibff.api-credentials/invalid-manager."
+  [ds principal ^UUID credential-id changes]
+  (let [tenant-id (:tenant-id principal)]
+    (jdbc/with-transaction [tx ds]
+      (let [row (db.api-creds/lock-credential tx tenant-id credential-id)
+            _ (when-not (and row (policy/can-configure-credential? principal row))
+                (throw (ex-info "Not found" {:type :samuraibff.http/not-found})))
+            changes (cond-> {}
+                      (contains? changes :manager-id)
+                      (assoc :manager-user-id (some->> (:manager-id changes) (eligible-manager! tx tenant-id)))
+                      (contains? changes :default-visibility)
+                      (assoc :default-visibility (:default-visibility changes)))
+            updated (or (db.api-creds/update-settings! tx tenant-id credential-id changes) row)]
+        (audit! tx tenant-id principal "credential.configure" credential-id "succeeded"
+                {:manager_user_id (some-> (:manager_user_id updated) str)
+                 :default_visibility (:default_visibility updated)})
+        updated))))
+
 (defn rotate-credential!
   "Rotate the client secret of a manageable, non-revoked credential.
 
@@ -168,6 +240,8 @@
   [ds keycloak-admin principal ^UUID credential-id]
   (let [tenant-id (:tenant-id principal)
         row (manageable-row! principal (db.api-creds/find-credential ds tenant-id credential-id))
+        _ (when-not (policy/can-rotate-credential? principal row)
+            (throw (ex-info "Forbidden" {:type :samuraibff.api-credentials/rotate-forbidden})))
         _ (when (:revoked_at row)
             (throw (ex-info "Credential revoked" {:type :samuraibff.api-credentials/revoked})))
         {:keys [client-secret]} (kc.admin/rotate-client-secret! keycloak-admin {:client-id (:keycloak_client_id row)})]
@@ -239,26 +313,31 @@
                  (disable-upstream! ds keycloak-admin principal row))}))
 
 (defn revoke-managed-credentials!
-  "Revoke every non-revoked credential managed by one user.
+  "Revoke every personal key of one user and hand their organization keys to
+  Admins.
 
   Call after a Builder loses credential management (demotion to Member or
-  suspension), after that change is committed. Local revocation and
-  service-principal suspension for all credentials happen in one transaction;
-  upstream disables follow, best effort, with `disable_pending` on failure.
-  A later reactivation of the user does not revive these credentials.
+  suspension), after that change is committed. Local revocation,
+  service-principal suspension and the organization-key handover happen in
+  one transaction; upstream disables follow, best effort, with
+  `disable_pending` on failure. A later reactivation of the user does not
+  revive these credentials or give the organization keys back.
 
   Inputs: DataSource, KeycloakAdmin or nil, tenant UUID, manager UUID, actor
   principal map or nil (audited as system).
-  Returns: {:revoked long :pending long}. Throws only on local DB failure."
+  Returns: {:revoked long :pending long :handed-over long}. Throws only on
+  local DB failure."
   [ds keycloak-admin ^UUID tenant-id ^UUID manager-user-id actor]
-  (let [rows (jdbc/with-transaction [tx ds]
-               (let [rows (db.api-creds/lock-active-managed-credentials tx tenant-id manager-user-id)]
-                 (doseq [row rows]
-                   (revoke-locally! tx actor row "manager-access-removed"))
-                 rows))
+  (let [[rows handed-over]
+        (jdbc/with-transaction [tx ds]
+          (let [rows (db.api-creds/lock-active-managed-credentials tx tenant-id manager-user-id)]
+            (doseq [row rows]
+              (revoke-locally! tx actor row "manager-access-removed"))
+            [rows (db.api-creds/clear-organization-manager! tx tenant-id manager-user-id)]))
         pending (count (filter #(= "pending" (disable-upstream! ds keycloak-admin actor %)) rows))]
     (log/info "Revoked managed API credentials" {:tenant_id (str tenant-id)
                                                  :manager_user_id (str manager-user-id)
                                                  :revoked (count rows)
+                                                 :handed_over handed-over
                                                  :pending pending})
-    {:revoked (long (count rows)) :pending (long pending)}))
+    {:revoked (long (count rows)) :pending (long pending) :handed-over (long handed-over)}))

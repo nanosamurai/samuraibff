@@ -855,34 +855,64 @@
    [:session_id Uuid]
    [:status [:= "finished"]]])
 
+(def ApiCredentialItem
+  "One API credential as listed for its managers.
+
+  kind: personal (acts as its owner) or organization (owns its sessions).
+  read_scope applies to personal keys, audience to organization keys."
+  [:map
+   [:id Uuid]
+   [:tenant_id Uuid]
+   [:name :string]
+   [:keycloak_client_id :string]
+   [:created_by_sub [:maybe :string]]
+   [:created_at :string]
+   [:last_used_at [:maybe :string]]
+   [:revoked_at [:maybe :string]]
+   [:manager {:optional true} [:maybe [:map
+                                       [:id Uuid]
+                                       [:display_name [:maybe :string]]
+                                       [:is_me :boolean]]]]
+   [:kind {:optional true} [:enum "personal" "organization"]]
+   [:read_scope {:optional true} [:enum "credential" "owner"]]
+   [:audience {:optional true} [:enum "private" "tenant"]]
+   [:service_principal_registered {:optional true} :boolean]
+   [:identity_sync_state {:optional true} [:enum "synced" "disable_pending"]]
+   [:can_manage {:optional true} :boolean]
+   [:can_rotate {:optional true} :boolean]
+   [:can_configure {:optional true} :boolean]])
+
 (def ApiCredentialsListResponse
   "Response body for GET /api/api-credentials."
   [:map
    [:ok :boolean]
    [:tenant_id Uuid]
-   [:items
-    [:sequential
-     [:map
-      [:id Uuid]
-      [:tenant_id Uuid]
-      [:name :string]
-      [:keycloak_client_id :string]
-      [:created_by_sub [:maybe :string]]
-      [:created_at :string]
-      [:last_used_at [:maybe :string]]
-      [:revoked_at [:maybe :string]]
-      [:manager {:optional true} [:maybe [:map
-                                          [:id Uuid]
-                                          [:display_name [:maybe :string]]
-                                          [:is_me :boolean]]]]
-      [:service_principal_registered {:optional true} :boolean]
-      [:identity_sync_state {:optional true} [:enum "synced" "disable_pending"]]
-      [:can_manage {:optional true} :boolean]]]]])
+   [:items [:sequential ApiCredentialItem]]])
 
 (def CreateApiCredentialRequest
-  "Request body for POST /api/api-credentials."
+  "Request body for POST /api/api-credentials.
+
+  kind defaults to personal. read_scope (personal) defaults to credential:
+  the key reads only sessions it created. audience (organization) defaults
+  to private. manager_id (organization) is an active Builder or Admin."
   [:map
-   [:name [:and :string [:fn (fn [s] (<= 1 (count s) 200))]]]])
+   [:name [:and :string [:fn (fn [s] (<= 1 (count s) 200))]]]
+   [:kind {:optional true} [:enum "personal" "organization"]]
+   [:read_scope {:optional true} [:enum "credential" "owner"]]
+   [:audience {:optional true} [:enum "private" "tenant"]]
+   [:manager_id {:optional true} [:maybe Uuid]]])
+
+(def ConfigureApiCredentialRequest
+  "Request body for PATCH /api/api-credentials/{id} (organization keys)."
+  [:map
+   [:manager_id {:optional true} [:maybe Uuid]]
+   [:audience {:optional true} [:enum "private" "tenant"]]])
+
+(def ConfigureApiCredentialResponse
+  "Response body for PATCH /api/api-credentials/{id}."
+  [:map
+   [:ok :boolean]
+   [:item ApiCredentialItem]])
 
 (def CreateApiCredentialResponse
   "Response body for POST /api/api-credentials.
