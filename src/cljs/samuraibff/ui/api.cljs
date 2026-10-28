@@ -39,6 +39,7 @@
    [samuraibff.ui.access :as access]
    [samuraibff.ui.env :as env]
    [samuraibff.ui.permissions :as permissions]
+   [samuraibff.ui.session-refresh :as session-refresh]
    [samuraibff.ui.urls :as urls]))
 
 (defn- api-url
@@ -94,7 +95,7 @@
   Returns: Promise resolving to a keywordized map. Rejects like `ensure-ok!`."
   ([path] (fetch-json! path nil))
   ([path {:keys [method body]}]
-   (-> (js/fetch (api-url path)
+   (-> (session-refresh/fetch (api-url path)
                  (clj->js (cond-> {:method (or method "GET")}
                             (some? body) (assoc :headers {"content-type" "application/json"}
                                                 :body (.stringify js/JSON (clj->js body))))))
@@ -118,7 +119,7 @@
        :session_id <uuid>
        :items [ ... ]}"
   [session-id]
-  (-> (js/fetch (api-url (str "/api/sessions/"
+  (-> (session-refresh/fetch (api-url (str "/api/sessions/"
                               (js/encodeURIComponent (or session-id ""))
                               "/webhook-delivery-outcomes")))
       (.then ensure-ok!)
@@ -134,7 +135,7 @@
   ([]
    (create-session! {}))
   ([{:keys [title webhook_overrides workflow_overrides session_settings]}]
-   (-> (js/fetch (api-url "/api/sessions")
+   (-> (session-refresh/fetch (api-url "/api/sessions")
                  #js {:method "POST"
                       :headers #js {"content-type" "application/json"}
                       :body (.stringify js/JSON
@@ -169,7 +170,7 @@
   Returns:
   - Promise resolving to {:ok true :session_id <string> :status finished}"
   [session-id]
-  (-> (js/fetch (api-url (str "/api/sessions/"
+  (-> (session-refresh/fetch (api-url (str "/api/sessions/"
                               (js/encodeURIComponent (or session-id ""))
                               "/finish"))
                 #js {:method "POST"})
@@ -189,7 +190,7 @@
   Returns:
   - Promise resolving to {:ok true :tenant_id <uuid> :items [...]}."
   []
-  (-> (js/fetch (api-url "/api/workflows"))
+  (-> (session-refresh/fetch (api-url "/api/workflows"))
       (.then ensure-ok!)
       (.then (fn [res] (.json res)))
       (.then (fn [body]
@@ -207,7 +208,7 @@
   Returns:
   - Promise resolving to {:ok true :workflow_id <uuid>}."
   [payload]
-  (-> (js/fetch (api-url "/api/workflows")
+  (-> (session-refresh/fetch (api-url "/api/workflows")
                 #js {:method "POST"
                      :headers #js {"content-type" "application/json"}
                      :body (.stringify js/JSON (clj->js (or payload {})))})
@@ -229,7 +230,7 @@
   Returns:
   - Promise resolving to {:ok true}."
   [workflow-id patch]
-  (-> (js/fetch (api-url (str "/api/workflows/" (js/encodeURIComponent (or workflow-id ""))))
+  (-> (session-refresh/fetch (api-url (str "/api/workflows/" (js/encodeURIComponent (or workflow-id ""))))
                 #js {:method "PUT"
                      :headers #js {"content-type" "application/json"}
                      :body (.stringify js/JSON (clj->js (or patch {})))})
@@ -247,7 +248,7 @@
   Returns:
   - Promise resolving to {:ok true}."
   [workflow-id]
-  (-> (js/fetch (api-url (str "/api/workflows/" (js/encodeURIComponent (or workflow-id ""))))
+  (-> (session-refresh/fetch (api-url (str "/api/workflows/" (js/encodeURIComponent (or workflow-id ""))))
                 #js {:method "DELETE"})
       (.then ensure-ok!)
       (.then (fn [res] (.json res)))
@@ -263,7 +264,7 @@
   Returns:
   - Promise resolving to {:ok true :tenant_id <uuid> :workflow_ids [...]}."
   []
-  (-> (js/fetch (api-url "/api/workflows/defaults"))
+  (-> (session-refresh/fetch (api-url "/api/workflows/defaults"))
       (.then ensure-ok!)
       (.then (fn [res] (.json res)))
       (.then (fn [body]
@@ -281,7 +282,7 @@
   Returns:
   - Promise resolving to {:ok true}."
   [workflow-ids]
-  (-> (js/fetch (api-url "/api/workflows/defaults")
+  (-> (session-refresh/fetch (api-url "/api/workflows/defaults")
                 #js {:method "PUT"
                      :headers #js {"content-type" "application/json"}
                      :body (.stringify js/JSON
@@ -301,7 +302,7 @@
   Returns:
   - Promise resolving to response map {:ok boolean :session_id ... :title ...}"
   [session-id title]
-  (-> (js/fetch (api-url (str "/api/sessions/" (js/encodeURIComponent (or session-id ""))))
+  (-> (session-refresh/fetch (api-url (str "/api/sessions/" (js/encodeURIComponent (or session-id ""))))
                 #js {:method "PATCH"
                      :headers #js {"content-type" "application/json"}
                      :body (.stringify js/JSON #js {:title (or title "")})})
@@ -337,7 +338,7 @@
                                          (js/encodeURIComponent v))))
                    (str/join "&")))
          url (api-url (str "/api/recordings" (when qs (str "?" qs))))]
-     (-> (js/fetch url)
+     (-> (session-refresh/fetch url)
          (.then ensure-ok!)
          (.then (fn [res] (.json res)))
          (.then (fn [body]
@@ -355,7 +356,7 @@
        :transcripts {:refined [...] :final [...]}}
   "
   [session-id]
-  (-> (js/fetch (api-url (str "/api/recordings/" (js/encodeURIComponent (or session-id "")))))
+  (-> (session-refresh/fetch (api-url (str "/api/recordings/" (js/encodeURIComponent (or session-id "")))))
       (.then ensure-ok!)
       (.then (fn [res] (.json res)))
       (.then (fn [body]
@@ -381,7 +382,7 @@
   Returns:
   - Promise resolving to response map."
   [session-id]
-  (-> (js/fetch (api-url (str "/api/recordings/" (js/encodeURIComponent (or session-id ""))))
+  (-> (session-refresh/fetch (api-url (str "/api/recordings/" (js/encodeURIComponent (or session-id ""))))
                 #js {:method "DELETE"})
       (.then ensure-ok!)
       (.then (fn [res] (.json res)))
@@ -394,7 +395,7 @@
   Returns:
   - Promise resolving to vector of speaker maps."
   []
-  (-> (js/fetch (api-url "/api/speakers"))
+  (-> (session-refresh/fetch (api-url "/api/speakers"))
       (.then ensure-ok!)
       (.then (fn [res] (.json res)))
       (.then (fn [body]
@@ -414,7 +415,7 @@
   (let [data (js/FormData.)]
     (.append data "label" (or label ""))
     (.append data "sample" file)
-    (-> (js/fetch (api-url "/api/speakers") #js {:method "POST"
+    (-> (session-refresh/fetch (api-url "/api/speakers") #js {:method "POST"
                                                  :body data})
         (.then ensure-ok!)
         (.then (fn [res] (.json res))))))
@@ -428,7 +429,7 @@
   Returns:
   - Promise resolving to response body."
   [speaker-id]
-  (-> (js/fetch (api-url (str "/api/speakers/" speaker-id)) #js {:method "DELETE"})
+  (-> (session-refresh/fetch (api-url (str "/api/speakers/" speaker-id)) #js {:method "DELETE"})
       (.then ensure-ok!)
       (.then (fn [res] (.json res)))))
 
@@ -445,7 +446,7 @@
   Returns:
   - Promise resolving to response map (keyword keys)."
   [{:keys [session-id start-s end-s label]}]
-  (-> (js/fetch (api-url "/api/speaker-enrollment/from-recording")
+  (-> (session-refresh/fetch (api-url "/api/speaker-enrollment/from-recording")
                 #js {:method "POST"
                      :headers #js {"content-type" "application/json"}
                      :body (.stringify js/JSON
@@ -476,7 +477,7 @@
 
   Throws on non-2xx."
   []
-  (-> (js/fetch (api-url "/api/api-credentials"))
+  (-> (session-refresh/fetch (api-url "/api/api-credentials"))
       (.then ensure-ok!)
       (.then (fn [res] (.json res)))
       (.then (fn [body]
@@ -493,7 +494,7 @@
        :tenant_id <uuid>
        :items [ ... ]}"
   []
-  (-> (js/fetch (api-url "/api/webhooks"))
+  (-> (session-refresh/fetch (api-url "/api/webhooks"))
       (.then ensure-ok!)
       (.then (fn [res] (.json res)))
       (.then (fn [body]
@@ -508,7 +509,7 @@
   Returns:
   - Promise resolving to response map."
   [payload]
-  (-> (js/fetch (api-url "/api/webhooks")
+  (-> (session-refresh/fetch (api-url "/api/webhooks")
                 #js {:method "POST"
                      :headers #js {"content-type" "application/json"}
                      :body (.stringify js/JSON (clj->js (or payload {})))})
@@ -527,7 +528,7 @@
   Returns:
   - Promise resolving to response map."
   [webhook-id patch]
-  (-> (js/fetch (api-url (str "/api/webhooks/" (js/encodeURIComponent (or webhook-id ""))))
+  (-> (session-refresh/fetch (api-url (str "/api/webhooks/" (js/encodeURIComponent (or webhook-id ""))))
                 #js {:method "PUT"
                      :headers #js {"content-type" "application/json"}
                      :body (.stringify js/JSON (clj->js (or patch {})))})
@@ -545,7 +546,7 @@
   Returns:
   - Promise resolving to response map."
   [webhook-id]
-  (-> (js/fetch (api-url (str "/api/webhooks/" (js/encodeURIComponent (or webhook-id ""))))
+  (-> (session-refresh/fetch (api-url (str "/api/webhooks/" (js/encodeURIComponent (or webhook-id ""))))
                 #js {:method "DELETE"})
       (.then ensure-ok!)
       (.then (fn [res] (.json res)))
@@ -558,7 +559,7 @@
   Returns:
   - Promise resolving to response map {:ok true :webhook_ids [..]}"
   []
-  (-> (js/fetch (api-url "/api/webhooks/defaults"))
+  (-> (session-refresh/fetch (api-url "/api/webhooks/defaults"))
       (.then ensure-ok!)
       (.then (fn [res] (.json res)))
       (.then (fn [body]
@@ -573,7 +574,7 @@
   Returns:
   - Promise resolving to response map."
   [webhook-ids]
-  (-> (js/fetch (api-url "/api/webhooks/defaults")
+  (-> (session-refresh/fetch (api-url "/api/webhooks/defaults")
                 #js {:method "PUT"
                      :headers #js {"content-type" "application/json"}
                      :body (.stringify js/JSON
@@ -601,7 +602,7 @@
   Notes:
   - The secret is returned only once; callers must treat it as transient."
   [name-or-opts]
-  (-> (js/fetch (api-url "/api/api-credentials")
+  (-> (session-refresh/fetch (api-url "/api/api-credentials")
                 #js {:method "POST"
                      :headers #js {"content-type" "application/json"}
                      :body (.stringify js/JSON (clj->js (if (map? name-or-opts)
@@ -625,7 +626,7 @@
   Notes:
   - The new secret is returned only once; callers must treat it as transient."
   [credential-id]
-  (-> (js/fetch (api-url (str "/api/api-credentials/" (js/encodeURIComponent (or credential-id "")) "/rotate"))
+  (-> (session-refresh/fetch (api-url (str "/api/api-credentials/" (js/encodeURIComponent (or credential-id "")) "/rotate"))
                 #js {:method "POST"})
       (.then ensure-ok!)
       (.then (fn [res] (.json res)))
@@ -641,7 +642,7 @@
   Returns:
   - Promise resolving to map (e.g. {:ok true ...})."
   [credential-id]
-  (-> (js/fetch (api-url (str "/api/api-credentials/" (js/encodeURIComponent (or credential-id ""))))
+  (-> (session-refresh/fetch (api-url (str "/api/api-credentials/" (js/encodeURIComponent (or credential-id ""))))
                 #js {:method "DELETE"})
       (.then ensure-ok!)
       (.then (fn [res] (.json res)))

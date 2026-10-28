@@ -3,7 +3,8 @@
 
   Backend-managed login stores the access token in an HttpOnly cookie through
   /auth/login and /auth/callback. Browser and Electron WebSockets use that
-  cookie; browser storage is not an authentication source.
+  cookie; browser storage is not an authentication source. The session is
+  kept fresh through `samuraibff.ui.session-refresh`.
 
   Public API:
   - fetch-me!
@@ -11,6 +12,7 @@
   - logout!"
   (:require
    [samuraibff.ui.env :as env]
+   [samuraibff.ui.session-refresh :as session-refresh]
    [samuraibff.ui.store :as store]))
 
 (defn fetch-me!
@@ -19,7 +21,7 @@
   Returns: Promise"
   []
   (store/set-auth-status! :loading nil)
-  (-> (js/fetch (str (env/backend-base-url) "/api/me") #js {:method "GET"})
+  (-> (session-refresh/fetch (str (env/backend-base-url) "/api/me") #js {:method "GET"})
       (.then (fn [res]
                (if (.-ok res)
                  (.json res)
@@ -29,6 +31,7 @@
       (.then (fn [body]
                (let [authed? (boolean (aget body "authenticated"))
                      access (js->clj (aget body "access") :keywordize-keys true)]
+                 (session-refresh/schedule! (aget body "access_expires_at"))
                  (if authed?
                    (store/set-auth-status! :authenticated {:user (js->clj (aget body "user") :keywordize-keys true)
                                                            :tenant_id (aget body "tenant_id")
@@ -118,6 +121,7 @@
                  (-> (.json resp) (.catch (fn [_] #js {})))
                  #js {})))
       (.then (fn [body]
+               (session-refresh/schedule! nil)
                (let [logout-url (some-> body (aget "logout_url") str)]
                  (store/append-log! "[auth] logged out")
                  (if (and (seq logout-url) (not (env/electron?)))
