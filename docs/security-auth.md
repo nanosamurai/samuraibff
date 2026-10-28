@@ -96,6 +96,10 @@ in again. The callback keeps the ID token only for this purpose, in an
 HttpOnly, SameSite=Lax cookie scoped to `/auth` (`id_token_hint`). A provider
 without `end_session_endpoint` gets cookie-only logout.
 
+The logout URL carries the ID token, so it can end up in browser history and in
+the provider's access logs. For this reason the BFF never accepts an ID token
+as a credential (see [Token validation and lifetime](#token-validation-and-lifetime)).
+
 The browser client must allow the BFF origin followed by `/` as a valid
 post-logout redirect URI (in Keycloak, for example, `post.logout.redirect.uris`
 set to `+`, which reuses the login redirect URIs). Electron keeps cookie-only
@@ -185,6 +189,20 @@ or `azp`. The verifier checks `nbf` when present. REST verification
 allows a fixed 30-second clock skew; missing or malformed required claims,
 expired tokens outside that window, and tokens not yet valid are rejected.
 Keep BFF and identity-provider clocks synchronized.
+
+Only access tokens authenticate, on REST and on WebSockets. An ID token for the
+browser client has the same issuer and audience as an access token, so the
+verifier rejects a token when:
+
+* it has a `typ` claim other than `Bearer` (Keycloak marks ID tokens `ID`,
+  refresh tokens `Refresh` and logout tokens `Logout`), or
+* it has an ID-token-only claim: `at_hash`, `c_hash` or `s_hash`.
+
+`nonce` is not a signal: Keycloak copies it into access tokens. Most providers
+other than Keycloak omit `typ`, and some ID tokens have no hash claim. For those
+providers, give access tokens their own audience (an API audience such as
+`samuraibff-api`, different from the browser client id) and set
+`SAMURAIBFF_AUTH_AUDIENCE` to it, with `SAMURAIBFF_AUTH_CLIENT_ID` set to the browser client id. Machine tokens need the same API audience. The ID token then fails the audience check.
 
 Discovery must report the configured issuer. Signing keys are cached for at
 most five minutes. An unknown key ID can trigger a refresh, with one shared
