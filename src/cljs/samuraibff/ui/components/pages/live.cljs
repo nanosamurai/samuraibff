@@ -15,6 +15,7 @@
    [samuraibff.ui.components.shared :as shared]
    [samuraibff.ui.components.transcript :as components.transcript]
    [samuraibff.ui.hooks :as hooks]
+   [samuraibff.ui.icons :as icons]
    [samuraibff.ui.langs :as langs]
    [samuraibff.ui.router :as router]
    [samuraibff.ui.session-request :as session.req]
@@ -284,7 +285,7 @@
                       :disabled (not running?)
                       :on-click (fn [_] (stop!))
                       :title    "Stop recording"}
-             [:span {:style {:color "var(--muted)"}} "■"]
+             [:span {:style {:color "var(--muted)" :display "inline-flex"}} (icons/icon :square {:size 14})]
              "Stop"]
 
             :else
@@ -301,7 +302,7 @@
                     :on-click   (fn [_]
                                   (when set-settings-open!
                                     (set-settings-open! (not (true? settings-open?)))))}
-           "⚙"]]
+           (icons/icon :settings)]]
          [share-dialog/who-can-access-row
           {:session-id id
            :session-title (get @store/session* :title)
@@ -665,10 +666,7 @@
                          "Show technical details")
                 :on-click (fn [_]
                             (set-show-log! (not show-log?)))}
-       (shared/icon (if show-log? "❯" "❮")
-                    {:title (if show-log?
-                              "Hide technical details"
-                              "Show technical details")})]]
+       (icons/icon (if show-log? :panel-right-close :panel-right-open))]]
 
      [:div {:class "split"}
       [:div {:class "split-main"}

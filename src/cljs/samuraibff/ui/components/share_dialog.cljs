@@ -26,6 +26,7 @@
    [samuraibff.ui.api :as api]
    [samuraibff.ui.components.shared :as shared]
    [samuraibff.ui.hooks :as hooks]
+   [samuraibff.ui.icons :as icons]
    [samuraibff.ui.permissions :as permissions]
    ["react" :as react]))
 
@@ -114,7 +115,7 @@
                :aria-label (str "Remove " who)
                :style {:padding "0 4px" :border "0"}
                :on-click (fn [_] (on-remove person))}
-      "×"]]))
+      (icons/icon :x {:size 14})]]))
 
 (defn- use-directory-search
   "Search the colleague directory while the Selected option is open.
@@ -288,8 +289,8 @@
         [:div {:class "row"}
          [:div {:class "modal-title" :style {:marginBottom 0}} "Share session"]
          [:div {:class "spacer"}]
-         [:button {:class "btn ghost" :type "button" :title "Close" :disabled saving?
-                   :on-click (fn [_] (close!))} "×"]]
+         [:button {:class "btn ghost" :type "button" :title "Close" :aria-label "Close" :disabled saving?
+                   :on-click (fn [_] (close!))} (icons/icon :x)]]
         (when (seq (str session-title))
           [:div {:class "muted" :style {:marginBottom "10px"}} session-title])
         (when (:unknown? owner)

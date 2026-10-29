@@ -33,7 +33,8 @@
       :has_final_transcript (boolean)
 
   Returns:
-  - {:label string :badge-class string :icon string :tooltip string}"
+  - {:label string :badge-class string :icon keyword :tooltip string}
+    (:icon is an icon name, or :rec-dot for the recording indicator)"
   [{:keys [status has_recording has_final_transcript]}]
   (let [status (some-> status str)
         has-recording? (true? has_recording)
@@ -42,44 +43,51 @@
       (= status "failed")
       {:label "Failed"
        :badge-class "bad"
-       :icon "✗"
+       :icon :circle-x
        :tooltip "Session failed"}
 
       (= status "active")
       {:label "Recording"
        :badge-class "warn"
-       :icon "●"
+       :icon :rec-dot
        :tooltip "Recording/transcription in progress"}
 
       (= status "created")
       {:label "Created"
        :badge-class "muted"
-       :icon "○"
+       :icon :circle-dashed
        :tooltip "Draft session (recording not started)"}
 
       (and (= status "finished") has-final?)
       {:label "Finalized"
        :badge-class "ok"
-       :icon "✓"
+       :icon :circle-check
        :tooltip "Final transcript is available"}
 
       (= status "finished")
       {:label "Finished"
        :badge-class "muted"
-       :icon "■"
+       :icon :circle-stop
        :tooltip "Recording stopped; final transcript not available yet"}
 
       has-recording?
       {:label "Processing"
        :badge-class "muted"
-       :icon "…"
+       :icon :loader-circle
        :tooltip "Recording finished; final transcript not available yet"}
 
       :else
       {:label "Created"
        :badge-class "muted"
-       :icon "○"
+       :icon :circle-dashed
        :tooltip "Session created"})))
+
+(defn- status-icon
+  "Render the status icon from `rec->display-status` :icon."
+  [icon-name]
+  (if (= :rec-dot icon-name)
+    [:span {:class "rec-dot" :aria-hidden true}]
+    (icons/icon icon-name {:size 14})))
 
 (defn- row-access
   "Return {:can-manage? boolean :access-label string?} for a recording row.
@@ -107,7 +115,7 @@
   Returns: hiccup <tr>"
   [{:keys [session_id title started_at created_at] :as rec} on-deleted!]
   (let [{:keys [label badge-class tooltip]
-         icon-glyph :icon} (rec->display-status rec)
+         status-glyph :icon} (rec->display-status rec)
         session-status (str (or (:status rec) ""))
         active? (= "active" session-status)
         {:keys [can-manage? access-label]} (row-access rec)
@@ -134,19 +142,21 @@
      [:td
       [:span {:class (str "badge " badge-class)
               :title tooltip}
-       (shared/icon icon-glyph {:title tooltip})
+       (status-icon status-glyph)
        [:span {:style {:marginLeft "8px"}} label]]]
      [:td {:style {:textAlign "right"}}
       [:div {:class "row"}
        [router/link {:route {:page :recording :params {:session_id session_id}}
                      :class "btn"
-                     :title "Open detail"}
-        (shared/icon "↗" {:title "Open"})]
+                     :title "Open detail"
+                     :aria-label "Open session"}
+        (icons/icon :arrow-up-right)]
 
        (if recordable?
          [router/link {:route {:page :live :params {}}
                        :class "btn ghost"
                        :title "Record with this session"
+                       :aria-label "Record with this session"
                        :on-click (fn [_]
                                    (store/set-session-id! session_id)
                                    (store/set-session-created-at-ms! created-at-ms)
@@ -155,27 +165,28 @@
                                         (util/default-session-title created-at-ms)
                                         ""))
                                    (store/set-session-status! (:status rec)))}
-          (shared/icon "●" {:title "Record"})]
+          (icons/icon :record)]
          [:span {:class "btn ghost disabled" :aria-disabled "true"
                  :title (if can-manage?
                           "Start a new session to make another recording"
                           "Only the owner can record into this session")}
-          (shared/icon "●" {:title "Not available"})])
+          (icons/icon :record)])
 
        (cond
          (not can-manage?)
          [:span {:class "btn ghost disabled" :aria-disabled "true"
                  :title "Only the owner can delete this session"}
-          (shared/icon "×" {:title "Delete"})]
+          (icons/icon :trash)]
 
          active?
          [:span {:class "btn ghost disabled" :aria-disabled "true"
                  :title "Stop recording before deleting this session"}
-          (shared/icon "×" {:title "Delete"})]
+          (icons/icon :trash)]
 
          :else
          [:button {:class "btn ghost"
                    :title "Delete session"
+                   :aria-label "Delete session"
                    :on-click (fn [_]
                                (when (js/confirm (str "Delete session “" session-title-display "”"
                                                       "?\n\nThis will remove recordings and transcripts."))
@@ -186,7 +197,7 @@
                                      (.catch (fn [e]
                                                (store/append-log!
                                                 (str "[ui] failed deleting session: " e)))))))}
-          (shared/icon "×" {:title "Delete"})])]]]))
+          (icons/icon :trash)])]]]))
 
 (defn- recordings-card
   "Render a single recording as a stacked card (mobile layout).
@@ -198,7 +209,7 @@
   Returns: hiccup <div>."
   [{:keys [session_id title started_at created_at] :as rec} on-deleted!]
   (let [{:keys [label badge-class tooltip]
-         icon-glyph :icon} (rec->display-status rec)
+         status-glyph :icon} (rec->display-status rec)
         session-status (str (or (:status rec) ""))
         active? (= "active" session-status)
         {:keys [can-manage? access-label]} (row-access rec)
@@ -227,19 +238,21 @@
       [:div
        [:span {:class (str "badge " badge-class)
                :title tooltip}
-        (shared/icon icon-glyph {:title tooltip})
+        (status-icon status-glyph)
         [:span {:style {:marginLeft "8px"}} label]]]]
 
      [:div {:class "list-item-actions"}
       [router/link {:route {:page :recording :params {:session_id session_id}}
                     :class "btn icon"
-                    :title "Open detail"}
-       (shared/icon "↗" {:title "Open"})]
+                    :title "Open detail"
+                    :aria-label "Open session"}
+       (icons/icon :arrow-up-right)]
 
       (if recordable?
         [router/link {:route {:page :live :params {}}
                       :class "btn ghost icon"
                       :title "Record with this session"
+                      :aria-label "Record with this session"
                       :on-click (fn [_]
                                   (store/set-session-id! session_id)
                                   (store/set-session-created-at-ms! created-at-ms)
@@ -248,27 +261,28 @@
                                        (util/default-session-title created-at-ms)
                                        ""))
                                   (store/set-session-status! (:status rec)))}
-         (shared/icon "●" {:title "Record"})]
+         (icons/icon :record)]
         [:span {:class "btn ghost icon disabled" :aria-disabled "true"
                 :title (if can-manage?
                          "Start a new session to make another recording"
                          "Only the owner can record into this session")}
-         (shared/icon "●" {:title "Not available"})])
+         (icons/icon :record)])
 
       (cond
         (not can-manage?)
         [:span {:class "btn ghost icon disabled" :aria-disabled "true"
                 :title "Only the owner can delete this session"}
-         (shared/icon "×" {:title "Delete"})]
+         (icons/icon :trash)]
 
         active?
         [:span {:class "btn ghost icon disabled" :aria-disabled "true"
                 :title "Stop recording before deleting this session"}
-         (shared/icon "×" {:title "Delete"})]
+         (icons/icon :trash)]
 
         :else
         [:button {:class "btn ghost icon"
                   :title "Delete session"
+                  :aria-label "Delete session"
                   :on-click (fn [_]
                               (when (js/confirm (str "Delete session “" session-title-display "”"
                                                      "?\n\nThis will remove recordings and transcripts."))
@@ -279,7 +293,7 @@
                                     (.catch (fn [e]
                                               (store/append-log!
                                                (str "[ui] failed deleting session: " e)))))))}
-         (shared/icon "×" {:title "Delete"})])]]))
+         (icons/icon :trash)])]]))
 
 (defn- pagination-footer
   "Render compact pagination from use-recordings-page state; return footer Hiccup."

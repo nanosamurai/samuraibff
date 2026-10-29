@@ -120,8 +120,9 @@
             [brand-name]]
            [:button {:class "btn ghost"
                      :title "Close"
+                     :aria-label "Close navigation"
                      :on-click (fn [_] (on-close))}
-            "×"]]
+            (icons/icon :x)]]
           [:div {:class "sidebar-section"}
            [:div {:class "sidebar-title"} "Navigation"]
            (for [{:keys [label icon route active?]} items]
@@ -213,8 +214,9 @@
      (when (and mobile? (fn? on-open-menu))
        [:button {:class "btn ghost menu-btn"
                  :title "Menu"
+                 :aria-label "Open navigation"
                  :on-click (fn [_] (on-open-menu))}
-        "☰"])
+        (icons/icon :menu {:size 18})])
      [:div {:class "brand"}
       [:img {:class "logo" :src logo-src :alt "nanosamur.ai"}]
       [brand-name]]

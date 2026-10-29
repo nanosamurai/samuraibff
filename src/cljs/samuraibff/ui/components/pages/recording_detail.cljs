@@ -8,6 +8,7 @@
    [samuraibff.ui.access :as access]
    [samuraibff.ui.api :as api]
    [samuraibff.ui.hooks :as hooks]
+   [samuraibff.ui.icons :as icons]
    [samuraibff.ui.components.share-dialog :as share-dialog]
    [samuraibff.ui.components.shared :as shared]
    [samuraibff.ui.permissions :as permissions]
@@ -312,8 +313,9 @@
                                    (< (:start_s msg) (:end_s msg)))
                           [:div {:class "bubble-actions"}
                            [:button {:class "bubble-action-btn" :title "Recognize this speaker in future transcripts"
+                                     :aria-label "Add speaker"
                                      :on-click #(do (.stopPropagation %) (set-enroll! msg))}
-                            (shared/icon "＋" {:title "Add speaker"})]]))]
+                            (icons/icon :plus)]]))]
     (react/useEffect
      (fn []
        (let [active? (atom true)

@@ -28,18 +28,6 @@
 
 ;; --- UI primitives ---
 
-(defn icon
-  "Render a lightweight icon glyph (no external deps).
-
-  Inputs:
-  - s: string
-  - opts: optional map {:title string}
-
-  Returns: hiccup."
-  ([s] (icon s nil))
-  ([s {:keys [title]}]
-   [:span {:class "icon" :title title} (or s "")]))
-
 (defn status-pill
   "Render a compact session status pill.
 
