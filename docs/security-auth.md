@@ -79,6 +79,13 @@ java -cp /app/samuraibff.jar clojure.main -m samuraibff.tools.principals registe
 `set-role`, `set-status`, `list`, `legacy-report` and `assign-owner` (see the
 namespace docstring).
 
+Sessions recorded before access control have no owner (`user_id` NULL): the
+BFF never stored one before. Upgrades keep them visible to everyone in their
+tenant. The read policy lets the tenant's Admins (never API keys) read and
+manage them, and `PUT /api/sessions/:session_id/owner` (or `assign-owner`)
+gives one an owner: an active person of the tenant, not the guest or a
+service. `legacy-report` counts them per tenant.
+
 ## Browser login flow (Authorization Code + PKCE)
 
 Endpoints:

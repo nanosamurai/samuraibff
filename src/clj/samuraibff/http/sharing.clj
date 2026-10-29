@@ -4,13 +4,15 @@
   Endpoints (under /api, active principal required):
   - GET /api/sessions/:session_id/access  current audience; recipients for the owner
   - PUT /api/sessions/:session_id/access  replace audience (owner only, revisioned)
+  - PUT /api/sessions/:session_id/owner   assign an owner to a legacy session (Admin, revisioned)
   - GET /api/directory?q=                 active human colleagues for sharing
 
   Sharing is read-only access to the whole session: audio, every transcript
   track and results. A link never grants access by itself.
 
   Public API:
-  - `get-access-handler`, `put-access-handler`, `directory-handler`"
+  - `get-access-handler`, `put-access-handler`, `put-owner-handler`,
+    `directory-handler`"
   (:require
    [org.corfield.logging4j2 :as log]
    [samuraibff.access.policy :as policy]
@@ -125,6 +127,51 @@
                                 :can_manage true
                                 :recipients (mapv recipient->api (:recipients result))}))
           (let [[status message] (get error-statuses (:error result) [400 "invalid-request"])]
+            (json-response status (cond-> {:ok false :message message}
+                                    (:revision result) (assoc :revision (:revision result)))))))
+      (catch clojure.lang.ExceptionInfo e
+        (if (= :samuraibff.http/invalid-request (:type (ex-data e)))
+          (json-response 400 {:ok false :message "invalid-request"})
+          (handle-errors e))))))
+
+(def ^:private owner-error-statuses
+  {:not-found [404 "not-found"]
+   :forbidden [403 "forbidden"]
+   :conflict [409 "access-changed"]
+   :invalid-owner [400 "invalid-owner"]})
+
+(defn put-owner-handler
+  "Handler for PUT /api/sessions/:session_id/owner.
+
+  Body: access.schemas/AssignSessionOwnerRequest {:owner_id uuid :revision int}.
+  An Admin gives a session recorded before access control (owner unknown) an
+  owner. The audience stays; the response carries the new revision and the
+  caller's access. A stale revision returns 409 with the current revision."
+  [{:keys [db]}]
+  (fn [req]
+    (try
+      (let [ds (or (:ds db) (throw (ex-info "db" {:type :samuraibff.http/missing-datasource})))
+            principal (session-guard/require-principal! req)
+            session-id (path-session-id req)
+            body (or (get-in req [:parameters :body]) (:body-params req) {})
+            _ (when-not (m/validate access.schemas/AssignSessionOwnerRequest body)
+                (throw (ex-info "invalid-request" {:type :samuraibff.http/invalid-request})))
+            result (session-access/assign-owner!
+                    ds principal session-id
+                    {:owner-id (UUID/fromString (str (:owner_id body)))
+                     :revision (:revision body)})]
+        (if (:ok? result)
+          (do
+            (log/info "Session owner assigned" {:session_id (str session-id)
+                                                :tenant_id (str (:tenant-id principal))})
+            (json-response 200 {:ok true
+                                :session_id (str session-id)
+                                :visibility (:visibility result)
+                                :revision (:revision result)
+                                :is_owner (boolean (:owner? result))
+                                :can_manage (boolean (:owner? result))
+                                :can_assign_owner false}))
+          (let [[status message] (get owner-error-statuses (:error result) [400 "invalid-request"])]
             (json-response status (cond-> {:ok false :message message}
                                     (:revision result) (assoc :revision (:revision result)))))))
       (catch clojure.lang.ExceptionInfo e

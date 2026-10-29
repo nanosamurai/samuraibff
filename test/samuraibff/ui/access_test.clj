@@ -75,7 +75,16 @@
            (access/detail-access-label {:is_owner true :visibility "private" :via_api_key "sdk"} nil)))
     (is (= "By API key \u201ccrm-sync\u201d · Private · you manage this key"
            (access/detail-access-label {:is_owner false :can_manage true :visibility "private"
-                                        :owner {:display_name "crm-sync" :kind "api_key"}} nil)))))
+                                        :owner {:display_name "crm-sync" :kind "api_key"}} nil))))
+  (testing "sessions recorded before access control"
+    (let [legacy {:is_owner false :visibility "tenant" :owner {:is_me false :kind "unknown"}}]
+      (is (access/unknown-owner? legacy))
+      (is (= "By unknown · Everyone in Acme" (access/row-access-label legacy "Acme")))
+      (is (= "Owner unknown (recorded before access control) · Everyone in Acme · Admins manage it"
+             (access/detail-access-label (assoc legacy :can_manage true) "Acme")))
+      (is (= "Owner unknown (recorded before access control) · Everyone in Acme · read-only"
+             (access/detail-access-label (assoc legacy :can_manage false) "Acme")))
+      (is (not= "x" (access/error-message "invalid-owner" "x"))))))
 
 (deftest credential-labels-test
   (is (= "Personal" (access/credential-kind-label "personal")))

@@ -7,6 +7,10 @@
   concurrent change returns 409 instead of being overwritten. A link never
   grants access by itself.
 
+  Sessions recorded before access control have no known owner. For them the
+  dialog says so, and an Admin can assign an owner (an active person, or
+  themselves). Assigning is saved on its own, also with the loaded revision.
+
   Draft mode (Record page before the session exists) keeps the chosen
   audience in `draft-audience*`; `apply-draft-audience!` saves it right
   after the session is created.
@@ -150,6 +154,38 @@
    :recipients (vec (or recipients []))
    :revision (or revision 0)})
 
+(defn- owner-section
+  "Owner row for a session recorded before access control.
+
+  Inputs: {:can-assign? boolean :busy? boolean :query string :on-query fn
+  :directory {:items ...} :on-assign (fn [person-id])}."
+  [{:keys [can-assign? busy? query on-query directory on-assign]}]
+  [:div {:class "field" :style {:marginBottom "12px"}}
+   [:div {:class "label"} "Owner"]
+   [:div {:class "muted"} "Unknown: recorded before access control. Admins manage it."]
+   (when can-assign?
+     [:div {:style {:display "flex" :flexDirection "column" :gap "6px" :marginTop "6px"}}
+      [:div {:class "row" :style {:gap "8px"}}
+       [:input {:type "search" :value query :placeholder "Find a person to own it"
+                :aria-label "Find a person to own it" :disabled busy?
+                :on-change (fn [e] (on-query (.. e -target -value)))}]
+       [:button {:class "btn" :type "button" :disabled busy?
+                 :on-click (fn [_] (on-assign (permissions/principal-id)))}
+        "Make me the owner"]]
+      (cond
+        (:error directory) [:div {:class "badge bad"} (:error directory)]
+        (and (:loading? directory) (empty? (:items directory))) [:div {:class "muted"} "Searching…"]
+        (seq (:items directory))
+        [:div {:style {:display "flex" :flexDirection "column" :gap "4px" :maxHeight "160px" :overflow "auto"}}
+         (for [person (:items directory)
+               :let [id (str (:id person))]]
+           [:div {:key (str "own-" id) :class "row" :style {:gap "8px" :alignItems "center"}}
+            [:span (or (not-empty (str (:display_name person))) (:email person))]
+            [:div {:class "spacer"}]
+            [:button {:class "btn" :type "button" :disabled busy?
+                      :on-click (fn [_] (on-assign id))}
+             "Assign"]])])])])
+
 (defn share-dialog
   "Modal that edits who can access a session.
 
@@ -161,9 +197,11 @@
   - :on-close (fn []) Cancel or close; the prior audience stays
   - :on-saved (fn [access-map]) after a successful save (server response, or
     {:visibility :recipients} in draft mode)
+  - :on-owner-assigned (fn [access-map]) after an Admin assigned an owner to a
+    session recorded before access control (optional)
 
   Returns: hiccup or nil."
-  [{:keys [open? session-id session-title initial on-close on-saved]}]
+  [{:keys [open? session-id session-title initial on-close on-saved on-owner-assigned]}]
   (let [draft? (str/blank? (str session-id))
         [form set-form!] (react/useState (audience-state initial))
         [loading? set-loading!] (react/useState false)
@@ -171,9 +209,13 @@
         [error set-error!] (react/useState nil)
         [copy-note set-copy-note!] (react/useState nil)
         [query set-query!] (react/useState "")
+        [owner set-owner!] (react/useState {})
+        [owner-query set-owner-query!] (react/useState "")
         {:keys [visibility recipients revision]} form
         selected? (= "selected" visibility)
         directory (use-directory-search (and open? selected?) query)
+        owner-directory (use-directory-search (and open? (:can-assign? owner) (not (str/blank? owner-query)))
+                                              owner-query)
         tenant (permissions/tenant-name)
         busy? (or loading? saving?)
         load! (fn []
@@ -181,6 +223,8 @@
                 (-> (access-api/get-session-access! session-id)
                     (.then (fn [resp]
                              (remember-session-access! session-id resp)
+                             (set-owner! {:unknown? (access/unknown-owner? resp)
+                                          :can-assign? (true? (:can_assign_owner resp))})
                              (set-form! (audience-state resp))))
                     (.catch (fn [e]
                               (set-error! (access/error-message (api/error-code e)
@@ -208,13 +252,30 @@
                                   (set-error! (access/error-message (api/error-code e)
                                                                     "Sharing could not be saved. Nothing changed."))
                                   (when (= "access-changed" (api/error-code e))
-                                    (load!))))))))]
+                                    (load!))))))))
+        assign! (fn [owner-id]
+                  (set-error! nil)
+                  (set-saving! true)
+                  (-> (access-api/assign-session-owner! session-id {:owner-id owner-id :revision revision})
+                      (.then (fn [resp]
+                               (remember-session-access! session-id resp)
+                               (set-saving! false)
+                               (when (fn? on-owner-assigned) (on-owner-assigned resp))
+                               (close!)))
+                      (.catch (fn [e]
+                                (set-saving! false)
+                                (set-error! (access/error-message (api/error-code e)
+                                                                  "The owner could not be assigned. Nothing changed."))
+                                (when (= "access-changed" (api/error-code e))
+                                  (load!))))))]
     (react/useEffect
      (fn []
        (when open?
          (set-error! nil)
          (set-copy-note! nil)
          (set-query! "")
+         (set-owner! {})
+         (set-owner-query! "")
          (set-form! (audience-state initial))
          (when-not draft? (load!)))
        js/undefined)
@@ -231,10 +292,14 @@
                    :on-click (fn [_] (close!))} "×"]]
         (when (seq (str session-title))
           [:div {:class "muted" :style {:marginBottom "10px"}} session-title])
+        (when (:unknown? owner)
+          [owner-section {:can-assign? (:can-assign? owner) :busy? busy?
+                          :query owner-query :on-query set-owner-query!
+                          :directory owner-directory :on-assign assign!}])
         [:div {:style {:display "flex" :flexDirection "column" :gap "8px"} :role "radiogroup"
                :aria-label "Who can access"}
          (for [{:keys [value label hint]}
-               [{:value "private" :label "Private" :hint "Only you"}
+               [{:value "private" :label "Private" :hint (if (:unknown? owner) "Only Admins" "Only you")}
                 {:value "selected" :label "Selected people"
                  :hint "Choose people who already have an account here"}
                 {:value "tenant" :label (access/audience-label "tenant" tenant)

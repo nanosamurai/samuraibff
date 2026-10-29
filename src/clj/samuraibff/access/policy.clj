@@ -24,6 +24,11 @@
   Roles gate authoring and administration only. Every active human can record
   with all capture settings. No role reads another user's private session.
 
+  Sessions recorded before access control have no known owner (`user_id` is
+  NULL; the BFF stores an owner for every new session). Upgrades make them
+  visible to the whole tenant, as before. Admins manage them: rename, finish,
+  delete, reshare and assign an owner.
+
   The guest principal (authentication disabled) is the only person in a
   single-user install. It keeps Admin authoring rights but has nobody to share
   with and no identity provider to add people to, so sharing, the directory
@@ -33,6 +38,7 @@
   - `active?`, `human?`, `service?`, `admin?`, `builder?`, `guest?`
   - `api-key?`, `personal-key?`, `can-create-credential?`
   - `owns-session?`, `can-manage-session?`, `session-visible-to?`
+  - `legacy-session?`, `manages-legacy-session?`, `can-assign-owner?`
   - `can-manage-people?`, `can-share-session?`, `can-use-directory?`
   - `credential-scope`, `can-manage-credential?`, `can-rotate-credential?`,
     `can-configure-credential?`
@@ -129,30 +135,55 @@
        (same-tenant? principal (:tenant_id session))
        (true? (:key_manager session))))
 
+(defn legacy-session?
+  "True for a session without a recorded owner: one recorded before access
+  control. A row without the `:user_id` column is never treated as ownerless."
+  [session]
+  (and (contains? session :user_id) (nil? (:user_id session))))
+
+(defn manages-legacy-session?
+  "True when a human Admin (not via an API key) manages an ownerless legacy
+  session of the same tenant.
+
+  Mirrored in SQL by `samuraibff.db.session-access/readable-condition`."
+  [principal session]
+  (and (admin? principal)
+       (not (api-key? principal))
+       (same-tenant? principal (:tenant_id session))
+       (legacy-session? session)))
+
 (defn can-manage-session?
   "The active owner, or the manager of the organization key that owns it, may
   send audio, finish, rename, delete or reshare.
 
   Admin has no general override: administration is not content access. Only
-  sessions of organization keys without a manager are Admin-managed."
+  sessions of organization keys without a manager and ownerless legacy
+  sessions are Admin-managed."
   [principal session]
   (or (owns-session? principal session)
-      (manages-key-session? principal session)))
+      (manages-key-session? principal session)
+      (manages-legacy-session? principal session)))
+
+(defn can-assign-owner?
+  "An Admin who manages an ownerless legacy session may give it an owner. The
+  guest has nobody else to assign."
+  [principal session]
+  (and (manages-legacy-session? principal session) (not (guest? principal))))
 
 (defn session-visible-to?
   "Reference read predicate, mirrored by the SQL in `samuraibff.db.session-access`.
 
   Inputs: principal, session row (:tenant_id :user_id :visibility) and
   granted? (true when a read grant exists for this principal).
-  Services read only their own sessions. Ownerless sessions are readable by
-  nobody through ordinary routes."
+  Services read only their own sessions. Ownerless legacy sessions follow
+  their audience like any other session, and their Admins always read them."
   [principal session granted?]
   (cond
     (not (active? principal)) false
     (not (same-tenant? principal (:tenant_id session))) false
-    (nil? (:user_id session)) false
     (owns-session? principal session) true
     (manages-key-session? principal session) true
+    (manages-legacy-session? principal session) true
     (not (human? principal)) false
     (key-restricted-reads? principal) false
     (= "tenant" (:visibility session)) true

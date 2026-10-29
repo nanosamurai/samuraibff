@@ -6,17 +6,20 @@
   it manages the organization API key that owns it, or, for humans only, when
   the audience is `tenant` (Everyone) or `selected` with a read grant for that
   principal. A personal API key with read scope `credential` reads only the
-  sessions created with that key. Ownerless legacy sessions are never
-  readable. The caller's own status is checked before any query runs.
+  sessions created with that key. Ownerless legacy sessions (recorded before
+  access control) follow their audience like any other session, and the
+  tenant's Admins always read them because they manage them. The caller's own
+  status is checked before any query runs.
 
   Policy is applied in the WHERE clause, before pagination, counts and column
   projection, so lists and totals never reveal inaccessible sessions. Grants
   are matched with EXISTS, so they cannot duplicate list rows.
 
   Public API:
-  - `readable-condition`, `scope-condition`, `key-manager-expr`
+  - `readable-condition`, `scope-condition`, `key-manager-expr`,
+    `legacy-manager-expr`
   - `find-accessible-session`, `list-recipients`
-  - `set-audience!`"
+  - `set-audience!`, `assign-owner!`"
   (:require
    [honey.sql :as sql]
    [honey.sql.helpers :as h]
@@ -58,6 +61,16 @@
                           [:= :kc.manager_user_id pid])]}])
     [:= 1 0]))
 
+(defn legacy-manager-expr
+  "Return a HoneySQL boolean expression: session `s` is an ownerless legacy
+  session and the principal is a human Admin acting without an API key.
+  Mirrors `samuraibff.access.policy/manages-legacy-session?`; the tenant is
+  matched by the enclosing condition."
+  [principal]
+  (if (and (policy/admin? principal) (not (policy/api-key? principal)))
+    [:= :s.user_id nil]
+    [:= 1 0]))
+
 (defn readable-condition
   "Return a HoneySQL condition on sessions alias `s` for the principal's reads.
 
@@ -71,7 +84,7 @@
           key-id (get-in principal [:credential :id])
           restricted? (and (policy/personal-key? principal)
                            (not= :owner (get-in principal [:credential :read-scope])))]
-      (conj [:and [:= :s.tenant_id tid] [:is-not :s.user_id nil]]
+      (conj [:and [:= :s.tenant_id tid]]
             (cond
               restricted?
               [:and [:= :s.user_id pid] [:= :s.created_via_credential_id key-id]]
@@ -80,6 +93,7 @@
               [:or
                [:= :s.user_id pid]
                (key-manager-expr principal)
+               (legacy-manager-expr principal)
                [:= :s.visibility "tenant"]
                [:and [:= :s.visibility "selected"]
                 [:exists {:select [1]
@@ -95,14 +109,16 @@
   "Return the condition for a Sessions view scope.
 
   Inputs: principal map, scope keyword :all | :mine | :shared. `:mine`
-  includes sessions of organization keys the principal manages.
+  includes sessions of organization keys the principal manages. Ownerless
+  legacy sessions are never mine, so they appear under `:shared`.
   Returns: HoneySQL condition vector on sessions alias `s`."
   [principal scope]
   (let [readable (readable-condition principal)
         mine [:or [:= :s.user_id (:id principal)] (key-manager-expr principal)]]
     (case scope
       :mine [:and readable mine]
-      :shared [:and readable [:not mine]]
+      ;; COALESCE: for a NULL owner `mine` is NULL, and NOT NULL would drop the row.
+      :shared [:and readable [:not [:coalesce mine false]]]
       readable)))
 
 (defn find-accessible-session
@@ -197,7 +213,8 @@
 (defn set-audience!
   "Atomically replace a session's audience and read grants.
 
-  Only the active human owner may change the audience. The change applies only
+  Only whoever may share the session changes the audience: its active human
+  owner, or an Admin for an ownerless legacy session. The change applies only
   when `revision` equals the stored access revision, so stale overlapping Share
   saves are rejected instead of silently restoring access. Private and Everyone
   clear every grant; Selected people replaces the recipient set, which must be
@@ -259,3 +276,69 @@
              :revision new-revision
              :owner? (policy/owns-session? principal row)
              :recipients (list-recipients tx tenant-id session-id)}))))))
+
+(defn- valid-owner?
+  "True for an active human of the tenant other than the local guest."
+  [tx ^UUID tenant-id ^UUID owner-id]
+  (let [row (db.principals/find-by-id tx tenant-id owner-id)]
+    (and (= "human" (:principal_type row))
+         (= "active" (:status row))
+         (not= db.principals/guest-issuer (:issuer row)))))
+
+(defn assign-owner!
+  "Give an ownerless legacy session an owner.
+
+  Only an Admin who manages the session may assign, and only an active human
+  of the same tenant (not the guest) can become its owner. The audience stays;
+  a read grant of the new owner is dropped because owners need none. The
+  change applies only when `revision` equals the stored access revision and
+  bumps it, so it cannot race a Share save.
+
+  Inputs: DataSource, principal map, session UUID, {:owner-id uuid :revision long}.
+  Returns {:ok? true :revision long :visibility string :owner? boolean} or
+  {:ok? false :error kw :revision long?} with error one of :not-found
+  :forbidden :conflict :invalid-owner."
+  [ds principal ^UUID session-id {:keys [owner-id revision]}]
+  (jdbc/with-transaction [tx ds]
+    (let [row (lock-session! tx principal session-id)
+          tenant-id (:tenant-id principal)]
+      (cond
+        (nil? row)
+        {:ok? false :error :not-found}
+
+        (not (policy/can-assign-owner? principal row))
+        (if (policy/session-visible-to? principal row
+                                        (granted? tx tenant-id session-id (:id principal)))
+          {:ok? false :error :forbidden}
+          {:ok? false :error :not-found})
+
+        (not= (long (or revision -1)) (long (:access_revision row)))
+        {:ok? false :error :conflict :revision (:access_revision row)}
+
+        (not (and owner-id (valid-owner? tx tenant-id owner-id)))
+        {:ok? false :error :invalid-owner}
+
+        :else
+        (let [new-revision (inc (long (:access_revision row)))]
+          (jdbc/execute-one! tx (sql/format (-> (h/update :sessions)
+                                                (h/set {:user_id owner-id
+                                                        :access_revision new-revision})
+                                                (h/where [:= :id session-id]
+                                                         [:= :tenant_id tenant-id]
+                                                         [:= :user_id nil]))))
+          (jdbc/execute-one! tx (sql/format (-> (h/delete-from :session_access_grants)
+                                                (h/where [:= :tenant_id tenant-id]
+                                                         [:= :session_id session-id]
+                                                         [:= :user_id owner-id]))))
+          (db.audit/record! tx {:tenant-id tenant-id
+                                :actor-id (:id principal)
+                                :actor-kind "user"
+                                :action "session.owner.assigned"
+                                :target-type "session"
+                                :target-id session-id
+                                :outcome "succeeded"
+                                :details {:owner_id (str owner-id)}})
+          {:ok? true
+           :revision new-revision
+           :visibility (:visibility row)
+           :owner? (= owner-id (:id principal))})))))

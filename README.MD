@@ -201,6 +201,12 @@ hides or disables controls):
   created, then saves it. If that save fails, the session stays Private and
   Record shows a notice. Record also lists the webhooks (destination host) and
   workflows (model) that receive a new session.
+* Sessions recorded before access control have no known owner: the BFF did
+  not store one. They keep the audience they had (everyone in the
+  organization) and show "By unknown" / "Owner unknown". Admins manage them:
+  rename, delete, **Share** (Private then means only Admins) and assign an
+  owner in the Share dialog (a person, or themselves). API keys and the guest
+  cannot assign owners.
 * Readers of a shared session see the owner and "read-only". They cannot
   rename it, record into it or enroll speakers from it, and they do not see the
   device-local real-time preview. When access ends, the page shows "This

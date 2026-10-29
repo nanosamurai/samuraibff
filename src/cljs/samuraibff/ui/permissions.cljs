@@ -6,7 +6,7 @@
   BFF authorizes every request again.
 
   Public API:
-  - `current-access`, `capability?`, `tenant-name`
+  - `current-access`, `capability?`, `tenant-name`, `principal-id`
   - `use-access`, `use-capability?`, `use-guest?` (React hooks)
   - `note-access-error!`, `note-socket-stop!`, `use-socket-stop`,
     `clear-socket-stop!`"
@@ -35,6 +35,11 @@
   "Return the organization display name from `/api/me`, or nil."
   []
   (not-empty (str (or (get-in @store/auth* [:detail :tenant_name]) ""))))
+
+(defn principal-id
+  "Return the signed-in principal id from `/api/me`, or nil."
+  []
+  (some-> (get-in (current-access) [:principal :id]) str not-empty))
 
 (defn use-access
   "React hook: return the current access block and re-render when it changes."
