@@ -31,13 +31,42 @@
     (is (policy/session-visible-to? admin (session alice "tenant") false))
     (is (not (policy/session-visible-to? service (session alice "tenant") false)))
     (is (not (policy/session-visible-to? foreign (session alice "tenant") true))))
-  (testing "suspension and ownerless rows deny"
-    (is (not (policy/session-visible-to? (assoc alice :status :suspended) (session alice "private") false)))
-    (is (not (policy/session-visible-to? alice {:tenant_id tenant :user_id nil :visibility "tenant"} false))))
+  (testing "suspension denies"
+    (is (not (policy/session-visible-to? (assoc alice :status :suspended) (session alice "private") false))))
   (testing "only the owner manages"
     (is (policy/can-manage-session? alice (session alice "tenant")))
     (is (not (policy/can-manage-session? admin (session alice "tenant"))))
     (is (not (policy/can-share-session? service (session service "private"))))))
+
+(deftest legacy-session-policy-test
+  (let [legacy-tenant {:tenant_id tenant :user_id nil :visibility "tenant"}
+        legacy-private {:tenant_id tenant :user_id nil :visibility "private"}
+        admin-key (assoc admin :credential {:id #uuid "00000000-0000-0000-0000-0000000000c3"
+                                            :kind :personal :read-scope :owner})
+        guest (assoc (principal #uuid "00000000-0000-0000-0000-000000000001" :admin) :guest? true)]
+    (testing "sessions recorded before access control keep their tenant audience"
+      (is (policy/session-visible-to? alice legacy-tenant false))
+      (is (policy/session-visible-to? bob legacy-tenant false))
+      (is (not (policy/session-visible-to? service legacy-tenant false)))
+      (is (not (policy/session-visible-to? foreign legacy-tenant false))))
+    (testing "Admins manage them, and so always read them"
+      (is (policy/can-manage-session? admin legacy-tenant))
+      (is (policy/can-share-session? admin legacy-tenant))
+      (is (policy/can-assign-owner? admin legacy-tenant))
+      (is (policy/session-visible-to? admin legacy-private false))
+      (is (not (policy/session-visible-to? alice legacy-private false))))
+    (testing "nobody else manages them"
+      (doseq [p [alice bob service foreign admin-key]]
+        (is (not (policy/can-manage-session? p legacy-tenant))))
+      (is (not (policy/session-visible-to? admin-key legacy-private false)) "API keys never administer")
+      (is (not (policy/session-visible-to? foreign legacy-private false))))
+    (testing "the guest manages them in local mode but has nobody to assign"
+      (is (policy/can-manage-session? guest legacy-private))
+      (is (not (policy/can-assign-owner? guest legacy-private))))
+    (testing "only a missing owner counts, never a missing column"
+      (is (not (policy/legacy-session? {:tenant_id tenant :visibility "private"})))
+      (is (not (policy/can-manage-session? admin {:tenant_id tenant :visibility "private"})))
+      (is (not (policy/can-assign-owner? admin (session alice "tenant")))))))
 
 (deftest definition-policy-test
   (let [personal {:availability "personal" :owner_user_id (:id bob)}

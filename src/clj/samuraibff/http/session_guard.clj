@@ -53,18 +53,22 @@
   "Return the caller-relative access fields for a session row.
 
   Output: {:visibility string :is_owner boolean :can_manage boolean
+           :can_assign_owner boolean
            :owner {:display_name string? :is_me boolean :kind string?}
            :via_api_key string?}. `:owner :kind` is \"api_key\" for sessions
-  owned by an organization API key; `:via_api_key` names the API key that
+  owned by an organization API key and \"unknown\" for legacy sessions
+  recorded before access control; `:via_api_key` names the API key that
   created the session."
   [principal session]
   (let [owner? (policy/owns-session? principal session)]
     (cond-> {:visibility (or (:visibility session) "private")
              :is_owner owner?
              :can_manage (policy/can-manage-session? principal session)
+             :can_assign_owner (policy/can-assign-owner? principal session)
              :owner (cond-> {:display_name (or (:owner_name session) (:owner_email session))
                              :is_me owner?}
-                      (= "service" (:owner_type session)) (assoc :kind "api_key"))}
+                      (= "service" (:owner_type session)) (assoc :kind "api_key")
+                      (policy/legacy-session? session) (assoc :kind "unknown"))}
       (:created_via_name session) (assoc :via_api_key (:created_via_name session)))))
 
 (defn error-response

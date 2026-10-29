@@ -26,10 +26,11 @@
    [:visibility Visibility]
    [:is_owner :boolean]
    [:can_manage :boolean]
+   [:can_assign_owner {:optional true} :boolean]
    [:owner [:map
             [:display_name [:maybe :string]]
             [:is_me :boolean]
-            [:kind {:optional true} [:enum "api_key"]]]]
+            [:kind {:optional true} [:enum "api_key" "unknown"]]]]
    [:via_api_key {:optional true} :string]])
 
 (def MeAccess
@@ -74,7 +75,11 @@
    [:revision :int]
    [:is_owner :boolean]
    [:can_manage :boolean]
-   [:owner {:optional true} [:map [:display_name [:maybe :string]] [:is_me :boolean]]]
+   [:can_assign_owner {:optional true} :boolean]
+   [:owner {:optional true} [:map
+                             [:display_name [:maybe :string]]
+                             [:is_me :boolean]
+                             [:kind {:optional true} [:enum "api_key" "unknown"]]]]
    [:recipients {:optional true} [:vector Recipient]]])
 
 (def DirectoryResponse
