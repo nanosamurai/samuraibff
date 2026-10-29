@@ -56,6 +56,31 @@ Open:
 * http://127.0.0.1:8000/recordings
 * http://127.0.0.1:8000/live
 
+### UI styling conventions
+
+The stylesheet is the `<style>` block in `resources/public/index.html`. The UI
+is dark only and sets `color-scheme: dark`, so native parts (select lists,
+scrollbars, checkboxes) follow the theme. Body text is 14px; controls inherit
+the page font.
+
+* **Icons:** use `samuraibff.ui.icons/icon` (inline 24x24 SVG in
+  `currentColor`, 16px by default). Do not use Unicode glyphs or emoji as
+  icons. New shapes are copied from [Lucide](https://lucide.dev) (ISC) into
+  that namespace; there is no icon npm package. Icons are `aria-hidden`, so
+  an icon-only button or link needs an `aria-label` (`router/link` accepts
+  `:aria-label`).
+* **Unavailable actions:** a `button` with `:disabled true`, or a
+  `span.btn.disabled` with `:aria-disabled "true"` and a `title` that says
+  why. Both render faded with a not-allowed cursor.
+* **States:** `btn danger` for destructive buttons, `error` for inline error
+  text, `badge ok|bad|warn|muted` for short states.
+* **Chevrons:** native `select` elements get a chevron from CSS
+  (`--chevron-down`); `details > summary` gets a turning chevron. Do not add
+  arrow characters.
+* **Focus:** one `:focus-visible` ring in the accent color for all controls.
+  Do not add per-component focus rules. Animations stop under
+  `prefers-reduced-motion`.
+
 ## gRPC proto generation
 
 To trigger generation and compilation of proto files:
