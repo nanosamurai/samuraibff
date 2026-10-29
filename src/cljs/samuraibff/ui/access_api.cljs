@@ -4,6 +4,7 @@
   Endpoints (same-origin, cookie authenticated):
   - GET  /api/sessions/:session_id/access
   - PUT  /api/sessions/:session_id/access
+  - PUT  /api/sessions/:session_id/owner        (Admin, owner-unknown sessions)
   - GET  /api/directory?q=
   - GET  /api/people?q=&limit=&offset=          (Admin)
   - POST /api/people                            (Admin)
@@ -49,6 +50,17 @@
   (api/fetch-json! (str "/api/sessions/" (enc session-id) "/access")
                    {:method "PUT"
                     :body (access/share-request-body audience)}))
+
+(defn assign-session-owner!
+  "Give a session recorded before access control (owner unknown) an owner.
+
+  Inputs: session id, {:owner-id uuid :revision int}.
+  Returns: Promise of the caller's new access map. A stale revision rejects
+  with 409 code `access-changed`."
+  [session-id {:keys [owner-id revision]}]
+  (api/fetch-json! (str "/api/sessions/" (enc session-id) "/owner")
+                   {:method "PUT"
+                    :body {:owner_id (str owner-id) :revision revision}}))
 
 (defn search-directory!
   "Search active colleagues to share with.

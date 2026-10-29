@@ -345,7 +345,8 @@
                                    :on-saved (fn [{:keys [visibility]}]
                                                (set-detail! (fn [old]
                                                               (assoc-in old [:session :access :visibility]
-                                                                        visibility))))}]
+                                                                        visibility))))
+                                   :on-owner-assigned (fn [_] (refresh!))}]
        [:div {:class "page-header"}
         [:div
          [:div {:class "page-title"} title

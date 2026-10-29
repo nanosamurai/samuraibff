@@ -150,6 +150,7 @@
    "recipients-required" "Choose at least one person, or choose another option."
    "invalid-recipients" "Some selected people can no longer receive shared sessions. Remove them and try again."
    "too-many-recipients" "Choose at most 100 people."
+   "invalid-owner" "This person can't own sessions here. Choose an active person of your organization."
    "forbidden" "You don't have permission to do this."
    "invalid-default" "Only published items can be defaults. Publish it first."
    "last-admin" "Keep at least one active Admin. Make someone else an Admin first."
@@ -211,15 +212,21 @@
                "Everyone here")
     "Private"))
 
+(defn unknown-owner?
+  "True for a session recorded before access control, whose owner is unknown."
+  [access]
+  (= "unknown" (get-in access [:owner :kind])))
+
 (defn owner-label
   "Return \"you\", the owner's display name or the owning API key from a
-  recording access summary. A session created with a personal API key adds
-  \"via API key\"."
+  recording access summary, or \"unknown\" for sessions recorded before access
+  control. A session created with a personal API key adds \"via API key\"."
   [access]
   (let [via (not-empty (str (or (:via_api_key access) "")))
         api-key-owner? (= "api_key" (get-in access [:owner :kind]))
         base (cond
                (true? (get-in access [:owner :is_me])) "you"
+               (unknown-owner? access) "unknown"
                api-key-owner? (str "API key \u201c" (or (get-in access [:owner :display_name]) via "") "\u201d")
                :else (or (not-empty (str (get-in access [:owner :display_name] ""))) "a colleague"))]
     (if (and via (not api-key-owner?))
@@ -245,13 +252,24 @@
   "Return the owner/audience label for the recording detail header.
 
   Owners see the audience. Managers of an organization API key see that they
-  manage its session. Recipients see that the session is read-only."
+  manage its session; Admins see that they manage sessions recorded before
+  access control. Recipients see that the session is read-only."
   [access tenant-name]
   (when (map? access)
     (cond
       (true? (:is_owner access))
       (str "By " (owner-label (assoc-in access [:owner :is_me] true))
            " · " (audience-label (:visibility access) tenant-name))
+
+      (and (true? (:can_manage access)) (unknown-owner? access))
+      (str "Owner unknown (recorded before access control) · "
+           (audience-label (:visibility access) tenant-name) " · Admins manage it")
+
+      (unknown-owner? access)
+      (str "Owner unknown (recorded before access control)"
+           (if (= "tenant" (str (:visibility access)))
+             (str " · " (audience-label "tenant" tenant-name) " · read-only")
+             " · Shared with you · read-only"))
 
       (true? (:can_manage access))
       (str "By " (owner-label access) " · " (audience-label (:visibility access) tenant-name)
