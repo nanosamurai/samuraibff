@@ -36,6 +36,10 @@
 
     a{color:inherit;text-decoration:none}
 
+    /* One keyboard focus ring for every control (zero specificity, so components can still override). */
+    :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+    input:focus, select:focus, textarea:focus{border-color:var(--accent)}
+
     #app{height:100%}
 
     /* --- Layout shell --- */
@@ -294,7 +298,8 @@
     .output-tab.active,.settings-tab.active{border-bottom-color:var(--accent)}
     .output-tab.active button,.settings-tab.active{color:var(--txt)}
     .output-tab-count{font-size:10px;color:var(--muted);border-radius:5px;padding:1px 5px;background:rgba(255,255,255,.06)}
-    .settings-tabs button:focus-visible,.settings-tabs input:focus-visible,.track-choice:focus-within{outline:2px solid var(--accent);outline-offset:3px}
+    .track-choice:focus-within{outline:2px solid var(--accent);outline-offset:3px}
+    .track-choice input:focus-visible{outline:none}
     .settings-content{padding-top:20px;min-width:0}
     .stage-fieldset{border:0;margin:0;padding:0;min-width:0}
     .stage-settings{display:flex;flex-direction:column;gap:18px;max-width:940px}
@@ -558,6 +563,7 @@
 
     @media (prefers-reduced-motion: reduce){
       .revision-text{animation-duration:1ms}
+      .typing-dots::before,.typing-dots::after,.typing-dots span{animation:none;opacity:1}
     }
 
     /* --- Karaoke word highlighting --- */
@@ -595,7 +601,6 @@
     .tab{padding:9px 0;margin-bottom:-1px;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:var(--muted);font:inherit;font-size:13px;cursor:pointer}
     .tab:hover{color:var(--txt)}
     .tab.active{border-bottom-color:var(--accent);color:var(--txt)}
-    .tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
     .sessions-scope-tabs{margin-bottom:0;flex:1}
 
     .account{display:flex;align-items:center;gap:10px;min-width:0}
@@ -636,6 +641,7 @@
     }
 
     .rec-dot.blink{animation: recBlink 0.9s infinite ease-in-out}
+    @media (prefers-reduced-motion: reduce){.rec-dot.blink{animation:none}}
 
     .log{flex:1;min-height:0;overflow:auto;padding:10px;border-radius:12px;border:1px solid rgba(34,48,70,.6);background:rgba(12,18,27,.35);font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;font-size:12px;white-space:pre-wrap}
     .log-line{padding:2px 0}
