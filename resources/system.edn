@@ -26,22 +26,44 @@
          ;; Recommended value for local dev:
          ;; "00000000-0000-0000-0000-000000000000"
          :guest-tenant-id nil
-         :issuer "https://auth.nanosamur.ai/realms/nanosamurai"
-         ;; JWT audience (Keycloak client id used by the browser)
+         ;; Your OIDC provider's issuer URL (SAMURAIBFF_AUTH_ISSUER). There is
+         ;; no default: required when :required? is true.
+         :issuer nil
+         ;; JWT audience (the browser client id)
          :audience "bff-web"
          ;; OAuth client id for /auth/login (defaults to :audience if omitted)
          :client-id "bff-web"
          ;; Access token cookie name used by the UI login flow
          :cookie-name "access_token"
          ;; where to find tenant in claims; we’ll standardize on this later
-         :tenant-claim "tenant_id"}
+         :tenant-claim "tenant_id"
+         ;; Claim that names the OAuth client of a machine token (Okta: "cid")
+         :client-claim "azp"
+         ;; Extra browser origins allowed for cookie mutations and WebSockets.
+         ;; The BFF's own public origin is always allowed.
+         :allowed-origins []}
 
   ;; --- Keycloak Admin API (optional; required only for managing M2M credentials) ---
   ;; If not set, /api/api-credentials will return 503 (keycloak-admin-unavailable).
-  :keycloak {:admin {:issuer "https://auth.nanosamur.ai/realms/nanosamurai"
-                     :realm "nanosamurai"
-                     :client-id "bff-admin"
-                     :client-secret nil}}
+  ;; Enabled only when issuer, realm, client id and secret are all set; there
+  ;; are no built-in defaults, so a secret alone never reaches another realm.
+  :keycloak {:admin {:issuer nil
+                     :realm nil
+                     :client-id nil
+                     :client-secret nil}
+             ;; --- Restricted user provisioning for Settings -> People (optional) ---
+             ;; Disabled by default. When disabled, operators provision people with
+             ;; `samuraibff.tools.principals` and People manages roles and access only.
+             ;; Use a separate client from :admin with user-management rights only.
+             :user-admin {:enabled? false
+                          :issuer nil
+                          :realm nil
+                          :client-id nil
+                          :client-secret nil
+                          ;; Client and redirect used by the setup email link.
+                          :setup-client-id nil
+                          :setup-redirect-uri nil
+                          :setup-lifespan-s 86400}}
 
   ;; --- DB ---
   ;; NOTE: do not ship real credentials in a jar-packaged resources/system.edn.

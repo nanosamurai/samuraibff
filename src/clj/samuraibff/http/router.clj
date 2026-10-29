@@ -24,7 +24,9 @@
    [samuraibff.ws.audio :as ws.audio]
    [samuraibff.ws.auth :as ws.auth]
    [samuraibff.ws.events :as ws.events]
+   [samuraibff.http.access-routes :as http.access-routes]
    [samuraibff.http.auth :as http.auth]
+   [samuraibff.http.origin :as http.origin]
    [samuraibff.http.recordings :as http.recordings]
    [samuraibff.http.webhook-delivery-outcomes :as http.wh.outcomes]
    [samuraibff.http.api-credentials :as http.api-creds]
@@ -271,6 +273,11 @@
                             (http.auth/wrap-authenticate handler config))
         wrap-require-auth (fn [handler]
                             (http.auth/wrap-require-auth handler config))
+        wrap-origin-check (fn [handler]
+                            (http.origin/wrap-origin-check handler config))
+        revoke-credentials! (fn [tenant-id manager-id]
+                              ((requiring-resolve 'samuraibff.http.api-credentials/revoke-managed-credentials-for-manager!)
+                               deps tenant-id manager-id))
         customer-openapi-id ::customer
         docs-handler
         (swagger-ui/create-swagger-ui-handler
@@ -288,6 +295,8 @@
           ["/webhooks-defaults" {:get {:handler http.ui/index-handler}}]
           ["/workflows" {:get {:handler http.ui/index-handler}}]
           ["/workflows-defaults" {:get {:handler http.ui/index-handler}}]
+          ["/speakers" {:get {:handler http.ui/index-handler}}]
+          ["/people" {:get {:handler http.ui/index-handler}}]
 
            ;; --- OpenAPI + Swagger UI ---
           ["/openapi" {:tags ["openapi"]}
@@ -352,28 +361,35 @@
                                            400 {:body schemas/ApiErrorResponse}}
                                :handler (http.auth/callback-handler config)}}]
            ["/logout" {:post {:summary "Logout"
-                              :description "Clears the access token cookie."
-                              :responses {204 {:description "No Content"}}
+                              :description "Clears the session cookies. When authentication is required, `logout_url` is the identity-provider logout the browser must open to end single sign-on."
+                              :responses {200 {:body [:map
+                                                      [:ok :boolean]
+                                                      [:logout_url {:optional true} :string]]}}
                               :handler (http.auth/logout-handler config)}}]]
 
            ;; API endpoints (all tenant-scoped; auth enforced by wrap-require-auth)
           ["/api" {:tags ["api"]
                    :openapi {:id customer-openapi-id}
                    :security [{:bearerAuth []}]
-                   :middleware [wrap-require-auth]}
-           ["/me" {:get {:summary "Current user"
-                         :description "Returns details about the current authenticated principal."
+                   :middleware [wrap-require-auth
+                                (http.access-routes/principal-middleware deps)]}
+           ["/me" {:access/allow-inactive? true
+                   :get {:summary "Current user"
+                         :description (str "Returns the current principal, its access state "
+                                           "(active, not provisioned, pending, suspended) and capability hints.")
                          :responses {200 {:body schemas/ApiMeResponse}
                                      401 {:body schemas/ApiErrorResponse}
                                      403 {:body schemas/ApiErrorResponse}}
                          :handler (http.auth/me-handler config (:grpc deps))}}]
 
            ["/recordings" {:get {:summary "List recordings"
-                                 :description "Returns the tenant-scoped list of recording sessions."
+                                 :description (str "Returns sessions the caller may read: own sessions and sessions "
+                                                   "shared with them. scope=mine|shared filters rows and counts.")
                                  :parameters {:query [:map
                                                       [:limit {:optional true} :int]
                                                       [:offset {:optional true} :int]
-                                                      [:show_drafts {:optional true} :boolean]]}
+                                                      [:show_drafts {:optional true} :boolean]
+                                                      [:scope {:optional true} [:enum "all" "mine" "shared"]]]}
                                  :responses {200 {:body schemas/RecordingsListResponse}
                                              400 {:body schemas/ApiErrorResponse}
                                              403 {:body schemas/ApiErrorResponse}
@@ -572,6 +588,8 @@
                                 500 {:body schemas/ApiErrorResponse}}
                     :handler (http.ui/finish-session-handler deps)}}]
 
+           (http.access-routes/api-routes deps revoke-credentials!)
+
            ["/sessions/:session_id/webhook-delivery-outcomes"
             {:get {:summary "List webhook delivery outcomes"
                    :description "Returns the latest webhook delivery outcome per dispatch_id for the given session (includes attempts_count)."
@@ -668,7 +686,17 @@
                                 503 {:body schemas/ApiErrorResponse}}
                     :handler (http.api-creds/rotate-api-credential-handler deps)}}]
            ["/api-credentials/:id"
-            {:delete {:summary "Revoke API credential"
+            {:patch {:summary "Configure organization API key"
+                     :description "Changes the manager or default audience of an organization API key (Admin only)."
+                     :parameters {:path [:map [:id :string]]
+                                  :body schemas/ConfigureApiCredentialRequest}
+                     :responses {200 {:body schemas/ConfigureApiCredentialResponse}
+                                 400 {:body schemas/ApiErrorResponse}
+                                 403 {:body schemas/ApiErrorResponse}
+                                 404 {:body schemas/ApiErrorResponse}
+                                 503 {:body schemas/ApiErrorResponse}}
+                     :handler (http.api-creds/configure-api-credential-handler deps)}
+             :delete {:summary "Revoke API credential"
                       :description "Revokes the API credential for the current tenant."
                       :parameters {:path [:map [:id :string]]}
                       :responses {200 {:body schemas/ApiOkResponse}
@@ -715,6 +743,7 @@
                               wrap-safe-errors
                               parameters/parameters-middleware ; decoding query & form params
                               wrap-cookies
+                              wrap-origin-check
                               (fn [handler]
                                 (fn [req]
                                   (handler (assoc req :samuraibff/deps deps*))))

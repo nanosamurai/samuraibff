@@ -173,13 +173,28 @@
              :audience (s "SAMURAIBFF_AUTH_AUDIENCE")
              :client-id (s "SAMURAIBFF_AUTH_CLIENT_ID")
              :cookie-name (s "SAMURAIBFF_AUTH_COOKIE_NAME")
-             :tenant-claim (s "SAMURAIBFF_AUTH_TENANT_CLAIM")}
+             :tenant-claim (s "SAMURAIBFF_AUTH_TENANT_CLAIM")
+             :client-claim (s "SAMURAIBFF_AUTH_CLIENT_CLAIM")
+             :allowed-origins (some->> (s "SAMURAIBFF_AUTH_ALLOWED_ORIGINS")
+                                       (#(str/split % #","))
+                                       (map str/trim)
+                                       (remove str/blank?)
+                                       vec
+                                       not-empty)}
 
       ;; Keycloak admin API (optional; used only for M2M credential management)
       :keycloak {:admin {:issuer (s "SAMURAIBFF_KEYCLOAK_ADMIN_ISSUER")
                          :realm (s "SAMURAIBFF_KEYCLOAK_ADMIN_REALM")
                          :client-id (s "SAMURAIBFF_KEYCLOAK_ADMIN_CLIENT_ID")
-                         :client-secret (s "SAMURAIBFF_KEYCLOAK_ADMIN_CLIENT_SECRET")}}
+                         :client-secret (s "SAMURAIBFF_KEYCLOAK_ADMIN_CLIENT_SECRET")}
+                 :user-admin {:enabled? (b "SAMURAIBFF_KEYCLOAK_USER_ADMIN_ENABLED")
+                              :issuer (s "SAMURAIBFF_KEYCLOAK_USER_ADMIN_ISSUER")
+                              :realm (s "SAMURAIBFF_KEYCLOAK_USER_ADMIN_REALM")
+                              :client-id (s "SAMURAIBFF_KEYCLOAK_USER_ADMIN_CLIENT_ID")
+                              :client-secret (s "SAMURAIBFF_KEYCLOAK_USER_ADMIN_CLIENT_SECRET")
+                              :setup-client-id (s "SAMURAIBFF_KEYCLOAK_USER_ADMIN_SETUP_CLIENT_ID")
+                              :setup-redirect-uri (s "SAMURAIBFF_KEYCLOAK_USER_ADMIN_SETUP_REDIRECT_URI")
+                              :setup-lifespan-s (i "SAMURAIBFF_KEYCLOAK_USER_ADMIN_SETUP_LIFESPAN_S")}}
 
       :db {:jdbc-url (s "SAMURAIBFF_DB_JDBC_URL")
            :username (s "SAMURAIBFF_DB_USERNAME")

@@ -25,7 +25,7 @@
    [org.corfield.logging4j2 :as log]
    [samuraibff.audio.wav :as audio.wav]
    [samuraibff.db.recordings :as db.recordings]
-   [samuraibff.db.sessions :as db.sessions]
+   [samuraibff.http.session-guard :as session-guard]
    [samuraibff.db.speakers :as db.speakers]
    [samuraibff.s3.client :as s3.client]
    [samuraibff.s3.enrollment :as s3.enrollment]
@@ -144,20 +144,6 @@
                        :path file-path})))
     f))
 
-(defn- resolve-user-id
-  "Resolve app_users.id for the current request.
-
-  Inputs:
-  - ds: datasource
-  - tenant-id: UUID
-  - req: Ring request
-
-  Returns: UUID?"
-  [ds tenant-id req]
-  (let [external-id (some-> req :auth/user :sub)]
-    (when (and ds (seq (str external-id)))
-      (db.sessions/find-user-id-by-external-id ds tenant-id external-id))))
-
 (defn create-speaker-from-recording-handler
   "Create an enrolled speaker from a segment of an existing recording.
 
@@ -188,13 +174,14 @@
               label (audio.wav/sanitize-label (:label coerced))
               tenant-id (ensure-tenant-uuid! req)
               session-uuid (UUID/fromString (str (:session_id coerced)))
+              _ (session-guard/require-managed-session! ds req session-uuid)
               recording (db.recordings/find-latest-recording ds tenant-id session-uuid)
               recording-url (some-> (:recording_url recording) str)
               max-d default-max-duration-s
               clip-opts {:start_s (:start_s coerced)
                          :end_s (:end_s coerced)
                          :max_duration_s max-d}
-              user-uuid (resolve-user-id ds tenant-id req)]
+              user-uuid (:id (session-guard/require-principal! req))]
 
           (cond
             (nil? recording)
@@ -281,6 +268,8 @@
           (let [{:keys [type]} (ex-data e)]
             (case type
               :samuraibff.http/missing-tenant-id (json-response 403 {:ok false :message "missing-tenant-id"})
+              (:samuraibff.http/not-found :samuraibff.http/read-only :samuraibff.http/forbidden)
+              (session-guard/error-response type)
               :samuraibff.http/invalid-tenant-id (json-response 400 {:ok false :message "invalid-tenant-id"})
               :samuraibff.http/missing-datasource (json-response 503 {:ok false :message "db-unavailable"})
 

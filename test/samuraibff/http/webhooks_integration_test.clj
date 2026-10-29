@@ -14,6 +14,7 @@
    [samuraibff.http.router :as http.router]
    [samuraibff.http.webhooks :as http.webhooks]
    [samuraibff.schemas :as schemas]
+   [samuraibff.test-support.principals :as principals]
    [samuraibff.testcontainers.postgres :as tc.pg])
   (:import
    (java.util UUID)))
@@ -28,6 +29,7 @@
     {:config {:env :test
               :features {:ce-mode? false}
               :auth {:required? true
+                     :issuer principals/test-issuer
                      :cookie-name "access_token"}}
      :db {:ds ds}
      :grpc nil
@@ -35,6 +37,11 @@
      :kafka-producer nil
      :secrets {:store nil}
      :keycloak-admin nil}))
+
+(defn- insert-admin!
+  "Insert an Admin whose token subject is \"u\" (the stubbed verified subject)."
+  [ds tenant-uuid]
+  (principals/insert-principal! ds {:tenant-id tenant-uuid :role :admin :external-id "u"}))
 
 (defn- parse-json-body
   "Parse a Ring response body (map/string/InputStream) into a Clojure map." 
@@ -72,8 +79,9 @@
                 tenant-uuid webhook-id "transcript.final.ready"
                 tenant-uuid webhook-id "transcript.refined.segment"])
 
+            admin (insert-admin! ds tenant-uuid)
             handler (http.webhooks/list-webhooks-handler {:db {:ds ds}})
-            resp (handler {:auth/tenant-id (str tenant-uuid)})
+            resp (handler (principals/request-for admin))
             body (:body resp)]
         (is (= 200 (:status resp)))
         ;; critical: response must satisfy the schema, or the real router would throw
@@ -104,6 +112,7 @@
                  VALUES (?, ?, ?, ?, ?, ?, ?::jsonb)"
                 webhook-id tenant-uuid "cpt-hook" "http://127.0.0.1:8989" true "none" "{}"])
 
+            admin (insert-admin! ds tenant-uuid)
             handler (router-handler ds)
             body {:name "cpt-hook"
                   :url "http://127.0.0.1:8989"
@@ -116,11 +125,12 @@
             resp (with-redefs [oidc/extract-token (fn [_config _req] "test-token")
                                oidc/verify-token (fn [_config _token] {:sub "u"})
                                oidc/extract-tenant-from-claims* (fn [_config _claims] (str tenant-uuid))]
-                   (handler {:request-method :put
-                             :uri (str "/api/webhooks/" (str webhook-id))
-                             :headers {"content-type" "application/json"
-                                       "authorization" "Bearer test-token"}
-                             :body-params body}))
+                   (handler (merge (principals/request-for admin)
+                                   {:request-method :put
+                                    :uri (str "/api/webhooks/" (str webhook-id))
+                                    :headers {"content-type" "application/json"
+                                              "authorization" "Bearer test-token"}
+                                    :body-params body})))
             resp-body (parse-json-body resp)]
         ;; If the route param is wrong, coercion fails and you get 400 with "missing required key".
         (is (= 200 (:status resp)))
@@ -144,13 +154,15 @@
                  VALUES (?, ?::uuid[], now())"
                 tenant-uuid (into-array UUID [w1 w2])])
 
+            admin (insert-admin! ds tenant-uuid)
             handler (router-handler ds)
             resp (with-redefs [oidc/extract-token (fn [_config _req] "test-token")
                                oidc/verify-token (fn [_config _token] {:sub "u"})
                                oidc/extract-tenant-from-claims* (fn [_config _claims] (str tenant-uuid))]
-                   (handler {:request-method :get
-                             :uri "/api/webhooks/defaults"
-                             :headers {"authorization" "Bearer test-token"}}))
+                   (handler (merge (principals/request-for admin)
+                                   {:request-method :get
+                                    :uri "/api/webhooks/defaults"
+                                    :headers {"authorization" "Bearer test-token"}})))
             body (parse-json-body resp)]
         (is (= 200 (:status resp)))
         (is (= body (schemas/validate! schemas/WebhookDefaultsResponse body)))

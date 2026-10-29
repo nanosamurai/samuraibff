@@ -72,17 +72,28 @@ See:
 
 ### API credentials (M2M)
 
-* `GET /api/api-credentials`
-* `POST /api/api-credentials`
-* `POST /api/api-credentials/{id}/rotate`
-* `DELETE /api/api-credentials/{id}`
+* `GET /api/api-credentials` (items add `kind`, `read_scope`, `audience`,
+  `can_rotate`, `can_configure`)
+* `POST /api/api-credentials` body `{name, kind?, read_scope?, audience?,
+  manager_id?}`: `kind` is `personal` (default) or `organization` (Admin
+  only); `read_scope` (`credential` | `owner`) applies to personal keys;
+  `audience` (`private` | `tenant`) and `manager_id` to organization keys
+* `PATCH /api/api-credentials/{id}` body `{manager_id?, audience?}`
+  (organization keys, Admin only)
+* `POST /api/api-credentials/{id}/rotate` (personal keys: owner only,
+  `403 owner-only-rotation`)
+* `DELETE /api/api-credentials/{id}` (response `upstream`: `disabled` | `pending`)
 
-See:
+Admins manage all credentials, Builders their own. Session access summaries
+add `via_api_key` (the key that recorded it) and `owner.kind = "api_key"`
+for sessions owned by an organization key; `/api/me` adds
+`access.principal.api_key` for requests made with a key. See:
 
 * `docs/security-auth.md`
 
 ### Webhooks + workflows
 
-See:
+Definitions are `personal` or `published`; roles decide who can list, edit,
+publish and set defaults. See:
 
 * `docs/features-webhooks-workflows.md`

@@ -77,6 +77,8 @@
       id          => java.util.UUID
       tenant-id   => java.util.UUID
       user-id     => java.util.UUID or nil
+      created-via-credential-id => java.util.UUID or nil (API key that created it)
+      visibility  => \"private\" | \"tenant\" or nil (column default: private)
       session-key => string
       title       => string or nil
       status      => string (defaults to active)
@@ -90,7 +92,8 @@
   Returns:
   - map with inserted identifiers:
       {:id <uuid> :session-key <string>}"
-  [^DataSource ds {:keys [id tenant-id user-id session-key status title webhook-overrides session-settings workflow-overrides]
+  [^DataSource ds {:keys [id tenant-id user-id session-key status title webhook-overrides session-settings
+                          workflow-overrides created-via-credential-id visibility]
                    :or {status "active"}}]
   (when-not (and ds (instance? UUID id) (instance? UUID tenant-id) (seq (str session-key)))
     (throw (ex-info "insert-session! missing required params"
@@ -100,6 +103,8 @@
                         :session_key (str session-key)
                         :status (str status)}
                  (some? user-id) (assoc :user_id user-id)
+                 (some? created-via-credential-id) (assoc :created_via_credential_id created-via-credential-id)
+                 (some? visibility) (assoc :visibility (str visibility))
                  (some? title) (assoc :title (str title))
 
                  ;; IMPORTANT: use PGobject jsonb rather than raw casts + manual param conj.

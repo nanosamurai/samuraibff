@@ -1,10 +1,14 @@
 (ns samuraibff.http.recordings-pagination-integration-test
-  "Exercise tenant-scoped pagination against PostgreSQL, including tied dates."
+  "Exercise principal-scoped pagination against PostgreSQL, including tied dates.
+
+  Each tenant's sessions are owned by one provisioned principal; lists are
+  requested as that owner. A same-tenant non-owner sees none of them."
   (:require
    [clojure.test :refer [deftest is testing]]
    [honey.sql :as sql]
    [next.jdbc :as jdbc]
    [samuraibff.http.recordings :as recordings]
+   [samuraibff.test-support.principals :as tp]
    [samuraibff.testcontainers.postgres :as pg])
   (:import (java.sql Timestamp)
            (java.time Instant)
@@ -25,7 +29,8 @@
           handler (recordings/list-recordings-handler {:db {:ds ds} :config {:env :test}})
           execute! jdbc/execute!
           execute-one! jdbc/execute-one!
-          list-page (fn [tenant-id params]
+          owners (atom {})
+          list-page (fn [tenant-or-principal params]
                       (let [statements (atom 0)
                             response (with-redefs [jdbc/execute! (fn [& args]
                                                                    (swap! statements inc)
@@ -33,19 +38,26 @@
                                                    jdbc/execute-one! (fn [& args]
                                                                        (swap! statements inc)
                                                                        (apply execute-one! args))]
-                                       (handler {:auth/tenant-id (str tenant-id) :params params}))]
+                                       (handler (tp/request-for (if (map? tenant-or-principal)
+                                                                  tenant-or-principal
+                                                                  (get @owners tenant-or-principal))
+                                                                {:params params})))]
                         (is (= 200 (:status response)))
                         (is (= 1 @statements) "Return items and both counts in one database statement")
                         (:body response)))]
       (pg/apply-schema! ds)
       (insert! :tenants (mapv (fn [id] {:id id :name "Pagination test"})
                               [tenant other-tenant empty-tenant draft-only-tenant]))
+      (reset! owners (into {} (map (fn [id] [id (tp/insert-principal! ds {:tenant-id id})]))
+                           [tenant other-tenant empty-tenant draft-only-tenant]))
       (insert! :sessions (mapv (fn [id] {:id id :tenant_id tenant :session_key (str id)
+                                         :user_id (:id (get @owners tenant))
                                          :status "finished" :created_at created-at}) session-ids))
       (insert! :sessions
                (mapv (fn [[tenant-id status]]
                        (let [id (UUID/randomUUID)]
                          {:id id :tenant_id tenant-id :session_key (str id)
+                          :user_id (:id (get @owners tenant-id))
                           :status status :created_at later}))
                      [[tenant "created"] [other-tenant "created"] [other-tenant "finished"]
                       [draft-only-tenant "created"]]))
@@ -79,6 +91,10 @@
                             [:items :total :drafts_count])))
         (is (= {:total 2 :drafts_count 1}
                (select-keys (list-page other-tenant {}) [:total :drafts_count]))))
+      (testing "A same-tenant non-owner sees no private sessions and no counts"
+        (let [colleague (tp/insert-principal! ds {:tenant-id tenant})]
+          (is (= {:items [] :total 0 :drafts_count 0}
+                 (select-keys (list-page colleague {}) [:items :total :drafts_count])))))
       (testing "Metadata joins keep one row per session and choose the latest recording deterministically"
         (let [newest-id (last session-ids)
               second-id (nth session-ids 203)]

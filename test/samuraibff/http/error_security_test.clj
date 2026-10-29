@@ -8,7 +8,8 @@
             [samuraibff.http.auth :as auth]
             [samuraibff.http.middleware.observability :as observability]
             [samuraibff.http.router :as router]
-            [samuraibff.test-support.log-capture :as logs])
+            [samuraibff.test-support.log-capture :as logs]
+            [samuraibff.test-support.principal-store :as store])
   (:import (java.io ByteArrayInputStream IOException)
            (java.nio.charset StandardCharsets)
            (org.apache.logging.log4j ThreadContext)))
@@ -23,6 +24,16 @@
 (def ^:private session-id "019d85d7-5915-7a8f-a263-ca04cf3c4b5d")
 (def ^:private config {:auth {:required? false :guest-tenant-id session-id}})
 (def ^:private mapper (json/object-mapper {:decode-key-fn keyword}))
+
+(def ^:private router-deps
+  "Router deps with a placeholder datasource; principal reads use the in-memory
+  guest row seeded by `with-guest`, so these tests stay Docker-free."
+  {:config config :db {:ds :principal-store}})
+
+(defn- with-guest
+  "Call f while the guest principal of the configured guest tenant exists."
+  [f]
+  (store/with-store (atom {:principals [(store/guest-row (parse-uuid session-id))]}) f))
 
 (defn- private-failure
   "Create a failure with synthetic credentials in its message, data and cause."
@@ -59,8 +70,8 @@
   "Call the actual router with only the credential business operation replaced."
   [operation body]
   (with-redefs [credentials/create-api-credential-handler (fn [_] operation)]
-    (let [handler (router/create-router {:config config})]
-      (logs/capture! #(handler (request body))))))
+    (let [handler (router/create-router router-deps)]
+      (with-guest #(logs/capture! (fn [] (handler (request body))))))))
 
 (defn- assert-error
   "Assert the stable error shape and absence of secrets from response and logs."
@@ -100,13 +111,13 @@
       (is (= 1 (count (filter #(str/includes? (:text %) "HTTP request failed") (:events result)))))))
   (testing "authentication middleware failures outside coercion are contained"
     (with-redefs [auth/wrap-authenticate (fn [_ _] (fn [_] (throw (private-failure))))]
-      (let [handler (router/create-router {:config config})]
-        (assert-error (logs/capture! #(handler (request "{}"))) 500 "internal-error"))))
+      (let [handler (router/create-router router-deps)]
+        (assert-error (with-guest #(logs/capture! (fn [] (handler (request "{}"))))) 500 "internal-error"))))
   (testing "unmatched/static failures cannot leak raw URI or query data"
     (with-redefs [resource/wrap-resource (fn [& _] (fn [_] (throw (private-failure))))]
-      (let [handler (router/create-router {:config config})
+      (let [handler (router/create-router router-deps)
             req (assoc (request "{}") :uri (str "/" (:query markers)))
-            result (logs/capture! #(handler req))]
+            result (with-guest #(logs/capture! (fn [] (handler req))))]
         (assert-error result 500 "internal-error")
         (is (some #(str/includes? (:text %) "<unmatched>") (:events result)))))))
 

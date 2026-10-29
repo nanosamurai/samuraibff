@@ -12,7 +12,8 @@
    [malli.core :as m]
    [malli.error :as me]
    [malli.util :as mu]
-   [malli.transform :as mt]))
+   [malli.transform :as mt]
+   [samuraibff.access.schemas :as access.schemas]))
 
 ;; ---------------------------------------------------------------------
 ;; Common primitives
@@ -371,29 +372,39 @@
      :trigger {:type <WorkflowTriggerType> :track_id <transcript-track-id>}
      :provider {:type bedrock :model_id <string> :params <map?>}
      :prompt {:text <string>}
-     :incremental {:enabled <boolean?> :min_interval_sec <int?>}?}"
+     :incremental {:enabled <boolean?> :min_interval_sec <int?>}?
+     :availability \"personal\"|\"published\"?}
+
+  `availability` is honored for Admins (default published). Builders always
+  create personal definitions; a Builder request for published is denied."
   [:map
    [:name NonEmptyString]
    [:enabled {:optional true} :boolean]
    [:trigger WorkflowTrigger]
    [:provider WorkflowProvider]
    [:prompt WorkflowPrompt]
-   [:incremental {:optional true} [:maybe WorkflowIncremental]]])
+   [:incremental {:optional true} [:maybe WorkflowIncremental]]
+   [:availability {:optional true} [:maybe [:enum "personal" "published"]]]])
 
 (def UpdateWorkflowRequest
   "Request body for PUT /api/workflows/{id}.
 
-  All fields optional; provided fields replace stored values."
+  All fields optional; provided fields replace stored values. Changing
+  `availability` (publish or unpublish) requires Admin."
   [:map
    [:name {:optional true} [:maybe :string]]
    [:enabled {:optional true} [:maybe :boolean]]
    [:trigger {:optional true} [:maybe WorkflowTrigger]]
    [:provider {:optional true} [:maybe WorkflowProvider]]
    [:prompt {:optional true} [:maybe WorkflowPrompt]]
-   [:incremental {:optional true} [:maybe WorkflowIncremental]]])
+   [:incremental {:optional true} [:maybe WorkflowIncremental]]
+   [:availability {:optional true} [:maybe [:enum "personal" "published"]]]])
 
 (def WorkflowItem
-  "Workflow list item returned by GET /api/workflows."
+  "Workflow list item returned by GET /api/workflows.
+
+  `prompt`, `provider.params` and `incremental` are present only when
+  `can_manage` is true. `owner` is nil for definitions without an owner."
   [:map
    [:id Uuid]
    [:tenant_id Uuid]
@@ -401,8 +412,14 @@
    [:enabled :boolean]
    [:trigger WorkflowTrigger]
    [:provider WorkflowProvider]
-   [:prompt WorkflowPrompt]
+   [:prompt {:optional true} WorkflowPrompt]
    [:incremental {:optional true} [:maybe WorkflowIncremental]]
+   [:availability {:optional true} [:enum "personal" "published"]]
+   [:owner {:optional true} [:maybe [:map
+                                     [:id Uuid]
+                                     [:display_name [:maybe :string]]
+                                     [:is_me :boolean]]]]
+   [:can_manage {:optional true} :boolean]
    [:created_at :string]
    [:updated_at :string]])
 
@@ -490,7 +507,10 @@
   Secrets are write-only fields:
   - :hmac_secret
   - :api_key
-  - :oauth_client_secret"
+  - :oauth_client_secret
+
+  `availability` is honored for Admins (default published). Builders always
+  create personal webhooks; a Builder request for published is denied."
   [:map
    [:name NonEmptyString]
    [:url NonEmptyString]
@@ -501,7 +521,8 @@
 
    [:hmac_secret {:optional true} [:maybe :string]]
    [:api_key {:optional true} [:maybe :string]]
-   [:oauth_client_secret {:optional true} [:maybe :string]]])
+   [:oauth_client_secret {:optional true} [:maybe :string]]
+   [:availability {:optional true} [:maybe [:enum "personal" "published"]]]])
 
 (def CreateWebhookResponse
   "Response body for POST /api/webhooks."
@@ -513,7 +534,8 @@
   "Request body for PUT /api/webhooks/{id}.
 
   All fields are optional; provided fields replace stored values.
-  Secrets are write-only.
+  Secrets are write-only. Changing `availability` (publish or unpublish)
+  requires Admin.
   "
   [:map
    [:name {:optional true} [:maybe :string]]
@@ -525,13 +547,16 @@
 
    [:hmac_secret {:optional true} [:maybe :string]]
    [:api_key {:optional true} [:maybe :string]]
-   [:oauth_client_secret {:optional true} [:maybe :string]]])
+   [:oauth_client_secret {:optional true} [:maybe :string]]
+   [:availability {:optional true} [:maybe [:enum "personal" "published"]]]])
 
 (def WebhookItem
   "Webhook list item.
 
   Notes:
   - secret values are never returned; only secret refs are stored in DB.
+  - `auth_type`, secret refs, OAuth and API-key settings and static headers
+    are present only when `can_manage` is true.
   "
   [:map
    [:id Uuid]
@@ -539,7 +564,13 @@
    [:name :string]
    [:url :string]
    [:enabled :boolean]
-   [:auth_type :string]
+   [:auth_type {:optional true} :string]
+   [:availability {:optional true} [:enum "personal" "published"]]
+   [:owner {:optional true} [:maybe [:map
+                                     [:id Uuid]
+                                     [:display_name [:maybe :string]]
+                                     [:is_me :boolean]]]]
+   [:can_manage {:optional true} :boolean]
    ;; Subscribed event types for this webhook.
    [:subscriptions [:sequential WebhookEventType]]
    [:hmac_secret_ref {:optional true} [:maybe :string]]
@@ -630,6 +661,7 @@
      [:workflow_webhook_runtime_enabled :boolean]
      [:webhooks_enabled :boolean]
      [:workflows_enabled :boolean]]]
+   [:access {:optional true} access.schemas/MeAccess]
    [:message {:optional true} :string]])
 
 (def RecordingItem
@@ -649,6 +681,7 @@
    [:created_at [:maybe :string]]
    [:has_recording :boolean]
    [:has_final_transcript :boolean]
+   [:access {:optional true} access.schemas/AccessSummary]
    [:recording
     [:map
      [:created_at [:maybe :string]]
@@ -661,6 +694,7 @@
   [:map
    [:ok :boolean]
    [:tenant_id Uuid]
+   [:scope {:optional true} [:enum "all" "mine" "shared"]]
    [:total NonNegInt]
    [:drafts_count NonNegInt]
    [:items [:sequential RecordingItem]]])
@@ -680,7 +714,8 @@
    [:stream_controls {:optional true} [:maybe :any]]
    ;; Flags for UI convenience (used for audio playback gating).
    [:has_recording :boolean]
-   [:has_final_transcript :boolean]])
+   [:has_final_transcript :boolean]
+   [:access {:optional true} access.schemas/AccessSummary]])
 
 (def TranscriptRecord
   "Transcript record element returned by `GET /api/recordings/{session_id}`.
@@ -820,27 +855,64 @@
    [:session_id Uuid]
    [:status [:= "finished"]]])
 
+(def ApiCredentialItem
+  "One API credential as listed for its managers.
+
+  kind: personal (acts as its owner) or organization (owns its sessions).
+  read_scope applies to personal keys, audience to organization keys."
+  [:map
+   [:id Uuid]
+   [:tenant_id Uuid]
+   [:name :string]
+   [:keycloak_client_id :string]
+   [:created_by_sub [:maybe :string]]
+   [:created_at :string]
+   [:last_used_at [:maybe :string]]
+   [:revoked_at [:maybe :string]]
+   [:manager {:optional true} [:maybe [:map
+                                       [:id Uuid]
+                                       [:display_name [:maybe :string]]
+                                       [:is_me :boolean]]]]
+   [:kind {:optional true} [:enum "personal" "organization"]]
+   [:read_scope {:optional true} [:enum "credential" "owner"]]
+   [:audience {:optional true} [:enum "private" "tenant"]]
+   [:service_principal_registered {:optional true} :boolean]
+   [:identity_sync_state {:optional true} [:enum "synced" "disable_pending"]]
+   [:can_manage {:optional true} :boolean]
+   [:can_rotate {:optional true} :boolean]
+   [:can_configure {:optional true} :boolean]])
+
 (def ApiCredentialsListResponse
   "Response body for GET /api/api-credentials."
   [:map
    [:ok :boolean]
    [:tenant_id Uuid]
-   [:items
-    [:sequential
-     [:map
-      [:id Uuid]
-      [:tenant_id Uuid]
-      [:name :string]
-      [:keycloak_client_id :string]
-      [:created_by_sub [:maybe :string]]
-      [:created_at :string]
-      [:last_used_at [:maybe :string]]
-      [:revoked_at [:maybe :string]]]]]])
+   [:items [:sequential ApiCredentialItem]]])
 
 (def CreateApiCredentialRequest
-  "Request body for POST /api/api-credentials."
+  "Request body for POST /api/api-credentials.
+
+  kind defaults to personal. read_scope (personal) defaults to credential:
+  the key reads only sessions it created. audience (organization) defaults
+  to private. manager_id (organization) is an active Builder or Admin."
   [:map
-   [:name [:and :string [:fn (fn [s] (<= 1 (count s) 200))]]]])
+   [:name [:and :string [:fn (fn [s] (<= 1 (count s) 200))]]]
+   [:kind {:optional true} [:enum "personal" "organization"]]
+   [:read_scope {:optional true} [:enum "credential" "owner"]]
+   [:audience {:optional true} [:enum "private" "tenant"]]
+   [:manager_id {:optional true} [:maybe Uuid]]])
+
+(def ConfigureApiCredentialRequest
+  "Request body for PATCH /api/api-credentials/{id} (organization keys)."
+  [:map
+   [:manager_id {:optional true} [:maybe Uuid]]
+   [:audience {:optional true} [:enum "private" "tenant"]]])
+
+(def ConfigureApiCredentialResponse
+  "Response body for PATCH /api/api-credentials/{id}."
+  [:map
+   [:ok :boolean]
+   [:item ApiCredentialItem]])
 
 (def CreateApiCredentialResponse
   "Response body for POST /api/api-credentials.

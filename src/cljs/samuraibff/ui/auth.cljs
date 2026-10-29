@@ -27,17 +27,20 @@
                  ;; everything into a generic error.
                  (js/Promise.reject (js/Error. (str "HTTP " (.-status res)))))))
       (.then (fn [body]
-               (let [authed? (boolean (aget body "authenticated"))]
+               (let [authed? (boolean (aget body "authenticated"))
+                     access (js->clj (aget body "access") :keywordize-keys true)]
                  (if authed?
                    (store/set-auth-status! :authenticated {:user (js->clj (aget body "user") :keywordize-keys true)
                                                            :tenant_id (aget body "tenant_id")
                                                            :tenant_name (aget body "tenant_name")
+                                                           :access access
                                                            :realtime_tracks (vec (js->clj (aget body "realtime_tracks")))
                                                            :default_tracks (js->clj (aget body "default_tracks") :keywordize-keys true)
                                                            :async_tracks (vec (js->clj (aget body "async_tracks") :keywordize-keys true))
                                                            :realtime_track_capabilities (vec (js->clj (aget body "realtime_track_capabilities") :keywordize-keys true))
                                                            :features (js->clj (aget body "features") :keywordize-keys true)})
-                   (store/set-auth-status! :anonymous {:realtime_tracks (vec (js->clj (aget body "realtime_tracks")))
+                   (store/set-auth-status! :anonymous {:access access
+                                                       :realtime_tracks (vec (js->clj (aget body "realtime_tracks")))
                                                        :default_tracks (js->clj (aget body "default_tracks") :keywordize-keys true)
                                                        :async_tracks (vec (js->clj (aget body "async_tracks") :keywordize-keys true))
                                                        :realtime_track_capabilities (vec (js->clj (aget body "realtime_track_capabilities") :keywordize-keys true))
@@ -97,15 +100,29 @@
         nil))))
 
 (defn logout!
-  "Logout by POSTing to /auth/logout (clears cookie).
+  "Logout by POSTing to /auth/logout (clears the BFF cookies).
+
+  When the BFF returns `logout_url`, navigates there so the identity provider
+  ends its single sign-on session too; otherwise the next login would silently
+  sign the same person in again. The auth state is left untouched while the
+  page leaves, so the automatic login does not race the logout redirect.
+  Electron keeps the cookie-only logout: its main window may not navigate to
+  the identity provider.
+  Resolves to true when the page is leaving for the identity provider.
 
   Returns: Promise"
   []
   (-> (js/fetch (str (env/backend-base-url) "/auth/logout") #js {:method "POST"})
-      (.then (fn [_]
-               (store/set-auth-status! :anonymous nil)
-               (store/append-log! "[auth] logged out")
-               true))
+      (.then (fn [resp]
+               (if (.-ok resp)
+                 (-> (.json resp) (.catch (fn [_] #js {})))
+                 #js {})))
+      (.then (fn [body]
+               (let [logout-url (some-> body (aget "logout_url") str)]
+                 (store/append-log! "[auth] logged out")
+                 (if (and (seq logout-url) (not (env/electron?)))
+                   (do (set! (.-location js/window) logout-url) true)
+                   (do (store/set-auth-status! :anonymous nil) false)))))
       (.catch (fn [e]
                 (store/append-log! (str "[auth] logout failed: " e))
                 (throw e)))))

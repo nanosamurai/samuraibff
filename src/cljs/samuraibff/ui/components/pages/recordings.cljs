@@ -4,10 +4,12 @@
   This page shows all sessions/recordings for the tenant."
   (:require
    [clojure.string :as str]
+   [samuraibff.ui.access :as access]
    [samuraibff.ui.api :as api]
    [samuraibff.ui.components.shared :as shared]
    [samuraibff.ui.hooks :as hooks]
    [samuraibff.ui.pagination :as pagination]
+   [samuraibff.ui.permissions :as permissions]
    [samuraibff.ui.recordings-page :as recordings-page]
    [samuraibff.ui.router :as router]
    [samuraibff.ui.session-request :as session.req]
@@ -78,6 +80,22 @@
        :icon "○"
        :tooltip "Session created"})))
 
+(defn- row-access
+  "Return {:can-manage? boolean :access-label string?} for a recording row.
+
+  A row without an :access summary (older BFF) stays manageable, as before.
+  The BFF still rejects mutations by non-owners with 403. The owner and
+  audience label is shown only when sharing is available (not to the guest of
+  a single-user install)."
+  [rec]
+  (let [summary (:access rec)]
+    {:can-manage? (not (false? (:can_manage summary)))
+     :access-label (when (permissions/capability? :share_sessions)
+                     (access/row-access-label summary (permissions/tenant-name)))}))
+
+(def ^:private scopes
+  [["all" "All"] ["mine" "My sessions"] ["shared" "Shared with me"]])
+
 (defn- recordings-row
   "Render a single recordings table row.
 
@@ -91,7 +109,9 @@
          icon-glyph :icon} (rec->display-status rec)
         session-status (str (or (:status rec) ""))
         active? (= "active" session-status)
-        recordable? (and (= "created" session-status)
+        {:keys [can-manage? access-label]} (row-access rec)
+        recordable? (and can-manage?
+                         (= "created" session-status)
                          (false? (:has_recording rec)))
         created-at-ms (or (util/iso->ms created_at) (util/now-ms))
         session-title (let [t (str/trim (str (or title "")))]
@@ -105,7 +125,9 @@
         ;; Language flag hint (best-effort). Blank => omit.
         (when (seq (str lang))
           [shared/lang-flag lang])
-        [:span session-title-display]]]]
+        [:span session-title-display]]
+       (when access-label
+         [:span {:class "muted" :style {:fontSize "12px"}} access-label])]]
      [:td {:class "muted"} (or (shared/iso->local created_at) "")]
      [:td {:class "muted"} (or (shared/iso->local started_at) "")]
      [:td
@@ -134,13 +156,23 @@
                                    (store/set-session-status! (:status rec)))}
           (shared/icon "●" {:title "Record"})]
          [:span {:class "btn ghost disabled"
-                 :title "Start a new session to make another recording"}
+                 :title (if can-manage?
+                          "Start a new session to make another recording"
+                          "Only the owner can record into this session")}
           (shared/icon "●" {:title "Not available"})])
 
-       (if active?
+       (cond
+         (not can-manage?)
+         [:span {:class "btn ghost disabled"
+                 :title "Only the owner can delete this session"}
+          (shared/icon "×" {:title "Delete"})]
+
+         active?
          [:span {:class "btn ghost disabled"
                  :title "Stop recording before deleting this session"}
           (shared/icon "×" {:title "Delete"})]
+
+         :else
          [:button {:class "btn ghost"
                    :title "Delete session"
                    :on-click (fn [_]
@@ -168,7 +200,9 @@
          icon-glyph :icon} (rec->display-status rec)
         session-status (str (or (:status rec) ""))
         active? (= "active" session-status)
-        recordable? (and (= "created" session-status)
+        {:keys [can-manage? access-label]} (row-access rec)
+        recordable? (and can-manage?
+                         (= "created" session-status)
                          (false? (:has_recording rec)))
         created-at-ms (or (util/iso->ms created_at) (util/now-ms))
         session-title (let [t (str/trim (str (or title "")))]
@@ -185,7 +219,9 @@
         [:span session-title-display]]
        [:div {:class "list-item-meta"}
         [:span (str "Created: " (or (shared/iso->local created_at) "—"))]
-        [:span (str "Started: " (or (shared/iso->local started_at) "—"))]]]
+        [:span (str "Started: " (or (shared/iso->local started_at) "—"))]
+        (when access-label
+          [:span access-label])]]
 
       [:div
        [:span {:class (str "badge " badge-class)
@@ -213,13 +249,23 @@
                                   (store/set-session-status! (:status rec)))}
          (shared/icon "●" {:title "Record"})]
         [:span {:class "btn ghost icon disabled"
-                :title "Start a new session to make another recording"}
+                :title (if can-manage?
+                         "Start a new session to make another recording"
+                         "Only the owner can record into this session")}
          (shared/icon "●" {:title "Not available"})])
 
-      (if active?
+      (cond
+        (not can-manage?)
+        [:span {:class "btn ghost icon disabled"
+                :title "Only the owner can delete this session"}
+         (shared/icon "×" {:title "Delete"})]
+
+        active?
         [:span {:class "btn ghost icon disabled"
                 :title "Stop recording before deleting this session"}
          (shared/icon "×" {:title "Delete"})]
+
+        :else
         [:button {:class "btn ghost icon"
                   :title "Delete session"
                   :on-click (fn [_]
@@ -271,11 +317,20 @@
 
 (defn recordings-table
   "Render a page of sessions as a table or mobile cards from pagination hook state."
-  [{:keys [items drafts-count show-drafts? loading? error set-show-drafts! refresh!] :as state}]
-  (let [mobile? (hooks/use-media-query mobile-breakpoint-query)]
+  [{:keys [items drafts-count show-drafts? scope loading? error set-show-drafts! set-scope! refresh!] :as state}]
+  (let [mobile? (hooks/use-media-query mobile-breakpoint-query)
+        sharing? (permissions/use-capability? :share_sessions)]
     [:div {:class "card" :aria-busy (boolean loading?)}
      [:div {:class "row sessions-table-header"}
-      [:div {:class "card-title"} "Sessions"]
+      (if sharing?
+        [:div {:class "tabs sessions-scope-tabs" :role "tablist" :aria-label "Sessions view"}
+         (for [[value label] scopes]
+           [:button {:key value :type "button" :role "tab"
+                     :class (str "tab " (when (= value scope) "active"))
+                     :aria-selected (= value scope)
+                     :on-click (fn [_] (set-scope! value))}
+            label])]
+        [:div {:class "card-title"} "Sessions"])
       [:div {:class "spacer"}]
       (when (or show-drafts? (pos? drafts-count))
         [:label {:class "muted sessions-drafts"}
@@ -291,9 +346,11 @@
 
        (empty? items)
        [:div {:class "muted sessions-list-message"}
-        (if (and (not show-drafts?) (pos? drafts-count))
+        (cond
+          (= "shared" scope) "Nothing has been shared with you yet."
+          (and (not show-drafts?) (pos? drafts-count))
           "No recorded sessions yet. Enable Show drafts to see your drafts."
-          "No sessions yet.")]
+          :else "No sessions yet.")]
 
        mobile?
        [:div {:class "list"}

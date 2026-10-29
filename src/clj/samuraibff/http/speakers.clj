@@ -19,7 +19,7 @@
   (:require
     [clojure.string :as str]
     [org.corfield.logging4j2 :as log]
-    [samuraibff.db.sessions :as db.sessions]
+    [samuraibff.access.policy :as policy]
     [samuraibff.db.speakers :as db.speakers]
     [samuraibff.s3.enrollment :as s3.enrollment]
     [samuraibff.util.uuid :as uuid])
@@ -43,19 +43,22 @@
    :body body})
 
 (defn- ensure-tenant-id
-  "Return tenant UUID or throw.
+  "Return the tenant UUID of an active human principal or throw.
+
+  The shared speaker gallery is available to every active human member of the
+  tenant. Machine principals cannot list or change it.
 
   Inputs:
-  - req: Ring request (expects :auth/tenant-id)
+  - req: Ring request (expects :auth/principal and :auth/tenant-id)
 
   Returns:
   - java.util.UUID
 
   Throws:
-  - ex-info when missing tenant-id." 
+  - ex-info when the principal is not an active human or tenant-id is missing."
   [req]
   (let [tenant-id (:auth/tenant-id req)]
-    (when-not (seq (str tenant-id))
+    (when-not (and (policy/human? (:auth/principal req)) (seq (str tenant-id)))
       (throw (ex-info "missing-tenant-id" {:type :samuraibff.http/missing-tenant-id})))
     (UUID/fromString (str tenant-id))))
 
@@ -82,19 +85,15 @@
       (.toByteArray out))))
 
 (defn- resolve-user-id
-  "Resolve app_users.id for the current request.
+  "Return the request principal id. Speaker gallery changes require an active
+  human; machine principals and missing principals are rejected.
 
-  Inputs:
-  - ds: datasource
-  - tenant-id: UUID
-  - req: Ring request
-
-  Returns:
-  - UUID or nil" 
-  [ds tenant-id req]
-  (let [external-id (some-> req :auth/user :sub)]
-    (when (and ds (seq (str external-id)))
-      (db.sessions/find-user-id-by-external-id ds tenant-id external-id))))
+  Inputs: request map. Returns: UUID. Throws :samuraibff.http/missing-tenant-id."
+  [req]
+  (let [principal (:auth/principal req)]
+    (when-not (policy/human? principal)
+      (throw (ex-info "missing-tenant-id" {:type :samuraibff.http/missing-tenant-id})))
+    (:id principal)))
 
 (defn list-speakers-handler
   "List speakers for the current tenant.
@@ -155,7 +154,7 @@
             sample-stream (:stream sample)
             ds (:ds db)
             user-uuid (when ds
-                        (resolve-user-id ds tenant-id req))]
+                        (resolve-user-id req))]
         (cond
           (str/blank? label)
           (json-response 400 {:ok false :message "missing-label"})

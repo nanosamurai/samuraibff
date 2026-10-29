@@ -56,7 +56,18 @@
   (disable-client! [this {:keys [client-id]}]
     "Disable existing client.
 
-    Returns: nil"))
+    Returns: nil")
+  (service-account-user-id [this {:keys [client-id]}]
+    "Return the Keycloak user id of the client's service account.
+
+    This id is the `sub` of client_credentials tokens minted for the client.
+    Uses GET /admin/realms/{realm}/clients/{uuid}/service-account-user.
+
+    Returns: non-blank string. Throws a fixed ex-info on failure.")
+  (delete-client! [this {:keys [client-id]}]
+    "Delete an existing client (compensation for a failed credential setup).
+
+    Returns: nil. Throws a fixed ex-info on failure."))
 
 (def ^:private json-mapper
   (json/object-mapper {:decode-key-fn keyword
@@ -281,6 +292,23 @@
             (when-not (<= 200 status 299)
               (throw (ex-info "Keycloak create audience protocol mapper failed" {:status status})))))))))
 
+(defn- lookup-client-uuid!
+  "Return the internal Keycloak UUID of a clientId, or throw a fixed ex-info."
+  [token admin-base client-id]
+  (let [{:keys [status body]} (http-request-json!
+                               {:method :get
+                                :url (str admin-base "/clients?clientId=" (java.net.URLEncoder/encode (str client-id) "UTF-8"))
+                                :headers {"Authorization" (str "Bearer " token)}})
+        _ (when-not (<= 200 status 299)
+            (throw (ex-info "Keycloak lookup client failed"
+                            {:type :samuraibff.keycloak-admin/lookup-client-failed
+                             :status status})))
+        client-uuid (some-> body first :id)]
+    (when (str/blank? (str client-uuid))
+      (throw (ex-info "Keycloak lookup did not return client UUID"
+                      {:type :samuraibff.keycloak-admin/lookup-client-missing-uuid})))
+    client-uuid))
+
 (defrecord HttpKeycloakAdmin [deps]
   KeycloakAdmin
   (create-m2m-client! [_this {:keys [tenant-id name audience-client-id]}]
@@ -402,6 +430,40 @@
                              :body (json/write-value-as-string repr json-mapper)})]
       (when-not (<= 200 status 299)
         (throw (ex-info "Keycloak disable client failed" {:status status})))
+      nil))
+
+  (service-account-user-id [_this {:keys [client-id]}]
+    (let [{:keys [issuer realm]} deps
+          token (fetch-admin-token! deps)
+          admin-base (admin-base-url issuer realm)
+          client-uuid (lookup-client-uuid! token admin-base client-id)
+          {:keys [status body]} (http-request-json!
+                                 {:method :get
+                                  :url (str admin-base "/clients/" client-uuid "/service-account-user")
+                                  :headers {"Authorization" (str "Bearer " token)}})
+          _ (when-not (<= 200 status 299)
+              (throw (ex-info "Keycloak service account lookup failed"
+                              {:type :samuraibff.keycloak-admin/service-account-lookup-failed
+                               :status status})))
+          user-id (:id body)]
+      (when-not (and (string? user-id) (not (str/blank? user-id)))
+        (throw (ex-info "Keycloak service account response missing id"
+                        {:type :samuraibff.keycloak-admin/service-account-missing-id})))
+      user-id))
+
+  (delete-client! [_this {:keys [client-id]}]
+    (let [{:keys [issuer realm]} deps
+          token (fetch-admin-token! deps)
+          admin-base (admin-base-url issuer realm)
+          client-uuid (lookup-client-uuid! token admin-base client-id)
+          {:keys [status]} (http-request-json!
+                            {:method :delete
+                             :url (str admin-base "/clients/" client-uuid)
+                             :headers {"Authorization" (str "Bearer " token)}})]
+      (when-not (<= 200 status 299)
+        (throw (ex-info "Keycloak delete client failed"
+                        {:type :samuraibff.keycloak-admin/delete-client-failed
+                         :status status})))
       nil)))
 
 (defmethod ig/init-key :samuraibff/keycloak-admin

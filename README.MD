@@ -99,6 +99,12 @@ shows how many languages support aligned, diarized finals.
 accounts can discover tracks without an email claim; populated browser-user
 claims retain the same response shape.
 
+Authentication works with any OpenID Connect provider; the BFF reads the
+login, token and logout URLs from the provider's discovery document. Keycloak
+is tested end to end and has optional adapters for creating API keys and
+adding people in the app. With another provider, an operator command does
+both. See [identity provider](docs/security-auth.md#identity-provider).
+
 API and WebSocket authentication use the Authorization bearer header or the
 HttpOnly login cookie. URL tokens are not accepted; programmatic clients must
 send the header. Browser and Electron clients continue using the cookie.
@@ -171,6 +177,52 @@ shows the row range, First/Previous/Next/Last controls, and a **Rows** selector 
 **Show drafts** filters before pagination; changing it or the page size returns
 to page one. Refresh keeps the current page, and deleting the last row on a
 page moves back to the last available page. Failed requests show a retry message.
+
+Access control in the UI (the BFF authorizes every request again; the UI only
+hides or disables controls):
+
+* An account that is not set up, pending setup, suspended, or that the BFF
+  cannot check sees one message page instead of the app. Logout stays available.
+* Sessions has **All**, **My sessions** and **Shared with me** views. Each row
+  shows the owner and audience, for example "By you · Private". Delete and
+  Record are disabled for sessions you do not own.
+* **Share** (session detail, owner only) and **Who can access → Change** (Record)
+  open the same dialog: Private, Selected people, or Everyone in the
+  organization. Sharing gives read-only access to audio, transcripts and
+  results, including live content. Save sends the full audience with its
+  revision; if someone changed it meanwhile, the dialog reloads and asks you to
+  review. **Copy link** does not give anyone access.
+* Record keeps the chosen audience (default Private) until the session is
+  created, then saves it. If that save fails, the session stays Private and
+  Record shows a notice. Record also lists the webhooks (destination host) and
+  workflows (model) that receive a new session.
+* Readers of a shared session see the owner and "read-only". They cannot
+  rename it, record into it or enroll speakers from it, and they do not see the
+  device-local real-time preview. When access ends, the page shows "This
+  session is no longer available to you."
+* Webhooks and Workflows show **Personal**/**Published** and the owner.
+  Members get a view-only list. Builders create Personal items and edit their
+  own. Admins choose availability, publish or unpublish, and change defaults
+  (published items only).
+* API Credentials: Members see an explanation; Builders see their own
+  credentials; Admins see all with a **Manager** column. A revoke whose
+  sign-in disable is pending shows **Retry disable**.
+  * **Personal** keys (Builders and Admins) act as you: what they record is
+    yours, appears under My sessions as "via API key …", and you play, share
+    or delete it in the UI. Choose whether the key reads only what it records
+    or everything you can see. Only you can rotate it.
+  * **Organization** keys (Admins) own their sessions. Choose a manager (a
+    Builder or Admin, or none = Admins) and who sees new sessions (only the
+    manager, or everyone in the organization). **Edit** changes both later.
+    The manager plays, shares and deletes the key's sessions.
+* Admins get **Administration → People**: add a person (setup email), change
+  role, suspend or reactivate, resend the setup email, and retry a pending
+  sign-in sync. Adding people needs the Keycloak adapter; otherwise the
+  button is off and the operator adds accounts.
+* Without authentication (single-user install) everything runs as the guest
+  Admin. Sharing, the Sessions views, owner and audience labels, People and
+  API Credentials are hidden: there is nobody to share with, and no request
+  needs a key.
 
 Install npm deps once:
 

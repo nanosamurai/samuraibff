@@ -9,10 +9,12 @@
   The corresponding `/ws/events` endpoint is responsible for streaming JSON
   events to the frontend.
 
-  Tenant isolation:
-  - When auth is required, the session must already exist (created via `POST /api/sessions`)
-    and must be owned by the authenticated tenant.
-  - Cross-tenant access is rejected **before WS upgrade** with a 403 response."
+  Tenant isolation and ownership:
+  - When auth is required, the session must already exist (created via `POST /api/sessions`).
+  - Only the active owner of the session may send audio; shared readers and
+    other tenants are rejected **before WS upgrade** with a 403 response.
+  - Open sockets are re-authorized periodically and close when the owner is
+    suspended or loses access (see `samuraibff.ws.access`)."
   (:require
    [clojure.string :as str]
    [org.corfield.logging4j2 :as log]
@@ -22,6 +24,7 @@
    [samuraibff.kafka.producer :as kafka.producer]
    [samuraibff.sessions.meta :as sessions.meta]
    [samuraibff.stream-controls :as stream-controls]
+   [samuraibff.ws.access :as ws.access]
    [samuraibff.ws.auth :as ws.auth]
    [samuraibff.ws.registry :as ws.registry]
    [samuraibff.ws.tenant :as ws.tenant])
@@ -94,11 +97,21 @@
         {:status 400
          :headers {"content-type" "application/json"}
          :body "{\"error\":\"session_id is required\"}"}
-        (let [{:keys [ok? response tenant-id user]} (ws.auth/require-auth-or-continue config request)]
-          (if-not ok?
+        (let [{:keys [ok? response user]} (ws.auth/require-auth-or-continue config request)
+              authorization (when ok?
+                              (ws.access/authorize-upgrade config (:ds db) request user session-id :manage))
+              tenant-id (:tenant-id authorization)]
+          (cond
+            (not ok?)
             response
+
+            (not (:ok? authorization))
+            (:response authorization)
+
+            :else
             (try
-              (let [_ (ws.tenant/assert-session-access! config ws-registry tenant-id session-id)
+              (let [still-allowed? (ws.access/session-check config (:ds db) user session-id :manage)
+                    _ (ws.tenant/assert-session-access! config ws-registry tenant-id session-id)
                     available-realtime-tracks (mapv :id (grpc.client/tracks grpc))
                     requested-controls (stream-controls/with-track-labels
                                          (stream-controls/parse-and-validate
@@ -129,7 +142,7 @@
 
                 (kafka.producer/send-sessions-meta!
                  (:kafka-producer ws-registry) session-id
-                 (assoc (sessions.meta/resolve-sessions-meta config ds tenant-uuid session-uuid)
+                 (assoc (sessions.meta/resolve-admission-meta! config ds tenant-uuid session-uuid)
                         :stream_controls controls)
                  {:tenant-id tenant-id})
                 (ws.registry/start-rt! ws-registry grpc session)
@@ -138,31 +151,33 @@
                  request
                  (ws.auth/expiry-callbacks
                   config user
-                  {:on-open (fn [_ch]
-                              (ws.registry/mark-audio-connected! ws-registry session)
-                              (log/info "WS /ws/audio connected" {:session-id session-id
-                                                                  :tenant-id (:tenant-id session)}))
-                   :on-receive (fn [_ payload]
-                                 (cond
-                                   (instance? ByteBuffer payload)
-                                   (let [buf ^ByteBuffer payload
-                                         arr (byte-array (.remaining buf))]
-                                     (.get buf arr)
-                                     (ws.registry/offer-audio! ws-registry session arr))
+                  (ws.access/revocation-callbacks
+                   still-allowed?
+                   {:on-open (fn [_ch]
+                               (ws.registry/mark-audio-connected! ws-registry session)
+                               (log/info "WS /ws/audio connected" {:session-id session-id
+                                                                   :tenant-id (:tenant-id session)}))
+                    :on-receive (fn [_ payload]
+                                  (cond
+                                    (instance? ByteBuffer payload)
+                                    (let [buf ^ByteBuffer payload
+                                          arr (byte-array (.remaining buf))]
+                                      (.get buf arr)
+                                      (ws.registry/offer-audio! ws-registry session arr))
 
-                                   (bytes? payload)
-                                   (ws.registry/offer-audio! ws-registry session payload)
+                                    (bytes? payload)
+                                    (ws.registry/offer-audio! ws-registry session payload)
 
-                                   :else
-                                   (do
-                                     (log/warn "Non-binary frame received on /ws/audio" {:session-id session-id
-                                                                                         :received (str (type payload))})
-                                     false)))
-                   :on-close (fn [_ch status]
-                               (log/info "WS /ws/audio closed" {:session-id session-id
-                                                                :tenant-id (:tenant-id session)
-                                                                :status status})
-                               (ws.registry/mark-audio-disconnected! ws-registry session (= :normal status)))})))
+                                    :else
+                                    (do
+                                      (log/warn "Non-binary frame received on /ws/audio" {:session-id session-id
+                                                                                          :received (str (type payload))})
+                                      false)))
+                    :on-close (fn [_ch status]
+                                (log/info "WS /ws/audio closed" {:session-id session-id
+                                                                 :tenant-id (:tenant-id session)
+                                                                 :status status})
+                                (ws.registry/mark-audio-disconnected! ws-registry session (= :normal status)))}))))
               (catch clojure.lang.ExceptionInfo e
                 (let [{:keys [type]} (ex-data e)]
                   (case type

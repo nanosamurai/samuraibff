@@ -8,6 +8,9 @@
    [samuraibff.ui.audio :as audio]
    [samuraibff.ui.media-devices :as media.devices]
    [samuraibff.ui.env :as env]
+   [samuraibff.ui.components.session-routing :as session-routing]
+   [samuraibff.ui.components.share-dialog :as share-dialog]
+   [samuraibff.ui.permissions :as permissions]
    [samuraibff.ui.components.shared :as shared]
    [samuraibff.ui.components.transcript :as components.transcript]
    [samuraibff.ui.hooks :as hooks]
@@ -70,6 +73,7 @@
         mic-device-id (str (or (:mic_device_id controls) ""))
 
         running? (hooks/use-atom store/running?*)
+        revoked-session-id (permissions/use-revoked-session-id)
         starting?* (react/useState false)
         starting? (aget starting?* 0)
         set-starting! (aget starting?* 1)
@@ -128,6 +132,8 @@
                                                       :created_at_ms (util/now-ms)
                                                       :status        :ready})
                                (store/append-log! (str "[ui] new session " session_id))
+                               ;; Save the chosen audience; recording does not wait for it.
+                               (share-dialog/apply-draft-audience! session_id)
                                (str session_id)))
                       (.catch (fn [e]
                                 (store/append-log! (str "[ui] failed creating session: " (shared/safe-http-error e)))
@@ -198,10 +204,14 @@
                 (store/clear-segments!)
                 (store/set-session-title! "")
                 (store/set-session-created-at-ms! nil)
-                (store/set-session-status! nil))]
+                (store/set-session-status! nil)
+                (share-dialog/reset-draft-audience!)
+                (permissions/clear-access-revoked!))]
 
         [:div {:class "controls"}
          (when start-error [:p {:role "alert" :class "badge bad"} start-error])
+         (when (and revoked-session-id (= revoked-session-id (str id)))
+           [:p {:role "alert" :class "badge bad"} "Your access to this session was removed."])
          (when (not-any? effective-controls [:realtime :refined :final])
            [:p {:role "status" :class "muted"} "Choose at least one transcript option in Session settings to start recording."])
          [:div {:class "controls-row"}
@@ -290,9 +300,15 @@
                     :on-click   (fn [_]
                                   (when set-settings-open!
                                     (set-settings-open! (not (true? settings-open?)))))}
-           "⚙"]]]))))
+           "⚙"]]
+         [share-dialog/who-can-access-row
+          {:session-id id
+           :session-title (get @store/session* :title)
+           :disabled? (or (true? running?) (true? starting?))
+           :extra (when (str/blank? (str id))
+                    [session-routing/destinations-summary])}]]))))
 
-(declare webhook-routing-panel workflow-routing-panel audio-controls-panel)
+(declare audio-controls-panel)
 
 (defn- session-settings-panel
   "Render independent output tabs with direct toggles alongside the existing session tools."
@@ -321,8 +337,8 @@
               :aria-labelledby (str "settings-tab-" (name tab))}
         (case tab
           :audio [audio-controls-panel]
-          :webhooks [webhook-routing-panel]
-          :workflows [workflow-routing-panel]
+          :webhooks [session-routing/webhook-routing-panel]
+          :workflows [session-routing/workflow-routing-panel]
           [stream-controls/panel {:stage tab}])]])))
 
 (defn- audio-controls-panel
@@ -386,298 +402,6 @@
        (when-not electron?
          [:div {:class "hint"} "Recording computer audio requires the desktop app."])]]]))
 
-(defn- workflow-routing-panel
-  "Advanced panel for per-session workflow routing overrides.
-
-  This panel controls `workflow_overrides` sent to `POST /api/sessions`.
-
-  Returns: hiccup."
-  []
-  (let [session (hooks/use-atom store/session*)
-
-        workflows-st (hooks/use-atom store/workflows*)
-        {:keys [items loading? error]} workflows-st
-
-        defaults-st (hooks/use-atom store/workflow-defaults*)
-        defaults-ids (set (map str (or (:workflow_ids defaults-st) [])))
-        defaults-loading? (true? (:loading? defaults-st))
-        defaults-error (:error defaults-st)
-
-        overrides (or (:workflow_overrides session) {})
-        use-defaults? (if (contains? overrides :use_defaults)
-                        (boolean (:use_defaults overrides))
-                        true)
-        selected-ids (set (or (:workflow_ids overrides) #{}))
-
-        refresh-workflows! (fn []
-                             (store/set-workflows-loading! true)
-                             (store/set-workflows-error! nil)
-                             (-> (api/list-workflows!)
-                                 (.then (fn [resp]
-                                          (store/set-workflows-items! (:items resp))))
-                                 (.catch (fn [e]
-                                           (store/set-workflows-error! (shared/safe-http-error e))))
-                                 (.finally (fn []
-                                             (store/set-workflows-loading! false)))))
-
-        refresh-defaults! (fn []
-                            (store/set-workflow-defaults-loading! true)
-                            (store/set-workflow-defaults-error! nil)
-                            (-> (api/get-workflow-defaults!)
-                                (.then (fn [resp]
-                                         (store/set-workflow-defaults-ids! (:workflow_ids resp))))
-                                (.catch (fn [e]
-                                          (store/set-workflow-defaults-error! (shared/safe-http-error e))))
-                                (.finally (fn []
-                                            (store/set-workflow-defaults-loading! false)))))
-
-        refresh! (fn []
-                   (refresh-workflows!)
-                   (refresh-defaults!))
-
-        checkbox-row (fn [{:keys [id label checked disabled? on-change]}]
-                       [:div {:class "checkbox-row"}
-                        [:input {:id id
-                                 :type "checkbox"
-                                 :disabled (boolean disabled?)
-                                 :checked (boolean checked)
-                                 :on-change (fn [e]
-                                              (when (fn? on-change)
-                                                (on-change (.. e -target -checked))))}]
-                        [:label {:htmlFor id} label]])]
-
-    (react/useEffect
-     (fn []
-       (when (and (empty? (vec (or items [])))
-                  (not (true? loading?)))
-         (refresh-workflows!))
-       (when (and (empty? (or (:workflow_ids defaults-st) []))
-                  (not (true? defaults-loading?)))
-         (refresh-defaults!))
-       js/undefined)
-     #js [])
-
-    [:div {:class "stream-controls-body"}
-     (when (seq error)
-       [:div {:class "error" :style {:marginBottom "8px"}} error])
-
-     (when (seq defaults-error)
-       [:div {:class "error" :style {:marginBottom "8px"}} defaults-error])
-
-     [checkbox-row {:id "wf-use-defaults"
-                    :label "Use organization default workflows"
-                    :checked (true? use-defaults?)
-                    :on-change (fn [v] (store/set-session-workflow-overrides-use-defaults! v))}]
-
-     [:div {:class "muted" :style {:marginTop "6px" :marginBottom "8px"}}
-      "Select additional workflows for this session (or disable defaults)."]
-
-     [:div {:style {:display "flex" :gap "8px" :marginBottom "8px"}}
-      [:button {:class "btn"
-                :type "button"
-                :disabled (boolean (or loading? defaults-loading?))
-                :on-click (fn [_] (refresh!))}
-       (if (or loading? defaults-loading?) "Loading…" "Refresh")]]
-
-     (cond
-       (true? loading?)
-       [:div {:class "muted"} "Loading workflows…"]
-
-       (empty? (vec (or items [])))
-       [:div {:class "muted"}
-        "No workflows configured yet. Create one under Settings → Workflows."]
-
-       :else
-       (let [default-selected? (fn [id]
-                                 (and (true? use-defaults?)
-                                      (contains? defaults-ids (str id))))
-             additional-selected? (fn [id]
-                                    (contains? selected-ids (str id)))]
-         [:div {:style {:display "flex" :flexDirection "column" :gap "6px"}}
-          (for [{:keys [id name enabled trigger]} (vec (or items []))]
-            (let [id (str (or id ""))
-                  enabled? (true? enabled)
-                  checked? (or (default-selected? id)
-                               (additional-selected? id))
-                  label [:span
-                         [:span (or name "")]
-                         (when-not enabled?
-                           [:span {:class "muted" :style {:marginLeft "6px"}} "(disabled)"])
-                         [:span {:class "muted" :style {:marginLeft "8px"}}
-                          (str (:type trigger)
-                               (when-let [track (:track_id trigger)] (str " / " track)))]]]
-              [:div {:key (str "wf-ov-" id)}
-               [checkbox-row {:id (str "wf-ov-" id)
-                              :label label
-                              :disabled? (not enabled?)
-                              :checked checked?
-                              :on-change (fn [v]
-                                           (store/set-session-workflow-id-selected! id v))}]]))]))
-
-     [:div {:class "muted" :style {:marginTop "10px" :fontSize "12px"}}
-      "Applies to new sessions. Existing sessions keep their original settings."]]))
-
-(defn- webhook-routing-panel
-  "Advanced panel for per-session webhook routing overrides.
-
-  This panel matches the styling + minimize behavior of Stream settings.
-
-  It controls `webhook_overrides` sent to `POST /api/sessions`.
-
-  Returns: hiccup."
-  []
-  (let [session (hooks/use-atom store/session*)
-        controls (or (:controls session) {})
-        refined-output? (true? (:refined controls))
-
-        webhooks-st (hooks/use-atom store/webhooks*)
-        {:keys [items loading? error]} webhooks-st
-
-        defaults-st (hooks/use-atom store/webhook-defaults*)
-        defaults-ids (set (map str (or (:webhook_ids defaults-st) [])))
-        defaults-loading? (true? (:loading? defaults-st))
-        defaults-error (:error defaults-st)
-
-        overrides (or (:webhook_overrides session) {})
-        use-defaults? (if (contains? overrides :use_defaults)
-                        (boolean (:use_defaults overrides))
-                        true)
-        selected-ids (set (or (:webhook_ids overrides) #{}))
-
-        effective-ids (cond-> #{}
-                        (true? use-defaults?) (into defaults-ids)
-                        true (into selected-ids))
-        effective-webhooks (->> (vec (or items []))
-                                (filter (fn [w]
-                                          (and (true? (:enabled w))
-                                               (contains? effective-ids (str (:id w))))))
-                                vec)
-        refined-webhook-selected?
-        (boolean
-         (some (fn [w]
-                 (let [subs (set (map str (or (:subscriptions w) [])))]
-                   (contains? subs "transcript.refined.segment")))
-               effective-webhooks))
-        show-consolidation?
-        (and refined-output? refined-webhook-selected?)
-
-        refresh-webhooks! (fn []
-                            (store/set-webhooks-loading! true)
-                            (store/set-webhooks-error! nil)
-                            (-> (api/list-webhooks!)
-                                (.then (fn [resp]
-                                         (store/set-webhooks-items! (:items resp))))
-                                (.catch (fn [e]
-                                          (store/set-webhooks-error! (shared/safe-http-error e))))
-                                (.finally (fn []
-                                            (store/set-webhooks-loading! false)))))
-        refresh-defaults! (fn []
-                            (store/set-webhook-defaults-loading! true)
-                            (store/set-webhook-defaults-error! nil)
-                            (-> (api/get-webhook-defaults!)
-                                (.then (fn [resp]
-                                         (store/set-webhook-defaults-ids! (:webhook_ids resp))))
-                                (.catch (fn [e]
-                                          (store/set-webhook-defaults-error! (shared/safe-http-error e))))
-                                (.finally (fn []
-                                            (store/set-webhook-defaults-loading! false)))))
-        refresh! (fn []
-                   (refresh-webhooks!)
-                   (refresh-defaults!))
-        checkbox-row (fn [{:keys [id label checked disabled? on-change]}]
-                       [:div {:class "checkbox-row"}
-                        [:input {:id id
-                                 :type "checkbox"
-                                 :disabled (boolean disabled?)
-                                 :checked (boolean checked)
-                                 :on-change (fn [e]
-                                              (when (fn? on-change)
-                                                (on-change (.. e -target -checked))))}]
-                        [:label {:htmlFor id} label]])]
-
-    (react/useEffect
-     (fn []
-       (when (and (empty? (or items []))
-                  (not (true? loading?)))
-         (refresh-webhooks!))
-       (when (and (empty? (or (:webhook_ids defaults-st) []))
-                  (not (true? defaults-loading?)))
-         (refresh-defaults!))
-       js/undefined)
-     #js [])
-
-    ;; If consolidation UI is not applicable, force-disable it in store.
-    (react/useEffect
-     (fn []
-       (when-not show-consolidation?
-         (store/set-session-refined-consolidation-enabled! false))
-       js/undefined)
-     #js [show-consolidation?])
-
-    [:div {:class "stream-controls-body"}
-     (when (seq error)
-       [:div {:class "error" :style {:marginBottom "8px"}} error])
-
-     (when (seq defaults-error)
-       [:div {:class "error" :style {:marginBottom "8px"}} defaults-error])
-
-     [checkbox-row {:id "wh-use-defaults"
-                    :label "Use organization default webhooks"
-                    :checked (true? use-defaults?)
-                    :on-change (fn [v] (store/set-session-webhook-overrides-use-defaults! v))}]
-
-     [:div {:class "muted" :style {:marginTop "6px" :marginBottom "8px"}}
-      "Select additional webhooks for this session (or disable defaults)."]
-
-     [:div {:style {:display "flex" :gap "8px" :marginBottom "8px"}}
-      [:button {:class "btn"
-                :type "button"
-                :disabled (boolean (or loading? defaults-loading?))
-                :on-click (fn [_] (refresh!))}
-       (if (or loading? defaults-loading?) "Loading…" "Refresh")]]
-
-     (cond
-       (true? loading?)
-       [:div {:class "muted"} "Loading webhooks…"]
-
-       (empty? (vec (or items [])))
-       [:div {:class "muted"}
-        "No webhooks configured yet. Create one under Settings → Webhooks."]
-
-       :else
-       [:div {:style {:display "flex" :flexDirection "column" :gap "6px"}}
-        (for [{:keys [id name url enabled]} (vec (or items []))]
-          (let [id (str (or id ""))
-                enabled? (true? enabled)
-                checked? (contains? selected-ids id)
-                label [:span
-                       [:span (or name "")]
-                       (when-not enabled?
-                         [:span {:class "muted" :style {:marginLeft "6px"}} "(disabled)"])
-                       [:span {:class "muted" :style {:marginLeft "8px"}} (or url "")]]]
-            [:div {:key (str "wh-ov-" id)}
-             [checkbox-row {:id (str "wh-ov-" id)
-                            :label label
-                            :disabled? (not enabled?)
-                            :checked checked?
-                            :on-change (fn [v]
-                                         (store/set-session-webhook-id-selected! id v))}]]))])
-
-     (when show-consolidation?
-       (let [enabled? (true? (get-in session [:session_settings :refined_transcript :consolidation :enabled]))]
-         [:div {:style {:marginTop "14px"}}
-          [:div {:class "label" :style {:marginBottom "6px"}}
-           "Refined transcript delivery"]
-          [checkbox-row {:id "wh-refined-consolidation"
-                         :label "Include earlier transcript text in each update"
-                         :checked enabled?
-                         :on-change (fn [v]
-                                      (store/set-session-refined-consolidation-enabled! v))}]
-          [:div {:class "hint" :style {:marginTop "6px"}}
-           "Only applies to webhooks subscribed to transcript.refined.segment."]]))
-
-     [:div {:class "muted" :style {:marginTop "10px" :fontSize "12px"}}
-      "Applies to new sessions. Existing sessions keep their original settings."]]))
 
 (defn- log-view
   "Debug log view."

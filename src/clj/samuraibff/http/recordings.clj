@@ -20,6 +20,8 @@
    [samuraibff.db.recordings :as db.recordings]
    [samuraibff.db.workflow-results :as db.workflow-results]
    [samuraibff.db.webhook-delivery-outcomes :as db.wh.outcomes]
+   [samuraibff.http.revocable-stream :as revocable-stream]
+   [samuraibff.http.session-guard :as session-guard]
    [samuraibff.s3.client :as s3.client]
    [samuraibff.schemas :as schemas])
   (:import
@@ -442,6 +444,8 @@
           (throw (ex-info "missing-datasource" {:type :samuraibff.http/missing-datasource})))
         (let [tenant-uuid (tenant-id-uuid req)
               session-uuid (parse-session-uuid req)
+              _ (session-guard/require-readable-session! ds req session-uuid)
+              still-readable? (revocable-stream/session-read-check ds req session-uuid)
               recording (db.recordings/find-latest-recording ds tenant-uuid session-uuid)
               recording-url (some-> (:recording_url recording) str)
               range (parse-range-header (or (get-in req [:headers "range"])
@@ -459,6 +463,7 @@
                   f (safe-file-under-root root recording-url)]
               (if (and (.exists ^File f) (.isFile ^File f))
                 (-> (ring-stream-file f range)
+                    (update :body revocable-stream/wrap still-readable?)
                     (assoc-in [:headers "Cache-Control"] "no-store"))
                 (json-response 404 {:ok false :message "audio-file-not-found"})))
 
@@ -480,7 +485,7 @@
                     resp0 (ring-stream-s3 s3 bucket key range)
                     body' (close-on-close ^InputStream (:body resp0) #(.close s3))]
                 (-> resp0
-                    (assoc :body body')
+                    (assoc :body (revocable-stream/wrap body' still-readable?))
                     (assoc-in [:headers "Cache-Control"] "no-store"))))
 
             :else
@@ -493,6 +498,8 @@
               :samuraibff.http/invalid-tenant-id (json-response 400 {:ok false :message "invalid-tenant-id"})
               :samuraibff.http/invalid-session-id (json-response 400 {:ok false :message "invalid-session-id"})
               :samuraibff.http/missing-datasource (json-response 503 {:ok false :message "db-unavailable"})
+              (:samuraibff.http/not-found :samuraibff.http/read-only :samuraibff.http/forbidden)
+              (session-guard/error-response type)
 
               :samuraibff.http/recordings-local-root-not-configured (json-response 503 {:ok false :message "recordings-local-root-not-configured"})
               :samuraibff.http/recording-path-outside-root (json-response 403 {:ok false :message "recording-path-outside-root"})
@@ -540,11 +547,19 @@
               offset (parse-int (or (get-in req [:params :offset]) (get-in req [:params "offset"])) 0)
               query (merge (:params req) (get-in req [:parameters :query]))
               show-drafts? (not= "false" (str (get query :show_drafts (get query "show_drafts" true))))
-              page (db.recordings/list-sessions-for-tenant ds tenant-uuid {:limit limit
-                                                                           :offset offset
-                                                                           :show-drafts? show-drafts?})
+              scope (case (str (get query :scope (get query "scope" "all")))
+                      "mine" :mine
+                      "shared" :shared
+                      :all)
+              principal (session-guard/require-principal! req)
+              page (db.recordings/list-sessions-for-principal ds principal {:limit limit
+                                                                            :offset offset
+                                                                            :show-drafts? show-drafts?
+                                                                            :scope scope})
               items (mapv (fn [r]
                             {:session_id (str (:id r))
+                             :access (session-guard/access-summary
+                                      principal (assoc r :tenant_id tenant-uuid))
                              :session_key (:session_key r)
                              :title (:title r)
                              :status (:status r)
@@ -560,6 +575,7 @@
                           (:items page))
               body {:ok true
                     :tenant_id (str tenant-uuid)
+                    :scope (name scope)
                     :total (:total page)
                     :drafts_count (:drafts_count page)
                     :items items}]
@@ -573,6 +589,8 @@
               :samuraibff.http/missing-tenant-id (json-response 403 {:ok false :message "missing-tenant-id"})
               :samuraibff.http/invalid-tenant-id (json-response 400 {:ok false :message "invalid-tenant-id"})
               :samuraibff.http/missing-datasource (json-response 503 {:ok false :message "db-unavailable"})
+              (:samuraibff.http/not-found :samuraibff.http/read-only :samuraibff.http/forbidden)
+              (session-guard/error-response type)
               (do
                 (log/error e "Failed to list recordings")
                 (json-response 500 {:ok false :message "internal-error"})))))
@@ -615,7 +633,8 @@
                                (throw (ex-info "invalid-session-id"
                                                {:type :samuraibff.http/invalid-session-id
                                                 :session-id sid-str}))))
-              session (db.recordings/find-session-by-id ds tenant-uuid session-uuid)]
+              session (session-guard/require-readable-session! ds req session-uuid)
+              principal (session-guard/require-principal! req)]
           (if-not session
             (json-response 404 {:ok false :message "not-found"})
             (let [recording (db.recordings/find-latest-recording ds tenant-uuid session-uuid)
@@ -695,7 +714,8 @@
                                   :created_at (some-> (:created_at session) str)
                                   :stream_controls (stream-controls-jsonb->clj (:stream_controls session))
                                   :has_recording has-recording?
-                                  :has_final_transcript has-final?}
+                                  :has_final_transcript has-final?
+                                  :access (session-guard/access-summary principal session)}
                         :webhook_delivery_outcomes (mapv normalize-outcome webhook-outcomes)
                         :workflow_results_latest (mapv normalize-workflow-result workflow-results)
                         :transcripts {:refined (mapv normalize-record refined)
@@ -710,6 +730,8 @@
               :samuraibff.http/invalid-tenant-id (json-response 400 {:ok false :message "invalid-tenant-id"})
               :samuraibff.http/invalid-session-id (json-response 400 {:ok false :message "invalid-session-id"})
               :samuraibff.http/missing-datasource (json-response 503 {:ok false :message "db-unavailable"})
+              (:samuraibff.http/not-found :samuraibff.http/read-only :samuraibff.http/forbidden)
+              (session-guard/error-response type)
               (do
                 (log/error e "Failed to load recording")
                 (json-response 500 {:ok false :message "internal-error"})))))
@@ -744,7 +766,7 @@
                                (throw (ex-info "invalid-session-id"
                                                {:type :samuraibff.http/invalid-session-id
                                                 :session-id sid-str}))))
-              session (db.recordings/find-session-by-id ds tenant-uuid session-uuid)]
+              session (session-guard/require-managed-session! ds req session-uuid)]
           (cond
             (nil? session)
             (json-response 404 {:ok false :message "not-found"})
@@ -765,6 +787,8 @@
               :samuraibff.http/invalid-tenant-id (json-response 400 {:ok false :message "invalid-tenant-id"})
               :samuraibff.http/invalid-session-id (json-response 400 {:ok false :message "invalid-session-id"})
               :samuraibff.http/missing-datasource (json-response 503 {:ok false :message "db-unavailable"})
+              (:samuraibff.http/not-found :samuraibff.http/read-only :samuraibff.http/forbidden)
+              (session-guard/error-response type)
               (do
                 (log/error e "Failed to delete recording")
                 (json-response 500 {:ok false :message "internal-error"})))))

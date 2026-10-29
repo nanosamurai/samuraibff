@@ -3,6 +3,56 @@
 This document summarizes the webhook/workflow surface area and links to deeper
 implementation notes.
 
+## Access to definitions
+
+Webhooks and workflows are definitions. Each definition has an `availability`:
+
+* `published`: every active person in the organization can see and use it.
+  Only an Admin edits, deletes or unpublishes it.
+* `personal`: only its owner (a Builder or Admin) can see and use it. The owner
+  and Admins can edit or delete it.
+
+Roles:
+
+* Member: lists published definitions only. The list omits prompt text,
+  provider parameters, incremental settings, secret references, auth settings
+  and static headers. Cannot create.
+* Builder: creates personal definitions only (a request for `published` gets
+  `403 forbidden`). Sees full details only for own personal definitions.
+* Admin: sees and manages every definition. Creates published definitions by
+  default (`availability` may be `personal`). Publishes and unpublishes with
+  `availability` on update. Sets defaults.
+* Organization API keys get `403 forbidden` on these routes. A personal API
+  key lists and views like its owner but never creates, edits, publishes or
+  sets defaults. Sessions of organization keys run published definitions.
+
+Each list item has `availability`, `owner` (`{id, display_name, is_me}` or
+null) and `can_manage`. A definition that the caller cannot see returns
+`404 not-found`; one the caller can see but not manage returns
+`403 forbidden`. Names are unique per organization.
+
+Defaults (`/api/webhooks/defaults`, `/api/workflows/defaults`): every person
+can read them; only an Admin sets them. Every default must be a published
+definition of the organization, else `400 invalid-default`. Unpublishing or
+deleting a definition removes it from the defaults in the same transaction.
+
+Changes to definitions and defaults write an access audit event without
+prompts, URLs or secrets.
+
+## Session use
+
+A session uses only definitions that its owner may use at resolution time:
+the owner's own personal definitions and published definitions. Defaults add
+published definitions only. When the owner is demoted or suspended, or a
+definition is unpublished, new resolutions stop using it. A session without an
+active human owner uses no definition. Using a definition does not give its
+author access to the session.
+
+At the first audio start the resolved selection is stored in
+`sessions.admission_snapshot`. Later audio starts of that session reuse it, so
+later edits to definitions do not change a running session. The stored value
+holds secret references only, never secret values.
+
 ## Webhooks (session overrides)
 
 The UI can provide **session-scoped webhook routing overrides** when creating a

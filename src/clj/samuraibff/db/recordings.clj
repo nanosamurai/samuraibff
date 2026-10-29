@@ -10,7 +10,7 @@
 
   Public API:
   - `sessions-page-query`
-  - `list-sessions-for-tenant`
+  - `list-sessions-for-principal`
   - `find-session-by-id`
   - `list-transcript-records`
   - `delete-session!`
@@ -20,82 +20,102 @@
 
   Security:
   - Every query is scoped by tenant-id.
-  - Callers must supply the authenticated tenant-id."
+  - Session lists apply the principal read policy from
+    `samuraibff.db.session-access`. Single-session reads are tenant-scoped
+    helpers; HTTP handlers authorize the session first."
   (:require
    [honey.sql :as sql]
    [honey.sql.helpers :as h]
    [next.jdbc :as jdbc]
    [next.jdbc.result-set :as rs]
-   [org.corfield.logging4j2 :as log])
+   [org.corfield.logging4j2 :as log]
+   [samuraibff.db.session-access :as session-access])
   (:import
    (java.util UUID)
    (javax.sql DataSource)))
 
 (defn sessions-page-query
-  "Build a parameterized HoneySQL page query for an authenticated tenant UUID.
+  "Build a parameterized HoneySQL page query of the sessions a principal may read.
 
-  Options are :limit (integer, default 200), :offset (integer, default 0), and
-  :show-drafts? (boolean, default true). Returns a HoneySQL map. Counts and rows
-  share one statement snapshot. A counts-only row survives an empty page;
-  recording and transcript lookups run only for sessions on the selected page."
-  [tenant-id {:keys [limit offset show-drafts?]
-              :or {limit 200 offset 0 show-drafts? true}}]
-  (let [visible-status [:is-distinct-from :status "created"]
+  Inputs: principal map (see `samuraibff.access.policy`) and options :limit
+  (integer, default 200), :offset (integer, default 0), :show-drafts?
+  (boolean, default true) and :scope (:all | :mine | :shared, default :all).
+  Returns a HoneySQL map. The access policy and scope apply before counts and
+  pagination. Counts and rows share one statement snapshot. A counts-only row
+  survives an empty page; recording and transcript lookups run only for
+  sessions on the selected page."
+  [principal {:keys [limit offset show-drafts? scope]
+              :or {limit 200 offset 0 show-drafts? true scope :all}}]
+  (let [tenant-id (:tenant-id principal)
+        accessible (session-access/scope-condition principal scope)
+        visible-status [:is-distinct-from :s.status "created"]
         counts {:select [[(if show-drafts?
                             [:count :*]
                             [:filter [:count :*] {:where visible-status}]) :total]
-                         [[:filter [:count :*] {:where [:= :status "created"]}] :drafts_count]]
-                :from [:sessions]
-                :where [:= :tenant_id tenant-id]}
-        page {:select [:id :tenant_id :session_key :title :status :started_at :ended_at :created_at]
-              :from [:sessions]
-              :where (cond-> [:and [:= :tenant_id tenant-id]]
+                         [[:filter [:count :*] {:where [:= :s.status "created"]}] :drafts_count]]
+                :from [[:sessions :s]]
+                :where accessible}
+        page {:select [:s.id :s.tenant_id :s.user_id :s.session_key :s.title :s.status
+                       :s.started_at :s.ended_at :s.created_at :s.visibility
+                       :s.created_via_credential_id
+                       [:o.name :owner_name] [:o.email :owner_email]
+                       [:o.principal_type :owner_type] [:cv.name :created_via_name]
+                       [(session-access/key-manager-expr principal) :key_manager]]
+              :from [[:sessions :s]]
+              :left-join [[:app_users :o] [:= :o.id :s.user_id]
+                          [:api_credentials :cv] [:and [:= :cv.id :s.created_via_credential_id]
+                                                  [:= :cv.tenant_id :s.tenant_id]]]
+              :where (cond-> [:and accessible]
                        (not show-drafts?) (conj visible-status))
-              :order-by [[:created_at :desc] [:id :desc]]
+              :order-by [[:s.created_at :desc] [:s.id :desc]]
               :limit (long limit)
               :offset (long offset)}
         recording {:select [:session_id [:created_at :recording_created_at] :duration_s :sample_rate :lang]
                    :from [:recordings]
-                   :where [:= :session_id :s.id]
+                   :where [:= :session_id :p.id]
                    :order-by [[:created_at :desc] [:id :desc]]
                    :limit 1}
         final-transcript {:select [:session_id]
                           :from [:session_transcripts]
-                          :where [:and [:= :session_id :s.id]
+                          :where [:and [:= :session_id :p.id]
                                   [:= :tenant_id tenant-id]
                                   [:= :type "final"]]
                           :limit 1}]
     {:select [:counts.total :counts.drafts_count
-              :s.id :s.session_key :s.title :s.status :s.started_at :s.ended_at :s.created_at
+              :p.id :p.user_id :p.session_key :p.title :p.status :p.started_at :p.ended_at :p.created_at
+              :p.visibility :p.owner_name :p.owner_email
+              :p.created_via_credential_id :p.owner_type :p.created_via_name :p.key_manager
               :lr.recording_created_at :lr.duration_s :lr.sample_rate :lr.lang
               [[:is-not :lr.session_id nil] :has_recording]
               [[:is-not :ft.session_id nil] :has_final_transcript]]
      :from [[counts :counts]]
-     :left-join [[page :s] true
+     :left-join [[page :p] true
                  [[:lateral recording] :lr] true
                  [[:lateral final-transcript] :ft] true]
-     :order-by [[:s.created_at :desc] [:s.id :desc]]}))
+     :order-by [[:p.created_at :desc] [:p.id :desc]]}))
 
-(defn list-sessions-for-tenant
-  "Fetch one page and both counts for an authenticated tenant UUID.
+(defn list-sessions-for-principal
+  "Fetch one page and both counts of the sessions a principal may read.
 
-  Accepts a DataSource and options documented by sessions-page-query. Returns
-  {:items [session maps], :total integer, :drafts_count integer}, with unqualified
-  lower-case keys. Items include session fields, latest recording metadata, and
-  :has_recording / :has_final_transcript booleans. Empty pages retain counts.
-  Throws for a missing datasource, invalid tenant UUID, or database errors."
-  [^DataSource ds ^UUID tenant-id opts]
-  (when-not (and ds (instance? UUID tenant-id))
-    (throw (ex-info "list-sessions-for-tenant missing required params"
-                    {:tenant-id tenant-id})))
+  Accepts a DataSource, an active principal map and options documented by
+  sessions-page-query. Returns {:items [session maps], :total integer,
+  :drafts_count integer}, with unqualified lower-case keys. Items include
+  session fields, owner display fields, the audience, latest recording metadata
+  and :has_recording / :has_final_transcript booleans. Empty pages retain
+  counts. Throws for a missing datasource, invalid principal or database errors."
+  [^DataSource ds principal opts]
+  (when-not (and ds (instance? UUID (:tenant-id principal)) (instance? UUID (:id principal)))
+    (throw (ex-info "list-sessions-for-principal missing required params"
+                    {:tenant-id (:tenant-id principal)})))
   (try
-    (let [rows (jdbc/execute! ds (sql/format (sessions-page-query tenant-id opts))
+    (let [rows (jdbc/execute! ds (sql/format (sessions-page-query principal opts))
                               {:builder-fn rs/as-unqualified-lower-maps})]
       (assoc (select-keys (first rows) [:total :drafts_count])
              :items (into [] (comp (filter :id)
                                    (map #(dissoc % :total :drafts_count))) rows)))
     (catch Exception e
-      (log/error e "DB query failed (list-sessions-for-tenant)" {:tenant-id (str tenant-id)})
+      (log/error e "DB query failed (list-sessions-for-principal)"
+                 {:tenant-id (str (:tenant-id principal))})
       (throw e))))
 
 (defn find-session-by-id

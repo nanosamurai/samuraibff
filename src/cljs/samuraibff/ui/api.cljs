@@ -36,7 +36,9 @@
   All functions return JS Promises."
   (:require
    [clojure.string :as str]
+   [samuraibff.ui.access :as access]
    [samuraibff.ui.env :as env]
+   [samuraibff.ui.permissions :as permissions]
    [samuraibff.ui.urls :as urls]))
 
 (defn- api-url
@@ -55,11 +57,50 @@
   Inputs:
   - res: Fetch Response
 
-  Returns: res if ok; throws JS Error otherwise."
+  Returns: res if ok. Otherwise a Promise rejected with ex-info whose message
+  is \"HTTP error <status>\" and whose data is {:status int :code string?}.
+  The code is a short server error code such as `read-only-access`; no other
+  part of the error body is kept. Account errors switch the UI to its access
+  state page (see `samuraibff.ui.permissions/note-access-error!`)."
   [res]
-  (when-not (.-ok res)
-    (throw (js/Error. (str "HTTP error " (.-status res)))))
-  res)
+  (if (.-ok res)
+    res
+    (let [status (.-status res)]
+      (-> (.json res)
+          (.catch (fn [_] nil))
+          (.then (fn [body]
+                   (let [code (access/error-code (js->clj body :keywordize-keys true))]
+                     (permissions/note-access-error! status code)
+                     (throw (ex-info (str "HTTP error " status)
+                                     {:status status :code code})))))))))
+
+(defn error-status
+  "Return the HTTP status of a rejected API call, or nil for network errors."
+  [e]
+  (:status (ex-data e)))
+
+(defn error-code
+  "Return the safe server error code of a rejected API call, or nil."
+  [e]
+  (:code (ex-data e)))
+
+(defn fetch-json!
+  "Fetch a same-origin BFF API path and decode the JSON response.
+
+  Inputs:
+  - path: string starting with /api
+  - opts: optional {:method string :body map}; a body is sent as JSON.
+
+  Returns: Promise resolving to a keywordized map. Rejects like `ensure-ok!`."
+  ([path] (fetch-json! path nil))
+  ([path {:keys [method body]}]
+   (-> (js/fetch (api-url path)
+                 (clj->js (cond-> {:method (or method "GET")}
+                            (some? body) (assoc :headers {"content-type" "application/json"}
+                                                :body (.stringify js/JSON (clj->js body))))))
+       (.then ensure-ok!)
+       (.then (fn [res] (.json res)))
+       (.then (fn [body] (js->clj body :keywordize-keys true))))))
 
 (defn list-webhook-delivery-outcomes!
   "List latest webhook delivery outcomes for a session.
@@ -272,21 +313,23 @@
 (defn list-recordings!
   "List sessions/recordings for the authenticated tenant.
 
-  Options: :limit/:offset integers and :show-drafts? boolean (default true).
+  Options: :limit/:offset integers, :show-drafts? boolean (default true) and
+  :scope string \"all\" | \"mine\" | \"shared\" (default all).
 
   Returns:
   - Promise resolving to response map with keys:
-        :items (vector)
-        :total and :drafts_count (non-negative integers)
+        :items (vector; each item has an :access summary)
+        :total and :drafts_count (non-negative integers, scope applied)
 
   Throws on non-2xx."
   ([]
    (list-recordings! {}))
-  ([{:keys [limit offset show-drafts?]}]
+  ([{:keys [limit offset show-drafts? scope]}]
    (let [params (cond-> {}
                   (some? limit) (assoc "limit" (str limit))
                   (some? offset) (assoc "offset" (str offset))
-                  (some? show-drafts?) (assoc "show_drafts" (str show-drafts?)))
+                  (some? show-drafts?) (assoc "show_drafts" (str show-drafts?))
+                  (seq (str scope)) (assoc "scope" (str scope)))
          qs (when (seq params)
               (->> params
                    (map (fn [[k v]] (str (js/encodeURIComponent k)
@@ -415,6 +458,15 @@
       (.then (fn [body]
                (js->clj body :keywordize-keys true)))))
 
+(defn configure-api-credential!
+  "Change an organization key's manager and/or audience (Admin only).
+
+  Inputs: credential id string, {:manager_id string-or-nil? :audience string?}.
+  Returns: Promise of {:ok true :item {...}}."
+  [id changes]
+  (fetch-json! (str "/api/api-credentials/" (js/encodeURIComponent (str id)))
+               {:method "PATCH" :body changes}))
+
 (defn list-api-credentials!
   "List API credentials for the authenticated tenant.
 
@@ -535,7 +587,9 @@
   "Create a new API credential.
 
   Inputs:
-  - name: string (human label)
+  - name: string (human label), or a map {:name :kind :read_scope :audience
+    :manager_id} (kind \"personal\" by default; organization keys are
+    Admin-only)
 
   Returns:
   - Promise resolving to map:
@@ -546,11 +600,13 @@
 
   Notes:
   - The secret is returned only once; callers must treat it as transient."
-  [name]
+  [name-or-opts]
   (-> (js/fetch (api-url "/api/api-credentials")
                 #js {:method "POST"
                      :headers #js {"content-type" "application/json"}
-                     :body (.stringify js/JSON #js {:name (or name "")})})
+                     :body (.stringify js/JSON (clj->js (if (map? name-or-opts)
+                                                          (into {} (remove (comp nil? val)) name-or-opts)
+                                                          {:name (or name-or-opts "")})))})
       (.then ensure-ok!)
       (.then (fn [res] (.json res)))
       (.then (fn [body]

@@ -5,6 +5,7 @@
    [next.jdbc :as jdbc]
    [samuraibff.http.workflows :as workflows]
    [samuraibff.schemas :as schemas]
+   [samuraibff.test-support.principals :as principals]
    [samuraibff.testcontainers.postgres :as pg]
    [samuraibff.workflows.snapshot :as snapshot])
   (:import (java.util UUID)))
@@ -16,8 +17,10 @@
           tenant (UUID/randomUUID)
           other (UUID/randomUUID)
           _ (jdbc/execute! ds ["INSERT INTO tenants (id, name) VALUES (?, 'tenant'), (?, 'other')" tenant other])
+          admin (principals/insert-principal! ds {:tenant-id tenant :role :admin})
+          outsider (principals/insert-principal! ds {:tenant-id other :role :admin})
           deps {:db {:ds ds}}
-          request {:auth/tenant-id (str tenant)}
+          request (principals/request-for admin)
           payload {:name "Summary" :trigger {:type "transcript.refined.segment" :track_id "parakeet"}
                    :provider {:type "bedrock" :model_id "model"} :prompt {:text "Summarize"}}
           created ((workflows/create-workflow-handler deps) (assoc request :body-params payload))
@@ -29,13 +32,13 @@
         (is (= body (schemas/validate! schemas/WorkflowsListResponse body)))
         (is (= (:trigger payload) (get-in body [:items 0 :trigger]))))
       (is (= "parakeet" (get-in (snapshot/resolve-targets ds tenant (UUID/randomUUID)
-                                                        {:use_defaults false :workflow_ids [id]})
+                                                        {:use_defaults false :workflow_ids [id]} admin)
                                 [0 :trigger :track_id])))
       (is (= 400 (:status ((workflows/create-workflow-handler deps)
                           (assoc request :body-params (assoc payload :trigger {:type "transcript.refined.segment"}))))))
       (is (= 404 (:status ((workflows/update-workflow-handler deps)
-                          (assoc item-request :auth/tenant-id (str other) :body-params
-                                 {:trigger {:type "transcript.final.ready" :track_id "whisperx"}})))))
+                          (merge item-request (principals/request-for outsider) {:body-params
+                                 {:trigger {:type "transcript.final.ready" :track_id "whisperx"}}})))))
       (is (= 200 (:status ((workflows/update-workflow-handler deps)
                           (assoc item-request :body-params {:trigger {:type "transcript.final.ready" :track_id "whisperx"}})))))
       (is (= {:type "transcript.final.ready" :track_id "whisperx"}

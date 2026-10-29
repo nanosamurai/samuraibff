@@ -2,9 +2,11 @@
   "Workflows management page (tenant-scoped LLM post-processing workflows)."
   (:require
    [clojure.string :as str]
+   [samuraibff.ui.access :as access]
    [samuraibff.ui.api :as api]
    [samuraibff.ui.components.shared :as shared]
    [samuraibff.ui.hooks :as hooks]
+   [samuraibff.ui.permissions :as permissions]
    [samuraibff.ui.store :as store]
    ["react" :as react]))
 
@@ -47,13 +49,24 @@
   Default behavior:
   - default?: boolean (whether current workflow is in tenant defaults)
   - default-disabled?: boolean (disable default checkbox, e.g. while saving)
-  - on-toggle-default: (fn [workflow-id checked?])"
+  - on-toggle-default: (fn [workflow-id checked?])
+
+  Access:
+  - can-publish?: boolean; Admins choose Personal or Published. Others
+    always create Personal workflows and never send `availability`.
+  - can-default?: boolean; only Admins change defaults, and only for
+    published workflows."
   [{:keys [open? mode initial on-close on-saved
-           default? default-disabled? on-toggle-default]}]
+           default? default-disabled? on-toggle-default can-publish? can-default?]}]
   (when (true? open?)
     (let [initial (or initial {})
           workflow-id (:id initial)
-          can-toggle-default? (and (= mode :edit) (some? workflow-id))
+          [availability set-availability!] (react/useState
+                                            (or (:availability initial)
+                                                (if can-publish? "published" "personal")))
+          owner-label (access/owner-name (:owner initial))
+          can-toggle-default? (and (= mode :edit) (some? workflow-id) can-default?
+                                   (= "published" (:availability initial)))
 
           name* (react/useState (or (:name initial) ""))
           name (aget name* 0)
@@ -120,7 +133,7 @@
                           min-int (let [s (some-> dispatch-throttle-interval-sec-raw str str/trim)]
                                     (when (seq s)
                                       (js/parseInt s 10)))
-                          payload {:name (str/trim (str name))
+                          payload (cond-> {:name (str/trim (str name))
                                    :enabled (boolean enabled?)
                                    :trigger (cond-> {:type trigger}
                                               track-stage (assoc :track_id track-id))
@@ -134,6 +147,7 @@
                                    ;; presents it as cumulative transcript + dispatch throttling.
                                    :incremental {:enabled (boolean cumulative-enabled?)
                                                  :min_interval_sec (when (and (number? min-int) (<= 0 min-int)) min-int)}}
+                                    can-publish? (assoc :availability availability))
                           p (if (= mode :edit)
                               (api/update-workflow! (:id initial) payload)
                               (api/create-workflow! payload))]
@@ -142,7 +156,8 @@
                                    (when (fn? on-saved) (on-saved))
                                    (when (fn? on-close) (on-close))))
                           (.catch (fn [e]
-                                    (set-err! (shared/safe-http-error e))))
+                                    (set-err! (access/error-message (api/error-code e)
+                                                                    (shared/safe-http-error e)))))
                           (.finally (fn []
                                       (set-saving! false)))))
                     (catch :default e
@@ -211,15 +226,28 @@
            "Enabled"]
 
           [:label {:class "muted"
-                   :title (when-not can-toggle-default?
-                            "Default can be set after the workflow is created")
+                   :title (cond
+                            (not can-default?) "Only Admins change defaults"
+                            (not can-toggle-default?) "Default can be set after the workflow is created and published")
                    :style {:display "flex" :gap "8px" :alignItems "center"}}
            [checkbox {:checked? (true? default?)
                       :disabled? (or (not can-toggle-default?) (boolean default-disabled?))
                       :on-change (fn [checked?]
                                    (when (and can-toggle-default? (fn? on-toggle-default))
                                      (on-toggle-default workflow-id checked?)))}]
-           "Default"]]]
+           "Default"]
+
+          (if can-publish?
+            [:label {:class "muted" :style {:display "flex" :gap "8px" :alignItems "center"}}
+             "Availability"
+             [:select {:value availability
+                       :on-change (fn [e] (set-availability! (.. e -target -value)))}
+              [:option {:value "personal"} "Personal"]
+              [:option {:value "published"} "Published"]]]
+            [:span {:class "muted"} "Availability: Personal"])]
+         [:div {:class "hint"}
+          (str (when owner-label (str "Owner: " owner-label ". "))
+               "Personal workflows run only for their owner's sessions. Publishing lets everyone choose this workflow; it gives no access to their recordings.")]]
 
         [:div {:class "card"}
          [:div {:class "card-title"} "Provider (Bedrock)"]
@@ -259,6 +287,9 @@
         defaults-st (hooks/use-atom store/workflow-defaults*)
 
         {:keys [items loading? error]} st
+        can-author? (permissions/use-capability? :author_integrations)
+        can-publish? (permissions/use-capability? :publish_integrations)
+        can-default? (permissions/use-capability? :manage_defaults)
         defaults-ids (set (map str (or (:workflow_ids defaults-st) [])))
         defaults-loading? (true? (:loading? defaults-st))
         defaults-error (:error defaults-st)
@@ -306,11 +337,24 @@
                   (store/set-workflows-error! nil)
                   (-> (api/delete-workflow! workflow-id)
                       (.then (fn [_]
-                               (store/remove-workflow-item! workflow-id)))
+                               (store/remove-workflow-item! workflow-id)
+                               (refresh-defaults!)))
                       (.catch (fn [e]
-                                (store/set-workflows-error! (shared/safe-http-error e))))
+                                (store/set-workflows-error! (access/error-message (api/error-code e)
+                                                                                  (shared/safe-http-error e)))))
                       (.finally (fn []
                                   (store/set-workflows-loading! false)))))
+
+        set-availability! (fn [workflow-id availability]
+                            (store/set-workflows-loading! true)
+                            (store/set-workflows-error! nil)
+                            (-> (api/update-workflow! workflow-id {:availability availability})
+                                (.then (fn [_] (refresh!)))
+                                (.catch (fn [e]
+                                          (store/set-workflows-error! (access/error-message (api/error-code e)
+                                                                                            (shared/safe-http-error e)))))
+                                (.finally (fn []
+                                            (store/set-workflows-loading! false)))))
 
         toggle-default! (fn [workflow-id checked?]
                           (let [id (str (or workflow-id ""))
@@ -327,7 +371,8 @@
                             (-> (api/set-workflow-defaults! next-ids)
                                 (.catch (fn [e]
                                           (store/set-workflow-defaults-ids! prev-ids)
-                                          (store/set-workflow-defaults-error! (shared/safe-http-error e))))
+                                          (store/set-workflow-defaults-error!
+                                           (access/error-message (api/error-code e) (shared/safe-http-error e)))))
                                 (.finally (fn []
                                             (store/set-workflow-defaults-loading! false))))))
 
@@ -350,9 +395,11 @@
      [workflow-form-modal {:open? open?
                            :mode mode
                            :initial editing
-                            :default? (contains? defaults-ids (str (:id editing)))
-                            :default-disabled? defaults-loading?
-                            :on-toggle-default toggle-default!
+                           :default? (contains? defaults-ids (str (:id editing)))
+                           :default-disabled? defaults-loading?
+                           :on-toggle-default toggle-default!
+                           :can-publish? can-publish?
+                           :can-default? can-default?
                            :on-close (fn [] (set-open! false))
                            :on-saved refresh!}]
      [:div {:class "page-header"}
@@ -360,16 +407,22 @@
        [:div {:class "page-title"} "Workflows"]
        [:div {:class "muted"}
         "Define LLM workflows (prompts + model) that can be triggered from session events."]
-        (when (seq (or error defaults-error))
-          [:div {:class "badge bad" :style {:marginTop "10px"}} (or error defaults-error)])]
+       (when (seq (or error defaults-error))
+         [:div {:class "badge bad" :style {:marginTop "10px"}} (or error defaults-error)])]
       [:div {:class "row"}
        [:button {:class "btn"
-                  :disabled (boolean (or loading? defaults-loading?))
+                 :disabled (boolean (or loading? defaults-loading?))
                  :on-click (fn [_] (refresh!))}
-         (if (or loading? defaults-loading?) "Refreshing…" "Refresh")]
-       [:button {:class "btn primary"
-                 :on-click (fn [_] (open-create!))}
-        "New workflow"]]]
+        (if (or loading? defaults-loading?) "Refreshing…" "Refresh")]
+       (when can-author?
+         [:button {:class "btn primary"
+                   :on-click (fn [_] (open-create!))}
+          "New workflow"])]]
+
+     [:div {:class "muted" :role "note"}
+      (if can-author?
+        "Personal workflows run only for their owner's sessions. Admins publish workflows for everyone and choose defaults. Only an Admin can edit a published workflow."
+        "Workflows are created by Builders and Admins. You can use published workflows when you record.")]
 
      (if (empty? (vec (or items [])))
        [:div {:class "muted"} "No workflows configured yet."]
@@ -377,31 +430,52 @@
         [:thead
          [:tr
           [:th "Name"]
-           [:th "Default"]
+          [:th "Default"]
           [:th "Enabled"]
           [:th "Trigger"]
           [:th "Model"]
           [:th "Actions"]]]
         [:tbody
          (for [wf (vec (or items []))]
-           (let [{:keys [id name enabled trigger provider]} wf]
+           (let [{:keys [id name enabled trigger provider availability owner]} wf
+                 can-manage? (not (false? (:can_manage wf)))
+                 published? (= "published" availability)
+                 badge (access/definition-badge availability)
+                 owner-label (access/owner-name owner)]
              ^{:key (str "wf-" id)}
              [:tr
-              [:td (or name "")]
-               [:td
-                [checkbox {:checked? (contains? defaults-ids (str id))
-                           :disabled? defaults-loading?
-                           :on-change (fn [checked?]
-                                        (toggle-default! id checked?))}]]
+              [:td
+               [:div (or name "")]
+               (when (or badge owner-label)
+                 [:div {:class "row" :style {:gap "6px" :marginTop "4px"}}
+                  (when badge [:span {:class (str "badge " (if published? "ok" "muted"))} badge])
+                  (when owner-label [:span {:class "muted" :style {:fontSize "12px"}} owner-label])])]
+              [:td
+               [checkbox {:checked? (contains? defaults-ids (str id))
+                          :disabled? (or defaults-loading? (not can-default?)
+                                         (and (some? availability) (not published?)))
+                          :on-change (fn [checked?]
+                                       (toggle-default! id checked?))}]]
               [:td (if enabled "Yes" "No")]
               [:td [:span {:class "mono"}
                     (str (get trigger :type) (when-let [track (:track_id trigger)] (str " / " track)))]]
               [:td [:span {:class "mono"} (or (get provider :model_id) "")]]
               [:td
-               [:div {:class "row"}
-                [:button {:class "btn"
-                          :on-click (fn [_] (open-edit! wf))}
-                 "Edit"]
-                [:button {:class "btn danger"
-                          :on-click (fn [_] (delete! id))}
-                 "Delete"]]]]))]])]))
+               (if can-manage?
+                 [:div {:class "row"}
+                  [:button {:class "btn"
+                            :on-click (fn [_] (open-edit! wf))}
+                   "Edit"]
+                  (when (and can-publish? (some? availability))
+                    [:button {:class "btn"
+                              :disabled loading?
+                              :on-click (fn [_]
+                                          (when (js/confirm (if published?
+                                                              (str "Unpublish " name "? Only its owner can use it afterwards. It is removed from defaults.")
+                                                              (str "Publish " name "? Everyone here can choose it for their sessions.")))
+                                            (set-availability! id (if published? "personal" "published"))))}
+                     (if published? "Unpublish" "Publish")])
+                  [:button {:class "btn danger"
+                            :on-click (fn [_] (delete! id))}
+                   "Delete"]]
+                 [:span {:class "muted"} "View only"])]]))]])]))

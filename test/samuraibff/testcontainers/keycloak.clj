@@ -545,10 +545,10 @@
        :users {:alice (assoc alice :id alice-id :tenant-role alice-role)
                :bob   (assoc bob :id bob-id :tenant-role bob-role)}})))
 
-(defn password-token!
-  "Mint an access token using Direct Access Grants (password grant).
+(defn password-tokens!
+  "Mint tokens using Direct Access Grants (password grant).
 
-  Returns access token string." 
+  Returns {:access-token string :id-token string?}."
   [token-endpoint {:keys [client-id username password]}]
   (let [params {:grant_type "password"
                 :client_id (str client-id)
@@ -569,8 +569,15 @@
     (let [m (json/read-value body json-mapper)
           tok (:access_token m)]
       (when (str/blank? (str tok))
-        (throw (ex-info "Token response missing access_token" {:resp m})))
-      tok)))
+        (throw (ex-info "Token response missing access_token" {:status status})))
+      {:access-token tok :id-token (:id_token m)})))
+
+(defn password-token!
+  "Mint an access token using Direct Access Grants (password grant).
+
+  Returns access token string."
+  [token-endpoint opts]
+  (:access-token (password-tokens! token-endpoint opts)))
 
 (defn client-credentials-token!
   "Mint an access token using OAuth2 client_credentials.

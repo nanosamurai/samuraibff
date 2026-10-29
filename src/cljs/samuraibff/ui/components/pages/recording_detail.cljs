@@ -5,9 +5,12 @@
   and final transcript (from DB) with optional audio playback + karaoke highlighting."
   (:require
    [clojure.string :as str]
+   [samuraibff.ui.access :as access]
    [samuraibff.ui.api :as api]
    [samuraibff.ui.hooks :as hooks]
+   [samuraibff.ui.components.share-dialog :as share-dialog]
    [samuraibff.ui.components.shared :as shared]
+   [samuraibff.ui.permissions :as permissions]
    [samuraibff.ui.components.transcript :as components.transcript]
    [samuraibff.ui.recording-detail :as recording-detail]
    [samuraibff.ui.router :as router]
@@ -235,11 +238,36 @@
        [:div {:class "muted"}
         "No audio is available for playback."])]))
 
+(defn- unavailable-page
+  "Render the page shown when a session is not (or no longer) readable.
+
+  Shows no title or content of the session. Returns: hiccup."
+  []
+  [:div {:class "page"}
+   [:div {:class "page-header"}
+    [:div
+     [:div {:class "page-title"} "Recording"]
+     [:p {:class "muted" :role "alert"} "This session is no longer available to you."]]
+    [:div {:class "row"}
+     [router/link {:route {:page :recordings :params {}} :class "btn"} "Back to recordings"]]]])
+
+(defn- unavailable-error?
+  "Return true when a failed load means the session is not readable anymore."
+  [e]
+  (contains? #{403 404} (api/error-status e)))
+
 (defn recording-detail-page
-  "Render flat per-track Postgres results and shared recording playback for a session ID."
+  "Render flat per-track Postgres results and shared recording playback for a session ID.
+
+  Owners can rename, share, record into a draft and enroll speakers. Readers
+  see the owner and audience and get read-only content. The device-local
+  real-time preview is shown only to the owner. A 403/404 clears the page and
+  says the session is no longer available."
   [{:keys [session-id]}]
   (let [[detail set-detail!] (react/useState nil)
         [error set-error!] (react/useState nil)
+        [gone? set-gone!] (react/useState false)
+        [share-open? set-share-open!] (react/useState false)
         [tab set-tab!] (react/useState nil)
         [current-time-s set-time!] (react/useState 0)
         [follow? set-follow!] (react/useState false)
@@ -248,9 +276,14 @@
         [right-tab set-right-tab!] (react/useState :workflows)
         audio-ref (react/useRef nil)
         runtime-enabled? (store/workflow-webhook-runtime-enabled?)
+        can-share? (permissions/use-capability? :share_sessions)
+        session (:session detail)
+        session-access (:access session)
+        can-manage? (not (false? (:can_manage session-access)))
+        owner? (or (nil? session-access) (true? (:is_owner session-access)))
         cached-asr (get (hooks/use-atom store/asr-by-session*) session-id [])
         tabs (cond-> (recording-detail/track-tabs detail)
-               (seq cached-asr) (into [{:id [:realtime] :label "Real-time Transcript"}]))
+               (and owner? (seq cached-asr)) (into [{:id [:realtime] :label "Real-time Transcript"}]))
         selected (or (some #(when (= tab (:id %)) %) tabs)
                      (first (filter #(= :final (first (:id %))) tabs)) (first tabs))
         stage (first (:id selected))
@@ -258,18 +291,23 @@
         messages (if (= stage :realtime) cached-asr (recording-detail/record-messages rows stage))
         playback? (true? (get-in detail [:session :has_recording]))
         karaoke? (and (= stage :final) playback? (some #(seq (:words %)) messages))
-        session (:session detail)
         status (:status session)
         created-at-ms (util/iso->ms (:created_at session))
         title (or (not-empty (str/trim (or (:title session) "")))
                   (util/default-session-title created-at-ms) "Recording")
+        access-label (when can-share?
+                       (access/detail-access-label session-access (permissions/tenant-name)))
+        on-load-error (fn [e]
+                        (if (unavailable-error? e)
+                          (do (set-detail! nil) (set-gone! true))
+                          (set-error! "Could not load this recording. Use Refresh to try again.")))
         refresh! (fn []
                    (set-error! nil)
                    (-> (api/get-recording! session-id)
                        (.then set-detail!)
-                       (.catch (fn [_] (set-error! "Could not load this recording. Use Refresh to try again.")))))
+                       (.catch on-load-error)))
         enroll-action (fn [{:keys [msg]}]
-                        (when (and playback? (seq (:speaker msg))
+                        (when (and can-manage? playback? (seq (:speaker msg))
                                    (number? (:start_s msg)) (number? (:end_s msg))
                                    (< (:start_s msg) (:end_s msg)))
                           [:div {:class "bubble-actions"}
@@ -279,88 +317,105 @@
     (react/useEffect
      (fn []
        (let [active? (atom true)
+             timer* (atom nil)
              load! (fn []
                      (-> (api/get-recording! session-id)
                          (.then #(when @active? (set-detail! %)))
-                         (.catch (fn [_]
+                         (.catch (fn [e]
                                    (when @active?
-                                     (set-error! "Could not load this recording. Use Refresh to try again."))))))
-             timer (js/setInterval load! 4000)]
+                                     (when (unavailable-error? e)
+                                       (js/clearInterval @timer*))
+                                     (on-load-error e))))))]
          (set-detail! nil)
          (set-tab! nil)
          (set-error! nil)
+         (set-gone! false)
+         (reset! timer* (js/setInterval load! 4000))
          (load!)
-         (fn [] (reset! active? false) (js/clearInterval timer))))
+         (fn [] (reset! active? false) (js/clearInterval @timer*))))
      #js [session-id])
-    [:div {:class "page"}
-     [enroll-speaker-modal {:open? (some? enroll-range) :session-id session-id
-                            :start-s (:start_s enroll-range) :end-s (:end_s enroll-range)
-                            :on-close #(set-enroll! nil)}]
-     [:div {:class "page-header"}
-      [:div
-       [:div {:class "page-title"} title
-        [:span {:style {:marginLeft "10px"}}
-         [shared/status-pill {:label (if (= status "active") "Recording" (str/capitalize (or status "Loading")))
-                              :kind :muted}]]]
-       [:details {:class "muted"}
-        [:summary "Technical details"]
-        [:div {:class "mono"} (str "Session ID: " session-id)]]]
-      [:div {:class "row"}
-       [router/link {:route {:page :recordings :params {}} :class "btn"} "Back to recordings"]
-       (when (= status "created")
-         [router/link {:route {:page :live :params {}} :class "btn"
-                       :on-click #(do (store/set-session-id! session-id)
-                                      (store/set-session-title! (:title session))
-                                      (store/set-session-created-at-ms! created-at-ms)
-                                      (store/set-session-status! status))}
-          "Record with this session"])
-       [title-editor {:session-id session-id :current-title (:title session)
-                      :on-saved #(set-detail! (fn [old] (assoc-in old [:session :title] %)))}]
-       [:button {:class "btn" :on-click refresh!} "Refresh"]]]
-     (when error [:p {:role "alert" :class "badge bad"} error])
-     [:div {:class "tabs transcript-tabs" :role "tablist" :aria-label "Transcripts"}
-      (for [{:keys [id label]} tabs]
-        [:button {:key (pr-str id) :class (str "tab " (when (= id (:id selected)) "active"))
-                  :type "button" :role "tab" :aria-selected (= id (:id selected))
-                  :on-click #(do
-                               (when (not= :final (first id))
-                                 (when-let [audio (.-current audio-ref)] (.pause audio))
-                                 (set-time! 0))
-                               (set-tab! id))} label])
-      (when runtime-enabled?
-        [:button {:class "btn ghost" :on-click #(set-show-workflows! (not show-workflows?))}
-         "Workflows / Webhooks"])]
-     [:div {:class "split"}
-      [:div {:class "split-main"}
-       (when (= stage :final)
-         [final-audio-player {:session-id session-id :enabled? playback? :audio-ref audio-ref
-                              :on-time #(set-time! (on-time->current-time-s %))
-                              :follow-enabled? karaoke? :follow? follow?
-                              :on-follow #(set-follow! (.. % -target -checked))}])
-       [:div {:class "card" :role "tabpanel" :aria-label (:label selected)}
-        (if selected
-          [:div
-           (when (= stage :realtime)
-             [:p {:class "muted" :role "status"}
-              "This live preview is available on this device only."])
-           (if karaoke?
-             [components.transcript/final-transcript-karaoke
-              {:key (pr-str (:id selected)) :messages messages :audio-ref audio-ref
-               :current-time-s current-time-s :follow? follow? :message-actions enroll-action}]
-             [components.transcript/transcript-view
-              {:key (pr-str (:id selected)) :messages messages :auto-scroll? false :initial-scroll :top
-               :empty-title (:label selected)
-               :empty-hint (if (seq rows) "No speech was detected." "No transcript available yet.")
-               :message-actions enroll-action}])]
-          [:p {:class "muted"} (if detail "No transcripts available for this session." "Loading transcripts…")])]]
-      (when (and runtime-enabled? show-workflows?)
-        [:div {:class "split-side"}
-         [:div {:class "right-panel"}
-          [:div {:class "tabs"}
-           (for [[id label] [[:workflows "Workflows"] [:webhooks "Webhooks"]]]
-             [:button {:key id :class (str "tab " (when (= id right-tab) "active"))
-                       :on-click #(set-right-tab! id)} label])]
-          [:div {:class "right-panel-body"}
-           (if (= right-tab :workflows)
-             [ui.wf.results/workflow-results-card {:items (:workflow_results_latest detail) :title "Workflow results" :fill? true}]
-             [ui.wh.outcomes/webhook-dispatches-card {:items (:webhook_delivery_outcomes detail) :title "Webhook dispatches" :fill? true}])]]])]]))
+    (if gone?
+      [unavailable-page]
+      [:div {:class "page"}
+       [enroll-speaker-modal {:open? (some? enroll-range) :session-id session-id
+                              :start-s (:start_s enroll-range) :end-s (:end_s enroll-range)
+                              :on-close #(set-enroll! nil)}]
+       [share-dialog/share-dialog {:open? share-open? :session-id session-id :session-title title
+                                   :on-close #(set-share-open! false)
+                                   :on-saved (fn [{:keys [visibility]}]
+                                               (set-detail! (fn [old]
+                                                              (assoc-in old [:session :access :visibility]
+                                                                        visibility))))}]
+       [:div {:class "page-header"}
+        [:div
+         [:div {:class "page-title"} title
+          [:span {:style {:marginLeft "10px"}}
+           [shared/status-pill {:label (if (= status "active") "Recording" (str/capitalize (or status "Loading")))
+                                :kind :muted}]]]
+         (when access-label
+           [:div {:class "muted"} access-label])
+         [:details {:class "muted"}
+          [:summary "Technical details"]
+          [:div {:class "mono"} (str "Session ID: " session-id)]]]
+        [:div {:class "row"}
+         [router/link {:route {:page :recordings :params {}} :class "btn"} "Back to recordings"]
+         (when (and can-manage? (= status "created"))
+           [router/link {:route {:page :live :params {}} :class "btn"
+                         :on-click #(do (store/set-session-id! session-id)
+                                        (store/set-session-title! (:title session))
+                                        (store/set-session-created-at-ms! created-at-ms)
+                                        (store/set-session-status! status))}
+            "Record with this session"])
+         (when can-manage?
+           [title-editor {:session-id session-id :current-title (:title session)
+                          :on-saved #(set-detail! (fn [old] (assoc-in old [:session :title] %)))}])
+         (when (and can-share? (some? session-access) can-manage?)
+           [:button {:class "btn" :type "button" :on-click #(set-share-open! true)} "Share"])
+         [:button {:class "btn" :on-click refresh!} "Refresh"]]]
+       (when error [:p {:role "alert" :class "badge bad"} error])
+       [:div {:class "tabs transcript-tabs" :role "tablist" :aria-label "Transcripts"}
+        (for [{:keys [id label]} tabs]
+          [:button {:key (pr-str id) :class (str "tab " (when (= id (:id selected)) "active"))
+                    :type "button" :role "tab" :aria-selected (= id (:id selected))
+                    :on-click #(do
+                                 (when (not= :final (first id))
+                                   (when-let [audio (.-current audio-ref)] (.pause audio))
+                                   (set-time! 0))
+                                 (set-tab! id))} label])
+        (when runtime-enabled?
+          [:button {:class "btn ghost" :on-click #(set-show-workflows! (not show-workflows?))}
+           "Workflows / Webhooks"])]
+       [:div {:class "split"}
+        [:div {:class "split-main"}
+         (when (= stage :final)
+           [final-audio-player {:session-id session-id :enabled? playback? :audio-ref audio-ref
+                                :on-time #(set-time! (on-time->current-time-s %))
+                                :follow-enabled? karaoke? :follow? follow?
+                                :on-follow #(set-follow! (.. % -target -checked))}])
+         [:div {:class "card" :role "tabpanel" :aria-label (:label selected)}
+          (if selected
+            [:div
+             (when (= stage :realtime)
+               [:p {:class "muted" :role "status"}
+                "This live preview is available on this device only."])
+             (if karaoke?
+               [components.transcript/final-transcript-karaoke
+                {:key (pr-str (:id selected)) :messages messages :audio-ref audio-ref
+                 :current-time-s current-time-s :follow? follow? :message-actions enroll-action}]
+               [components.transcript/transcript-view
+                {:key (pr-str (:id selected)) :messages messages :auto-scroll? false :initial-scroll :top
+                 :empty-title (:label selected)
+                 :empty-hint (if (seq rows) "No speech was detected." "No transcript available yet.")
+                 :message-actions enroll-action}])]
+            [:p {:class "muted"} (if detail "No transcripts available for this session." "Loading transcripts…")])]]
+        (when (and runtime-enabled? show-workflows?)
+          [:div {:class "split-side"}
+           [:div {:class "right-panel"}
+            [:div {:class "tabs"}
+             (for [[id label] [[:workflows "Workflows"] [:webhooks "Webhooks"]]]
+               [:button {:key id :class (str "tab " (when (= id right-tab) "active"))
+                         :on-click #(set-right-tab! id)} label])]
+            [:div {:class "right-panel-body"}
+             (if (= right-tab :workflows)
+               [ui.wf.results/workflow-results-card {:items (:workflow_results_latest detail) :title "Workflow results" :fill? true}]
+               [ui.wh.outcomes/webhook-dispatches-card {:items (:webhook_delivery_outcomes detail) :title "Webhook dispatches" :fill? true}])]]])]])))

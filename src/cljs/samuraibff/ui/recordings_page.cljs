@@ -9,14 +9,15 @@
   "Load sessions for local page/filter state and return data plus UI callbacks.
 
   Takes no arguments. Returns :items, :total, :drafts-count, :page-info,
-  :show-drafts?, :loading?, :error and callbacks :refresh!, :set-page!,
-  :set-page-size!, :set-show-drafts!. Filter/size changes reset to page one.
+  :show-drafts?, :scope, :loading?, :error and callbacks :refresh!, :set-page!,
+  :set-page-size!, :set-show-drafts!, :set-scope!. :scope is \"all\" (default),
+  \"mine\" or \"shared\". Filter/size/scope changes reset to page one.
   Ignores responses after cleanup and reloads the last valid page after deletion.
   Request failures become a visible error; callers can retry with :refresh!."
   []
-  (let [[query set-query!] (react/useState {:page 0 :page-size 20 :show-drafts? false :revision 0})
+  (let [[query set-query!] (react/useState {:page 0 :page-size 20 :show-drafts? false :scope "all" :revision 0})
         [result set-result!] (react/useState nil)
-        {:keys [page page-size show-drafts? revision]} query
+        {:keys [page page-size show-drafts? scope revision]} query
         {:keys [data error]} result
         total (or (:total data) 0)
         loading? (or (:loading? result) (not= query (:query result)))
@@ -26,7 +27,7 @@
        (let [active? (atom true)]
          (set-result! #(assoc % :loading? true :error nil))
          (-> (api/list-recordings! {:limit page-size :offset (* page page-size)
-                                    :show-drafts? show-drafts?})
+                                    :show-drafts? show-drafts? :scope scope})
              (.then (fn [response]
                       (when @active?
                         (let [last-valid-page (:page (pagination/page-info (:total response) page page-size))]
@@ -38,15 +39,17 @@
                          (set-result! {:query query :data data :loading? false
                                        :error "Could not load sessions. Use Refresh to try again."})))))
          (fn [] (reset! active? false))))
-     #js [page page-size show-drafts? revision])
+     #js [page page-size show-drafts? scope revision])
     {:items (if (or loading? error) [] (:items data))
      :total total
      :drafts-count (or (:drafts_count data) 0)
      :page-info (pagination/page-info total page page-size)
      :show-drafts? show-drafts?
+     :scope scope
      :loading? loading?
      :error (when-not loading? error)
      :refresh! refresh!
      :set-page! (fn [value] (set-query! #(assoc % :page value)))
      :set-page-size! (fn [value] (set-query! #(assoc % :page 0 :page-size value)))
-     :set-show-drafts! (fn [value] (set-query! #(assoc % :page 0 :show-drafts? value)))}))
+     :set-show-drafts! (fn [value] (set-query! #(assoc % :page 0 :show-drafts? value)))
+     :set-scope! (fn [value] (set-query! #(assoc % :page 0 :scope value)))}))

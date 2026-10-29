@@ -155,3 +155,51 @@
                   (when-not (.getKeyByKeyId ^JWKSet keys kid)
                     (throw (ex-info "Unknown OIDC signing key" {})))
                   keys))))))))
+
+(defonce ^:private endpoints-cache* (atom nil))
+
+(defn- endpoint-string
+  "Return a validated endpoint URL from discovery, or nil when absent.
+
+  An https issuer never accepts an http endpoint."
+  [issuer url]
+  (when (and (string? url) (not (str/blank? url)))
+    (let [uri (endpoint-uri url)]
+      (when (and (= "https" (.getScheme (endpoint-uri issuer)))
+                 (not= "https" (.getScheme uri)))
+        (throw (ex-info "Invalid OIDC endpoint downgrade" {})))
+      (str uri))))
+
+(defn- fetch-provider-endpoints!
+  [issuer fetch-json]
+  (let [discovery (fetch-json (str (str/replace issuer #"/+$" "")
+                                   "/.well-known/openid-configuration"))
+        endpoints {:authorization-endpoint (endpoint-string issuer (:authorization_endpoint discovery))
+                   :token-endpoint (endpoint-string issuer (:token_endpoint discovery))
+                   :end-session-endpoint (endpoint-string issuer (:end_session_endpoint discovery))}]
+    (when-not (and (= issuer (:issuer discovery))
+                   (:authorization-endpoint endpoints)
+                   (:token-endpoint endpoints))
+      (throw (ex-info "Invalid OIDC discovery" {})))
+    endpoints))
+
+(defn provider-endpoints!
+  "Return the issuer's browser-login endpoints from OIDC discovery.
+
+  Returns {:authorization-endpoint string :token-endpoint string
+  :end-session-endpoint string?}. The discovery `issuer` must equal the
+  configured issuer, and both login endpoints must be present. The result is
+  cached for five minutes per issuer. Throws a constant error otherwise.
+  Options inject fetch-json, a cache atom and monotonic now-ms for tests."
+  [issuer {:keys [fetch-json cache now-ms]}]
+  (let [cache (or cache endpoints-cache*)
+        now-ms (or now-ms monotonic-ms)
+        fetch-json (or fetch-json fetch-json!)
+        cached @cache]
+    (if (and (= issuer (:issuer cached))
+             (< (- (now-ms) (:loaded-at-ms cached)) cache-ttl-ms))
+      (:endpoints cached)
+      (locking cache
+        (let [endpoints (fetch-provider-endpoints! issuer fetch-json)]
+          (reset! cache {:issuer issuer :loaded-at-ms (now-ms) :endpoints endpoints})
+          endpoints)))))

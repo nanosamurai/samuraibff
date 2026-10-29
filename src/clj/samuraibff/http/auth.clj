@@ -44,6 +44,8 @@
    [org.corfield.logging4j2 :as log]
    [ring.util.codec :as codec]
    [ring.util.response :as resp]
+   [samuraibff.access.policy :as policy]
+   [samuraibff.auth.jwks :as jwks]
    [samuraibff.auth.oidc :as oidc]
    [samuraibff.db.tenants :as db.tenants]
    [samuraibff.features :as features]
@@ -155,8 +157,8 @@
 
       :else nil)))
 
-(defn- request-origin
-  "Determine external origin for redirects.
+(defn request-origin
+  "Determine external origin for redirects and Origin validation.
 
   Precedence:
   1) config [:bff :public-origin-uri] (browser-facing; recommended behind a load balancer)
@@ -228,9 +230,15 @@
   (resp/set-cookie resp0 k v opts))
 
 (defn- clear-cookie
-  "Clear a cookie on a Ring response."
-  [resp0 k]
-  (resp/set-cookie resp0 k "" {:max-age 0 :path "/"}))
+  "Clear a cookie on a Ring response. path defaults to \"/\"."
+  ([resp0 k] (clear-cookie resp0 k "/"))
+  ([resp0 k path]
+   (resp/set-cookie resp0 k "" {:max-age 0 :path path})))
+
+(def ^:private id-token-cookie
+  "HttpOnly cookie that keeps the ID token as the logout hint. Sent only to
+  /auth/* so it never travels with API or asset requests."
+  {:name "id_token_hint" :path "/auth" :max-bytes 3500})
 
 (defn- api-path?
   "Return true if the request path is under /api.
@@ -312,10 +320,23 @@
         (handler req)
         (json-response 403 {:ok false :message "missing-token"})))))
 
+(defn- provider-endpoints
+  "Return the configured issuer's OIDC discovery endpoints, or nil.
+
+  Login, code exchange and logout use the endpoints the identity provider
+  advertises, so any standard OIDC provider works, not only Keycloak."
+  [config]
+  (try
+    (jwks/provider-endpoints! (get-in config [:auth :issuer]) {})
+    (catch Exception failure
+      (log/warn "OIDC discovery unavailable" (diagnostics/failure-details failure))
+      nil)))
+
 (defn login-handler
   "Handler for `GET /auth/login`.
 
-  Redirects to Keycloak authorization endpoint using PKCE.
+  Redirects to the identity provider's authorization endpoint (from OIDC
+  discovery) using PKCE. Returns 503 when discovery is unavailable.
 
   Cookies set:
   - pkce_verifier (HttpOnly)
@@ -327,8 +348,8 @@
   Returns: Ring redirect response."
   [config]
   (fn [{:keys [params] :as req}]
-    (let [issuer (or (get-in config [:auth :issuer])
-                     (throw (ex-info "Missing auth issuer" {:type ::missing-issuer})))
+    (let [_ (or (get-in config [:auth :issuer])
+                (throw (ex-info "Missing auth issuer" {:type ::missing-issuer})))
           client-id (or (get-in config [:auth :client-id])
                         (get-in config [:auth :audience])
                         (throw (ex-info "Missing auth client id" {:type ::missing-client-id})))
@@ -339,9 +360,12 @@
                      (throw (ex-info "Cannot determine request origin" {:type ::missing-origin})))
           redirect-uri (str origin "/auth/callback")
           next0 (or (get params :next) (get params "next") "/recordings")
-          auth-url (str (str/replace issuer #"/+$" "") "/protocol/openid-connect/auth")
-          url (str auth-url
-                   "?" (codec/form-encode
+          auth-url (:authorization-endpoint (provider-endpoints config))]
+      (if-not auth-url
+        (json-response 503 {:ok false :message "identity-provider-unavailable"})
+        (let [url (str auth-url
+                       (if (str/includes? auth-url "?") "&" "?")
+                       (codec/form-encode
                         {:client_id client-id
                          :response_type "code"
                          :scope "openid email profile"
@@ -349,21 +373,17 @@
                          :code_challenge_method "S256"
                          :code_challenge challenge
                          :state state}))
-          resp0 (resp/redirect url)
-          secure? (cookie-secure? req)
-          common {:http-only true
-                  :same-site :lax
-                  :secure secure?
-                  :path "/"
-                  :max-age 600}]
-      (-> resp0
-          (set-cookie "pkce_verifier" verifier common)
-          (set-cookie "pkce_state" state common)
-          (set-cookie "post_login_next" (str next0) (assoc common :http-only false))))))
-
-(defn- token-endpoint
-  [issuer]
-  (str (str/replace issuer #"/+$" "") "/protocol/openid-connect/token"))
+              resp0 (resp/redirect url)
+              secure? (cookie-secure? req)
+              common {:http-only true
+                      :same-site :lax
+                      :secure secure?
+                      :path "/"
+                      :max-age 600}]
+          (-> resp0
+              (set-cookie "pkce_verifier" verifier common)
+              (set-cookie "pkce_state" state common)
+              (set-cookie "post_login_next" (str next0) (assoc common :http-only false))))))))
 
 (defn- form-body
   "Encode map as x-www-form-urlencoded string."
@@ -386,7 +406,7 @@
 (defn- exchange-token!
   "Exchange a code without exposing upstream bodies or transport/parser errors.
 
-  Returns {:access-token string} on success, {:status int} on an HTTP rejection,
+  Returns {:access-token string :id-token string?} on success, {:status int} on an HTTP rejection,
   or {} when the transport or response is invalid. Logs only safe diagnostics."
   [url params]
   (try
@@ -394,10 +414,12 @@
           status (diagnostics/http-status status)]
       (if (and status (<= 200 status 299))
         (let [response (json/read-value body (json/object-mapper {:decode-key-fn keyword}))
-              token (:access_token response)]
+              token (:access_token response)
+              id-token (:id_token response)]
           (when-not (and (string? token) (not (str/blank? token)))
             (throw (ex-info "Invalid token response" {:type ::invalid-token-response})))
-          {:access-token token})
+          (cond-> {:access-token token}
+            (and (string? id-token) (not (str/blank? id-token))) (assoc :id-token id-token)))
         (do
           (log/warn "Token exchange rejected" {:status status})
           {:status status})))
@@ -416,6 +438,8 @@
 
   On success:
   - sets HttpOnly cookie with access token
+  - keeps the ID token in an HttpOnly cookie scoped to /auth, used only as
+    the `id_token_hint` for identity-provider logout
   - clears pkce cookies
   - redirects to remembered `post_login_next` cookie (or /recordings)
 
@@ -441,48 +465,87 @@
         (json-response 400 {:ok false :message "missing-pkce-verifier"})
 
         :else
-        (let [issuer (or (get-in config [:auth :issuer])
-                         (throw (ex-info "Missing auth issuer" {:type ::missing-issuer})))
-              client-id (or (get-in config [:auth :client-id])
+        (let [client-id (or (get-in config [:auth :client-id])
                             (get-in config [:auth :audience]))
               origin (or (request-origin config req)
                          (throw (ex-info "Cannot determine request origin" {:type ::missing-origin})))
               redirect-uri (str origin "/auth/callback")
-              token-url (token-endpoint issuer)
-              {:keys [status access-token]} (exchange-token!
-                                             token-url
-                                             {:grant_type "authorization_code"
-                                              :client_id client-id
-                                              :code code
-                                              :redirect_uri redirect-uri
-                                              :code_verifier verifier})]
+              token-url (:token-endpoint (provider-endpoints config))
+              {:keys [status access-token id-token]} (if token-url
+                                                       (exchange-token!
+                                                        token-url
+                                                        {:grant_type "authorization_code"
+                                                         :client_id client-id
+                                                         :code code
+                                                         :redirect_uri redirect-uri
+                                                         :code_verifier verifier})
+                                                       {})]
           (if-not access-token
             (json-response (if status 400 502)
                            (cond-> {:ok false :message "token-exchange-failed"}
                              status (assoc :status status)))
             (let [cookie-name (token-cookie-name config)
                   secure? (cookie-secure? req)
-                  resp0 (resp/redirect next0)]
+                  resp0 (resp/redirect next0)
+                  keep-id-token? (and id-token (<= (count id-token) (:max-bytes id-token-cookie)))]
               (-> resp0
                   (set-cookie cookie-name access-token {:http-only true
                                                         :same-site :lax
                                                         :secure secure?
                                                         :path "/"})
+                  (cond-> keep-id-token?
+                    (set-cookie (:name id-token-cookie) id-token {:http-only true
+                                                                  :same-site :lax
+                                                                  :secure secure?
+                                                                  :path (:path id-token-cookie)}))
                   (clear-cookie "pkce_verifier")
                   (clear-cookie "pkce_state")
                   (clear-cookie "post_login_next")))))))))
 
+(defn- end-session-url
+  "Return the identity provider's RP-initiated logout URL, or nil.
+
+  The endpoint is the `end_session_endpoint` from OIDC discovery; a provider
+  without one gets cookie-only logout. The query uses only configured values:
+  the browser client id and the BFF's own origin as `post_logout_redirect_uri`.
+  The identity provider additionally checks that redirect against the client's
+  registered post-logout redirect URIs. The ID token hint, when present, lets
+  it end the session without a confirmation prompt."
+  [config req id-token]
+  (let [client-id (or (get-in config [:auth :client-id])
+                      (get-in config [:auth :audience]))
+        origin (request-origin config req)
+        end-session (when (oidc/auth-required? config)
+                      (:end-session-endpoint (provider-endpoints config)))]
+    (when (and end-session
+               (not (str/blank? (str client-id)))
+               origin)
+      (str end-session
+           (if (str/includes? end-session "?") "&" "?")
+           (codec/form-encode
+            (cond-> {:client_id client-id
+                     :post_logout_redirect_uri (str origin "/")}
+              id-token (assoc :id_token_hint id-token)))))))
+
 (defn logout-handler
   "Handler for `POST /auth/logout`.
 
-  Clears access token cookie.
+  Clears the access token and ID token cookies. When authentication is
+  required and the identity provider advertises an `end_session_endpoint`,
+  also returns `logout_url`: the browser must open it to end the
+  identity-provider session. Without that step the provider's single sign-on
+  session would silently log the same person in again.
 
-  Returns: 204 response."
+  Returns: 200 {:ok true :logout_url string?}."
   [config]
-  (fn [_req]
-    (let [cookie-name (token-cookie-name config)]
-      (-> {:status 204 :headers {} :body ""}
-          (clear-cookie cookie-name)))))
+  (fn [req]
+    (let [cookie-name (token-cookie-name config)
+          id-token (some-> (get-in req [:cookies (:name id-token-cookie) :value]) str not-empty)
+          logout-url (end-session-url config req id-token)]
+      (-> (json-response 200 (cond-> {:ok true}
+                               logout-url (assoc :logout_url logout-url)))
+          (clear-cookie cookie-name)
+          (clear-cookie (:name id-token-cookie) (:path id-token-cookie))))))
 
 (defn- realtime-track-ids
   "Return the ordered operator-configured realtime track IDs safe for UI use.
@@ -532,15 +595,47 @@
            {:id id :available false})))
      tracks)))
 
+(defn- access-state
+  "Return the /api/me access block for the request principal.
+
+  Inactive states carry no principal, tenant or capability data. A request
+  made with an API key also describes that key (`api_key`)."
+  [req]
+  (let [principal (:auth/principal req)
+        state (or (:auth/access-state req) :unavailable)
+        credential (:credential principal)]
+    (if (policy/active? principal)
+      {:state "active"
+       :principal (cond-> {:id (str (:id principal))
+                           :type (name (:type principal))
+                           :role (some-> (:role principal) name)
+                           :display_name (or (:name principal) (:email principal))
+                           :guest (boolean (:guest? principal))}
+                    credential (assoc :api_key (cond-> {:id (str (:id credential))
+                                                        :name (:name credential)
+                                                        :kind (name (:kind credential))}
+                                                 (= :personal (:kind credential))
+                                                 (assoc :read_scope (name (:read-scope credential))))))
+       :capabilities (policy/capabilities principal)}
+      {:state (case state
+                :not-provisioned "not_provisioned"
+                :pending "pending"
+                :suspended "suspended"
+                "unavailable")})))
+
 (defn me-handler
   "Handler for `GET /api/me`.
 
-  Requires `wrap-authenticate` middleware to be installed.
+  Requires `wrap-authenticate` and `samuraibff.access.principal/wrap-principal`
+  (with inactive states allowed) to be installed.
 
   Behavior:
-  - if authenticated: returns {ok true, authenticated true, user {...}, tenant_id ...}
+  - if authenticated: returns {ok true, authenticated true, user {...},
+    access {...}}; tenant_id/tenant_name only for an active principal
   - if not authenticated and auth required: 401
-  - if not authenticated and auth not required: {ok true, authenticated false}
+  - if not authenticated and auth not required: the guest principal's access
+
+  `access.capabilities` are presentation hints; every route authorizes again.
 
   Returns: JSON response."
   [config grpc]
@@ -561,8 +656,10 @@
                                     :async_tracks (stream-controls/configured-async-tracks config)
                                     :realtime_track_capabilities (realtime-track-capabilities config grpc)
                                     :features (features/feature-state config)
+                                    :access (access-state req)
                                     :user (into {} (remove (comp nil? val))
                                                 (select-keys user [:sub :preferred_username :email]))}
+                             (nil? tenant-id-str) (dissoc :tenant_id)
                              (some? tenant-name) (assoc :tenant_name tenant-name))))
       (if (oidc/auth-required? config)
         (json-response 401 {:ok false :authenticated false :message "not-authenticated"})
@@ -572,4 +669,5 @@
                             :default_tracks (or (:default-tracks config) {})
                             :async_tracks (stream-controls/configured-async-tracks config)
                             :realtime_track_capabilities (realtime-track-capabilities config grpc)
-                            :features (features/feature-state config)})))))
+                            :features (features/feature-state config)
+                            :access (access-state req)})))))

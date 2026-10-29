@@ -16,6 +16,8 @@
   - list-subscriptions
   - get-defaults
   - set-defaults!
+  - lock-webhook
+  - remove-default!
 
   All functions are tenant-scoped: tenant-id must always be provided.
   "
@@ -121,7 +123,7 @@
                  hmac_secret_ref, oauth_client_secret_ref, api_key_ref,
                  oauth_token_url, oauth_client_id, oauth_scopes,
                  api_key_header_name, api_key_prefix,
-                 static_headers, created_at
+                 static_headers, owner_user_id, availability, created_at
             FROM webhooks
            WHERE tenant_id = ?
            ORDER BY created_at DESC"
@@ -144,7 +146,7 @@
                     hmac_secret_ref, oauth_client_secret_ref, api_key_ref,
                     oauth_token_url, oauth_client_id, oauth_scopes,
                     api_key_header_name, api_key_prefix,
-                    static_headers, created_at
+                    static_headers, owner_user_id, availability, created_at
                FROM webhooks
               WHERE tenant_id = ? AND id = ?"
             tenant-id webhook-id]
@@ -158,7 +160,8 @@
   - ds: DataSource
   - webhook map with keys:
       :id :tenant-id :name :url :enabled :auth-type
-      and optional columns.
+      and optional columns, including :owner_user_id (UUID) and
+      :availability (\"personal\" | \"published\", default published).
 
   Returns:
   - {:id uuid}" 
@@ -181,7 +184,9 @@
                         :name (str name)
                         :url (str url)
                         :enabled (boolean enabled)
-                        :auth_type (str auth-type)}
+                        :auth_type (str auth-type)
+                        :availability (or (:availability webhook) "published")}
+                 (some? (:owner_user_id webhook)) (assoc :owner_user_id (:owner_user_id webhook))
                  (some? static-headers-pg) (assoc :static_headers static-headers-pg)
                  :always (merge (select-keys webhook
                                              [:hmac_secret_ref
@@ -205,7 +210,8 @@
   - ds: DataSource
   - tenant-id UUID
   - webhook-id UUID
-  - patch map with allowed keys
+  - patch map with allowed keys (snake_case DB keys), including
+    :availability and :owner_user_id
 
   Returns:
   - {:updated? boolean}" 
@@ -217,7 +223,7 @@
                               :hmac_secret_ref :oauth_client_secret_ref :api_key_ref
                               :oauth_token_url :oauth_client_id :oauth_scopes
                               :api_key_header_name :api_key_prefix
-                              :static_headers])
+                              :static_headers :availability :owner_user_id])
         allowed (cond-> allowed0
                   (contains? allowed0 :static_headers)
                   (assoc :static_headers (->jsonb-pgobject (or (:static_headers allowed0) {}))))
@@ -331,3 +337,41 @@
         DO UPDATE SET webhook_ids=EXCLUDED.webhook_ids, updated_at=now()"
        tenant-id (into-array UUID ids)])
     {:ok true}))
+
+(def ^:private webhook-columns
+  [:id :tenant_id :name :url :enabled :auth_type
+   :hmac_secret_ref :oauth_client_secret_ref :api_key_ref
+   :oauth_token_url :oauth_client_id :oauth_scopes
+   :api_key_header_name :api_key_prefix
+   :static_headers :owner_user_id :availability :created_at])
+
+(defn lock-webhook
+  "Read one tenant webhook and lock its row until the transaction ends.
+
+  Use inside `next.jdbc/with-transaction` so that an authorization decision
+  and the following change see the same ownership and availability.
+
+  Inputs: transaction connectable, tenant UUID, webhook UUID.
+  Returns: webhook row map (same shape as `find-webhook`) or nil."
+  [tx ^UUID tenant-id ^UUID webhook-id]
+  (some-> (jdbc/execute-one! tx
+                             (sql/format {:select webhook-columns
+                                          :from [:webhooks]
+                                          :where [:and [:= :tenant_id tenant-id] [:= :id webhook-id]]
+                                          :for [:update]})
+                             {:builder-fn rs/as-unqualified-lower-maps})
+          normalize-webhook-row))
+
+(defn remove-default!
+  "Remove one webhook id from the tenant defaults.
+
+  Inputs: connectable, tenant UUID, webhook UUID.
+  Returns: {:removed? boolean} (true when the defaults row changed)."
+  [connectable ^UUID tenant-id ^UUID webhook-id]
+  (let [res (jdbc/execute-one! connectable
+                               (sql/format {:update :tenant_webhook_defaults
+                                            :set {:webhook_ids [:array_remove :webhook_ids webhook-id]
+                                                  :updated_at [:now]}
+                                            :where [:and [:= :tenant_id tenant-id]
+                                                    [:= webhook-id [:any :webhook_ids]]]}))]
+    {:removed? (pos? (long (or (:next.jdbc/update-count res) 0)))}))

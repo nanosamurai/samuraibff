@@ -13,6 +13,7 @@
   - /webhooks-defaults
   - /workflows
   - /workflows-defaults
+  - /people (shown to Admins)
 
   The router stores the current route in `samuraibff.ui.store/route*`.
 
@@ -30,7 +31,8 @@
 (def ^:private known-pages
   #{:recordings :recording :live :speakers :api-credentials
     :webhooks
-    :workflows})
+    :workflows
+    :people})
 
 (defn href->route
   "Parse a URL path into a route map.
@@ -40,7 +42,8 @@
 
   Returns:
   - {:page <keyword> :params <map>} where :page is one of:
-    :recordings | :recording | :live | :speakers | :api-credentials
+    :recordings | :recording | :live | :speakers | :api-credentials |
+    :webhooks | :workflows | :people
 
   Notes:
   - Unknown paths fall back to {:page :recordings}."
@@ -75,6 +78,9 @@
       (= ["workflows"] segs)
       {:page :workflows :params {}}
 
+      (= ["people"] segs)
+      {:page :people :params {}}
+
       ;; legacy route (page removed): redirect to /workflows
       (= ["workflows-defaults"] segs)
       {:page :workflows :params {}}
@@ -102,6 +108,7 @@
     :api-credentials "/api-credentials"
     :webhooks "/webhooks"
     :workflows "/workflows"
+    :people "/people"
     "/recordings"))
 
 (defn- current-path
