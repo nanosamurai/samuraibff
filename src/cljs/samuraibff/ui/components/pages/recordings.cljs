@@ -155,7 +155,7 @@
                                         ""))
                                    (store/set-session-status! (:status rec)))}
           (shared/icon "●" {:title "Record"})]
-         [:span {:class "btn ghost disabled"
+         [:span {:class "btn ghost disabled" :aria-disabled "true"
                  :title (if can-manage?
                           "Start a new session to make another recording"
                           "Only the owner can record into this session")}
@@ -163,12 +163,12 @@
 
        (cond
          (not can-manage?)
-         [:span {:class "btn ghost disabled"
+         [:span {:class "btn ghost disabled" :aria-disabled "true"
                  :title "Only the owner can delete this session"}
           (shared/icon "×" {:title "Delete"})]
 
          active?
-         [:span {:class "btn ghost disabled"
+         [:span {:class "btn ghost disabled" :aria-disabled "true"
                  :title "Stop recording before deleting this session"}
           (shared/icon "×" {:title "Delete"})]
 
@@ -248,7 +248,7 @@
                                        ""))
                                   (store/set-session-status! (:status rec)))}
          (shared/icon "●" {:title "Record"})]
-        [:span {:class "btn ghost icon disabled"
+        [:span {:class "btn ghost icon disabled" :aria-disabled "true"
                 :title (if can-manage?
                          "Start a new session to make another recording"
                          "Only the owner can record into this session")}
@@ -256,12 +256,12 @@
 
       (cond
         (not can-manage?)
-        [:span {:class "btn ghost icon disabled"
+        [:span {:class "btn ghost icon disabled" :aria-disabled "true"
                 :title "Only the owner can delete this session"}
          (shared/icon "×" {:title "Delete"})]
 
         active?
-        [:span {:class "btn ghost icon disabled"
+        [:span {:class "btn ghost icon disabled" :aria-disabled "true"
                 :title "Stop recording before deleting this session"}
          (shared/icon "×" {:title "Delete"})]
 
