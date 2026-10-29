@@ -11,6 +11,8 @@
   <title>nanosamur.ai</title>
   <style>
     :root {
+      /* Native parts (select lists, scrollbars, checkboxes, date pickers) follow the dark theme. */
+      color-scheme:dark;
       --bg:#0b0f14;
       --panel:#0f1620;
       --panel2:#0c121b;
@@ -27,7 +29,7 @@
 
     *{box-sizing:border-box}
     html, body {height:100%}
-    body{margin:0;background:var(--bg);color:var(--txt);font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif;}
+    body{margin:0;background:var(--bg);color:var(--txt);font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif;font-size:14px}
 
     a{color:inherit;text-decoration:none}
 
@@ -156,7 +158,8 @@
 
     .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 
-    input, button, select{
+    input, button, select, textarea{
+      font:inherit;
       border-radius:10px;
       border:1px solid rgba(34,48,70,.8);
       background:var(--panel2);
