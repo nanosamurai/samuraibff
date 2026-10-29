@@ -12,6 +12,13 @@
         (is (true? (:aria-hidden attrs)))
         (is (= "false" (:focusable attrs)))
         (is (seq children)))))
+  (testing "control icons render"
+    (doseq [icon-name [:arrow-up-right :chevron-down :chevron-left :chevron-right
+                       :chevrons-left :chevrons-right :circle-check :circle-dashed
+                       :circle-stop :circle-x :loader-circle :menu :panel-right-close
+                       :panel-right-open :plus :settings :square :trash :x]]
+      (is (contains? icons/names icon-name) (str icon-name))
+      (is (seq (drop 2 (icons/icon icon-name))) (str icon-name))))
   (testing "icons draw in the current text color"
     (doseq [icon-name icons/names]
       (let [[_ attrs] (icons/icon icon-name)]
