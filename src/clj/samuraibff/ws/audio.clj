@@ -13,8 +13,9 @@
   - When auth is required, the session must already exist (created via `POST /api/sessions`).
   - Only the active owner of the session may send audio; shared readers and
     other tenants are rejected **before WS upgrade** with a 403 response.
-  - Open sockets are re-authorized periodically and close when the owner is
-    suspended or loses access (see `samuraibff.ws.access`)."
+  - The access token is checked only before upgrade. Open sockets are
+    re-checked in the background and close when the owner is suspended or
+    loses access, or at the maximum duration (see `samuraibff.ws.access`)."
   (:require
    [clojure.string :as str]
    [org.corfield.logging4j2 :as log]
@@ -24,6 +25,7 @@
    [samuraibff.kafka.producer :as kafka.producer]
    [samuraibff.sessions.meta :as sessions.meta]
    [samuraibff.stream-controls :as stream-controls]
+   [samuraibff.access.watch :as watch]
    [samuraibff.ws.access :as ws.access]
    [samuraibff.ws.auth :as ws.auth]
    [samuraibff.ws.registry :as ws.registry]
@@ -86,7 +88,7 @@
   - `:config`      (required)
   - `:ws-registry` (required)
   - `:grpc`        (required) – passed through to start the gRPC stream"
-  [{:keys [config ws-registry grpc db]}]
+  [{:keys [config ws-registry grpc db] :as deps}]
   (fn [{:keys [params] :as request}]
     (let [session-id (let [val (or (get params :session_id) (get params "session_id"))]
                        (when (and val (not (str/blank? (str val)))) (str val)))
@@ -110,7 +112,8 @@
 
             :else
             (try
-              (let [still-allowed? (ws.access/session-check config (:ds db) user session-id :manage)
+              (let [socket-watch (ws.access/watch-socket (watch/for-deps deps) config
+                                                         (:principal authorization) session-id :manage)
                     _ (ws.tenant/assert-session-access! config ws-registry tenant-id session-id)
                     available-realtime-tracks (mapv :id (grpc.client/tracks grpc))
                     requested-controls (stream-controls/with-track-labels
@@ -149,11 +152,8 @@
 
                 (http/as-channel
                  request
-                 (ws.auth/expiry-callbacks
-                  config user
-                  (ws.access/revocation-callbacks
-                   still-allowed?
-                   {:on-open (fn [_ch]
+                 ((:wrap socket-watch)
+                  {:on-open (fn [_ch]
                                (ws.registry/mark-audio-connected! ws-registry session)
                                (log/info "WS /ws/audio connected" {:session-id session-id
                                                                    :tenant-id (:tenant-id session)}))
@@ -177,7 +177,7 @@
                                 (log/info "WS /ws/audio closed" {:session-id session-id
                                                                  :tenant-id (:tenant-id session)
                                                                  :status status})
-                                (ws.registry/mark-audio-disconnected! ws-registry session (= :normal status)))}))))
+                                (ws.registry/mark-audio-disconnected! ws-registry session (= :normal status)))})))
               (catch clojure.lang.ExceptionInfo e
                 (let [{:keys [type]} (ex-data e)]
                   (case type

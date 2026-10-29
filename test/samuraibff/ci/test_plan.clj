@@ -22,7 +22,9 @@
   Some namespaces are named *integration-test* but are still lightweight
   (bind local ephemeral ports, use mocks, and skip when dependencies are not
   reachable). Those are acceptable here as long as they are Docker-free."
-  '[samuraibff.auth.oidc-audience-test
+  '[samuraibff.access.last-seen-test
+    samuraibff.access.watch-test
+    samuraibff.auth.oidc-audience-test
     samuraibff.auth.oidc-jwks-fetch-test
     samuraibff.auth.oidc-test
     samuraibff.auth.oidc-security-test
@@ -30,6 +32,7 @@
     samuraibff.grpc.transport-test
     samuraibff.http.auth-test
     samuraibff.http.auth-privacy-test
+    samuraibff.http.auth-refresh-test
     samuraibff.http.error-security-test
     samuraibff.http.readiness-integration-test
     samuraibff.http.server-integration-test

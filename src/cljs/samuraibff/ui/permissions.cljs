@@ -8,13 +8,14 @@
   Public API:
   - `current-access`, `capability?`, `tenant-name`
   - `use-access`, `use-capability?`, `use-guest?` (React hooks)
-  - `note-access-error!`, `note-access-revoked!`, `use-revoked-session-id`"
+  - `note-access-error!`, `note-socket-stop!`, `use-socket-stop`,
+    `clear-socket-stop!`"
   (:require
    [samuraibff.ui.access :as access]
    [samuraibff.ui.hooks :as hooks]
    [samuraibff.ui.store :as store]))
 
-(defonce ^:private revoked-session-id*
+(defonce ^:private socket-stop*
   (atom nil))
 
 (defn current-access
@@ -66,21 +67,23 @@
     (swap! store/auth* assoc-in [:detail :access] {:state (state->wire state)}))
   nil)
 
-(defn note-access-revoked!
-  "Record that the server closed a session WebSocket because access ended.
+(defn note-socket-stop!
+  "Record why the server closed a session WebSocket, when it did so on purpose.
 
-  Inputs: session id string. Returns: nil."
-  [session-id]
-  (reset! revoked-session-id* (str (or session-id "")))
-  nil)
+  Inputs: session id string, WebSocket close code.
+  Returns: the stop reason keyword, or nil for an ordinary close."
+  [session-id code]
+  (when-let [reason (access/socket-stop-reason code)]
+    (reset! socket-stop* {:session-id (str (or session-id "")) :reason reason})
+    reason))
 
-(defn use-revoked-session-id
-  "React hook: return the session id whose live access was revoked, or nil."
+(defn use-socket-stop
+  "React hook: return {:session-id :reason} of the last server stop, or nil."
   []
-  (not-empty (hooks/use-atom revoked-session-id*)))
+  (hooks/use-atom socket-stop*))
 
-(defn clear-access-revoked!
-  "Forget a previous access-revoked notice. Returns: nil."
+(defn clear-socket-stop!
+  "Forget a previous server stop notice. Returns: nil."
   []
-  (reset! revoked-session-id* nil)
+  (reset! socket-stop* nil)
   nil)

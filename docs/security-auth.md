@@ -85,7 +85,38 @@ Endpoints:
 
 * `GET /auth/login?next=/live`
 * `GET /auth/callback?code=...&state=...`
+* `POST /auth/refresh`
 * `POST /auth/logout`
+
+### Session refresh
+
+When the provider issues a refresh token, the callback keeps it in an
+HttpOnly, SameSite=Strict cookie scoped to `/auth/refresh` (`refresh_token`,
+at most 3500 bytes). Only `POST /auth/refresh` receives it; JavaScript never
+sees it. `GET /api/me` returns `access_expires_at` (epoch ms), and the UI calls
+`POST /auth/refresh` one minute before that time and once after any API call
+returns 401, then retries the call.
+
+`POST /auth/refresh` requires an allowed `Origin` header. It sends a standard
+`refresh_token` grant with the browser client id to the discovered
+`token_endpoint`, verifies the new access token like any request token, and
+replaces the access, ID token and (when rotated) refresh token cookies. The
+response is `{"ok": true, "access_expires_at": <ms>}`; tokens never appear in
+it.
+
+| Response | When | UI behavior |
+| --- | --- | --- |
+| 200 | Refreshed | Schedules the next refresh |
+| 401 `refresh-unavailable` | No refresh cookie (the provider issued none, or it was too large) | Signs in again when no recording runs |
+| 401 `refresh-failed` | The provider rejected it (expired sign-in session, revoked, rotated by another tab); the refresh cookie is cleared | Same |
+| 403 `forbidden` | Missing or foreign `Origin` | Same |
+| 502 / 503 | Token endpoint or discovery unavailable; cookies unchanged | Same |
+
+During a recording the UI does not navigate to sign in, because that would
+stop the recording; open WebSockets do not need the token (see below).
+Logout clears the refresh cookie. The refresh token lives as long as the
+provider's sign-in session (in Keycloak: SSO Session Idle and Max), so the
+provider still decides how long a person stays signed in.
 
 Logout clears the BFF cookies and, when authentication is required and the
 provider advertises `end_session_endpoint`, returns `logout_url`: that
@@ -220,26 +251,65 @@ networks; use HTTPS for shared deployments. Tokens are limited to 16 KiB and
 must contain a non-empty signing key ID of at most 256 characters. These limits
 are fixed; no new environment variables are required.
 
-Authenticated WebSockets require a token whose `exp` is still in the future.
-Both endpoints close at that expiry, including idle connections, with code
-`1008`. The current HTTP server does not transmit a close reason. They do not
-receive the REST clock-skew extension. Audio intake and event sends also check the deadline.
-Each connection uses the token supplied at its own handshake.
+### Open WebSockets and playback
 
-Browser and Electron login currently have no silent token refresh. Expiry
-stops microphone capture and marks the sockets disconnected; the close code
-appears in the diagnostic log. There is no dedicated re-login prompt. A long
-recording can therefore stop at token expiry. Sign in again and start a new
-recording. SDK clients must obtain a fresh token before opening a new session.
+A WebSocket upgrade requires a token whose `exp` is still in the future, with
+no REST clock-skew extension. The token is checked **only at the upgrade**.
+After that the socket does not depend on the token, so a long recording keeps
+running when the token expires.
+
+Instead, one watcher per BFF process (`samuraibff.access.watch`) re-checks all
+open WebSockets and long playback streams against the database:
+
+* Every interval (30 s, with 10 % jitter) it runs **one batched check** for all
+  open deliveries: one query for their principals, one for their API keys,
+  and one `UNION ALL` query for session access (per 200 principals). The cost
+  grows with the number of BFF replicas, not with the number of sockets.
+* Each query has a statement timeout (5 s). While a check still runs, the next
+  cycle is skipped, not queued. Checks never run on the audio, event or
+  playback paths; those read cached state only, so a slow database cannot
+  stall a recording.
+* A check that fails or times out changes nothing; the next cycle retries.
+  Deliveries close only when no check has succeeded for the grace period
+  (120 s; never less than two intervals).
+* A definite denial closes the delivery at once: suspension, demotion below
+  what a personal key needs, key revocation, or removed sharing.
+* Authenticated WebSockets also close at a maximum duration (4 hours).
+  Playback streams have no maximum duration.
+
+The server closes WebSockets with these codes. http-kit does not send close
+reasons, so clients must match on the code:
+
+| Code | Reason | Meaning |
+| --- | --- | --- |
+| 4403 | `access-revoked` | Access was revoked |
+| 4408 | `max-duration` | The maximum duration was reached |
+| 4503 | `access-unverified` | No check succeeded within the grace period |
+
+The UI stops the recording and explains the code. The Python SDK raises
+`SessionStoppedError`. Start a new recording to continue.
+
+| Setting | Env | Default |
+| --- | --- | --- |
+| Re-check interval | `SAMURAIBFF_ACCESS_RECHECK_INTERVAL_S` | `30` |
+| Grace period | `SAMURAIBFF_ACCESS_RECHECK_GRACE_S` | `120` (at least two intervals) |
+| Statement timeout | `SAMURAIBFF_ACCESS_RECHECK_TIMEOUT_S` | `5` |
+| Maximum WebSocket duration | `SAMURAIBFF_WS_MAX_DURATION_S` | `14400` (4 h) |
+
+Security trade-off: the database, not the token, keeps an open socket alive.
+Suspension in **People** closes a person's sockets within about one interval.
+A change made only at the identity provider (disabling a user, ending the
+sign-in session) does not close an open socket; it closes at the maximum
+duration. Offboard people through **People**. A stolen token can hold one
+socket open for at most the maximum duration, and never past a suspension.
 
 This is local JWT verification, not token introspection. Account disablement,
-logout, and individual token revocation are not checked on each request.
-Removing a signing key affects new authentication after the cached key set
-expires, but existing WebSockets retain their original token deadline. They
-do not re-check signing keys while open. Use short access-token lifetimes.
-For emergency signing-key revocation, remove the compromised key at the
-issuer and terminate existing BFF connections (for example, restart all BFF
-instances); do not rely on the five-minute cache TTL to close existing sockets.
+logout, and individual token revocation at the provider are not checked on
+each request. Removing a signing key affects new authentication after the
+cached key set expires; open sockets are not tied to signing keys. Use short
+access-token lifetimes; refresh keeps the browser signed in. For emergency
+signing-key revocation, remove the compromised key at the issuer and
+terminate existing BFF connections (for example, restart all BFF instances).
 
 When authentication is disabled, HTTP and WebSocket requests run as the guest
 principal (issuer `urn:nanosamurai:guest`) of the configured guest tenant

@@ -29,8 +29,8 @@
   - `:auth/tenant-id`    the principal's tenant id string (replaces the claim)
 
   Public API:
-  - `row->principal`, `resolve-principal`, `wrap-principal`,
-    `denied-response`, `principal-log-context`"
+  - `row->principal`, `resolve-principal`, `recheck-principal`,
+    `wrap-principal`, `denied-response`, `principal-log-context`"
   (:require
    [clojure.string :as str]
    [org.corfield.logging4j2 :as log]
@@ -106,6 +106,56 @@
       :else
       {:state :active :principal (assoc principal :credential (credential-map credential))})))
 
+(defn recheck-principal
+  "Rebuild the principal of an open delivery from freshly read rows, or nil.
+
+  Used by the background re-check of WebSockets and playback. The delivery was
+  authorized with `principal`; `row` is its current `app_users` row and
+  `credential` the current row of its API key (nil without a key). Applies the
+  same rules as `resolve-principal` without its side effects: the principal
+  must still be active in the same tenant, a revoked key loses access, and a
+  personal key's owner must still be allowed to use keys."
+  [principal row credential]
+  (let [current (row->principal row)
+        key-kind (get-in principal [:credential :kind])]
+    (cond
+      (not (policy/active? current)) nil
+      (not= (str (:tenant-id principal)) (str (:tenant-id current))) nil
+      (nil? key-kind) current
+      (or (nil? credential) (some? (:revoked_at credential))) nil
+      (= :personal key-kind)
+      (when (and (policy/human? current)
+                 (not (policy/guest? current))
+                 (policy/can-create-credential? current :personal))
+        (assoc current :credential (credential-map credential)))
+      :else (assoc current :credential (credential-map credential)))))
+
+(def ^:private last-seen-interval-ms
+  "Matches the five-minute write interval of `db.principals/touch-last-seen!`."
+  (* 5 60 1000))
+
+(defonce ^:private last-seen-touches*
+  (atom {}))
+
+(defn- touch-last-seen!
+  "Refresh last_seen_at without a database round trip on most requests.
+
+  Each process remembers when it last touched a principal and skips the
+  UPDATE inside the write interval. The SQL keeps its own interval guard, so
+  several replicas still write at most once per interval each."
+  [ds principal-id]
+  (let [now (System/currentTimeMillis)
+        k (str principal-id)
+        last-touch (get @last-seen-touches* k)]
+    (when-not (and last-touch (< (- now last-touch) last-seen-interval-ms))
+      (swap! last-seen-touches*
+             (fn [m]
+               (let [m (if (> (count m) 10000)
+                         (into {} (filter (fn [[_ t]] (< (- now t) last-seen-interval-ms))) m)
+                         m)]
+                 (assoc m k now))))
+      (db.principals/touch-last-seen! ds principal-id))))
+
 (defn- guest-tenant-uuid
   [config]
   (UUID/fromString (or (some-> (get-in config [:auth :guest-tenant-id]) str str/trim not-empty)
@@ -163,7 +213,7 @@
                   (or (db.principals/activate-pending! ds (:id row)) row)
                   row)]
         (case (:status row)
-          "active" (do (db.principals/touch-last-seen! ds (:id row))
+          "active" (do (touch-last-seen! ds (:id row))
                        (bind-credential ds (row->principal row)))
           "pending" {:state :pending}
           {:state :suspended})))))

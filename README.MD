@@ -109,9 +109,14 @@ API and WebSocket authentication use the Authorization bearer header or the
 HttpOnly login cookie. URL tokens are not accepted; programmatic clients must
 send the header. Browser and Electron clients continue using the cookie.
 
-Required-auth WebSockets close when their access token expires. A long
-recording can stop at that point; sign in again and start a new recording.
-See [token validation and lifetime](docs/security-auth.md#token-validation-and-lifetime)
+The browser session refreshes itself through an HttpOnly refresh cookie
+([session refresh](docs/security-auth.md#session-refresh)). WebSockets check the
+token only when they open; open sockets are re-checked against the database in
+one batched background cycle and close on revocation or after a maximum
+duration (4 hours by default). See
+[open WebSockets and playback](docs/security-auth.md#open-websockets-and-playback)
+for the close codes and settings, and
+[token validation and lifetime](docs/security-auth.md#token-validation-and-lifetime)
 for claim checks, signing-key refresh, and revocation limits.
 
 Rejected WebSocket handshakes return `Connection: close`. This prevents an HTTP

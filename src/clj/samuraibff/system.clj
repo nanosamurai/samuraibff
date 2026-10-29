@@ -165,7 +165,12 @@
              :port (i "SAMURAIBFF_HTTP_PORT")}
 
       :ws {:host (s "SAMURAIBFF_WS_HOST")
-           :port (i "SAMURAIBFF_WS_PORT")}
+           :port (i "SAMURAIBFF_WS_PORT")
+           :max-duration-s (i "SAMURAIBFF_WS_MAX_DURATION_S")}
+
+      :access {:recheck-interval-s (i "SAMURAIBFF_ACCESS_RECHECK_INTERVAL_S")
+               :recheck-grace-s (i "SAMURAIBFF_ACCESS_RECHECK_GRACE_S")
+               :recheck-timeout-s (i "SAMURAIBFF_ACCESS_RECHECK_TIMEOUT_S")}
 
       :auth {:required? (b "SAMURAIBFF_AUTH_REQUIRED")
              :guest-tenant-id (s "SAMURAIBFF_AUTH_GUEST_TENANT_ID")

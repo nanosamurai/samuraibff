@@ -15,7 +15,8 @@
   - `url-host`, `definition-badge`, `owner-name`
   - `credential-kind-label`, `credential-access-label` (API Credentials)
   - `role-descriptions`, `person-status-label`, `setup-label`,
-    `sync-pending-label` (People page)"
+    `sync-pending-label` (People page)
+  - `socket-stop-reason`, `socket-stop-message` (recording WebSockets)"
   (:require
    [clojure.string :as str]))
 
@@ -171,6 +172,32 @@
   Inputs: code string or nil; fallback string used for unknown codes."
   [code fallback]
   (get error-messages (some-> code str) fallback))
+
+(def ^:private close-code->reason
+  "Application close codes of `samuraibff.ws.access/close-codes`.
+
+  The server cannot send close reasons, so the UI matches on the code."
+  {4403 :revoked
+   4408 :max-duration
+   4503 :unverified})
+
+(defn socket-stop-reason
+  "Return why the server stopped a session WebSocket, or nil.
+
+  Inputs: WebSocket close code. Returns :revoked, :max-duration, :unverified
+  or nil for ordinary closes."
+  [code]
+  (get close-code->reason code))
+
+(def ^:private socket-stop-messages
+  {:revoked "Your access to this session was removed."
+   :max-duration "The recording reached its maximum length and stopped. Start a new recording to continue."
+   :unverified "The recording stopped because your access could not be checked. Start a new recording."})
+
+(defn socket-stop-message
+  "Return the user message for a socket stop reason, or nil."
+  [reason]
+  (get socket-stop-messages reason))
 
 (defn audience-label
   "Return the long audience label for a visibility string.

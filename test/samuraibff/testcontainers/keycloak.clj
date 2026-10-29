@@ -548,7 +548,7 @@
 (defn password-tokens!
   "Mint tokens using Direct Access Grants (password grant).
 
-  Returns {:access-token string :id-token string?}."
+  Returns {:access-token string :id-token string? :refresh-token string?}."
   [token-endpoint {:keys [client-id username password]}]
   (let [params {:grant_type "password"
                 :client_id (str client-id)
@@ -570,7 +570,7 @@
           tok (:access_token m)]
       (when (str/blank? (str tok))
         (throw (ex-info "Token response missing access_token" {:status status})))
-      {:access-token tok :id-token (:id_token m)})))
+      {:access-token tok :id-token (:id_token m) :refresh-token (:refresh_token m)})))
 
 (defn password-token!
   "Mint an access token using Direct Access Grants (password grant).

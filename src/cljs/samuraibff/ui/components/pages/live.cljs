@@ -2,6 +2,7 @@
   "Record page (live recording)."
   (:require
    [clojure.string :as str]
+   [samuraibff.ui.access :as access]
    [samuraibff.ui.components.stream-controls :as stream-controls]
    [samuraibff.ui.output-settings :as output-settings]
    [samuraibff.ui.api :as api]
@@ -73,7 +74,7 @@
         mic-device-id (str (or (:mic_device_id controls) ""))
 
         running? (hooks/use-atom store/running?*)
-        revoked-session-id (permissions/use-revoked-session-id)
+        socket-stop (permissions/use-socket-stop)
         starting?* (react/useState false)
         starting? (aget starting?* 0)
         set-starting! (aget starting?* 1)
@@ -206,12 +207,12 @@
                 (store/set-session-created-at-ms! nil)
                 (store/set-session-status! nil)
                 (share-dialog/reset-draft-audience!)
-                (permissions/clear-access-revoked!))]
+                (permissions/clear-socket-stop!))]
 
         [:div {:class "controls"}
          (when start-error [:p {:role "alert" :class "badge bad"} start-error])
-         (when (and revoked-session-id (= revoked-session-id (str id)))
-           [:p {:role "alert" :class "badge bad"} "Your access to this session was removed."])
+         (when (and socket-stop (= (:session-id socket-stop) (str id)))
+           [:p {:role "alert" :class "badge bad"} (access/socket-stop-message (:reason socket-stop))])
          (when (not-any? effective-controls [:realtime :refined :final])
            [:p {:role "status" :class "muted"} "Choose at least one transcript option in Session settings to start recording."])
          [:div {:class "controls-row"}

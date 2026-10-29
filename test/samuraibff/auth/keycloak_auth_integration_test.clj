@@ -133,7 +133,8 @@
               session-b (UUID/fromString "00000000-0000-0000-0000-000000000011")
 
               {alice-token :access-token
-               alice-id-token :id-token} (tc.kc/password-tokens!
+               alice-id-token :id-token
+               alice-refresh-token :refresh-token} (tc.kc/password-tokens!
                                           token-endpoint
                                           {:client-id (:web-client-id provision)
                                            :username (get-in provision [:users :alice :username])
@@ -183,6 +184,30 @@
                                   {:timeout 5000
                                    :headers (authz alice-id-token)})]
               (is (= 401 (:status resp))))
+
+            ;; --- Browser session refresh with a real Keycloak refresh token ---
+            (is (some? alice-refresh-token))
+            (let [resp @(http/post (str base-url "/auth/refresh")
+                                   {:timeout 10000
+                                    :headers {"Origin" base-url
+                                              "Cookie" (str "refresh_token=" alice-refresh-token)}})
+                  body (parse-json-body resp)
+                  set-cookie (str (get-in resp [:headers :set-cookie]))
+                  new-access (second (re-find #"access_token=([^;\s]+)" set-cookie))]
+              (is (= 200 (:status resp)))
+              (is (integer? (:access_expires_at body)))
+              (is (not (.contains (str (:body resp)) alice-refresh-token)) "no token in the body")
+              (is (some? new-access) "a new access cookie is set")
+              (is (re-find #"refresh_token=[^;]+;[^\n]*(?i)samesite=strict" set-cookie))
+              (testing "the refreshed access token authenticates"
+                (is (= 200 (:status @(http/get (str base-url "/api/recordings")
+                                               {:timeout 5000
+                                                :headers {"Cookie" (str "access_token=" new-access)}}))))))
+            (testing "refresh needs an allowed Origin"
+              (is (= 403 (:status @(http/post (str base-url "/auth/refresh")
+                                              {:timeout 5000
+                                               :headers {"Origin" "https://evil.example.test"
+                                                         "Cookie" (str "refresh_token=" alice-refresh-token)}})))))
 
             (let [resp-cross @(http/get (str base-url "/api/recordings/" session-a)
                                         {:timeout 5000

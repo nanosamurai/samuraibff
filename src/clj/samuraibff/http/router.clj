@@ -360,6 +360,18 @@
                                :responses {302 {:description "Redirect to the post-login URL"}
                                            400 {:body schemas/ApiErrorResponse}}
                                :handler (http.auth/callback-handler config)}}]
+           ["/refresh" {:post {:summary "Refresh session"
+                               :description (str "Exchanges the HttpOnly refresh token cookie at the identity provider "
+                                                 "and replaces the session cookies. Browser only; requires an allowed Origin. "
+                                                 "Tokens never appear in the response.")
+                               :responses {200 {:body [:map
+                                                       [:ok :boolean]
+                                                       [:access_expires_at :int]]}
+                                           401 {:body schemas/ApiErrorResponse}
+                                           403 {:body schemas/ApiErrorResponse}
+                                           502 {:body schemas/ApiErrorResponse}
+                                           503 {:body schemas/ApiErrorResponse}}
+                               :handler (http.auth/refresh-handler config)}}]
            ["/logout" {:post {:summary "Logout"
                               :description "Clears the session cookies. When authentication is required, `logout_url` is the identity-provider logout the browser must open to end single sign-on."
                               :responses {200 {:body [:map

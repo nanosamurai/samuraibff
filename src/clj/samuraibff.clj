@@ -14,6 +14,7 @@
   No public API is provided here; requiring the namespace is enough." 
   (:require
     ;; Integrant components
+    [samuraibff.access.watch]
     [samuraibff.config]
     [samuraibff.db.core]
     [samuraibff.grpc.client]

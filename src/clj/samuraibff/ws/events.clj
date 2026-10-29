@@ -9,16 +9,19 @@
   Query parameters:
   - session_id  (required) string
 
-  Required-auth sockets stop receiving events when their access token expires.
-  The caller must be able to read the session (owner, Everyone audience or a
-  read grant). Open sockets are re-authorized periodically and close with
-  1008 `access-revoked` when sharing is removed or the reader is suspended."
+  The access token is checked only before upgrade. The caller must be able to
+  read the session (owner, Everyone audience or a read grant). Open sockets
+  are re-checked in the background and close with an application close code
+  when sharing is removed, the reader is suspended, access cannot be verified
+  within the grace period, or the maximum duration is reached (see
+  `samuraibff.ws.access/close-codes`)."
   (:require
    [clojure.core.async :as async]
    [clojure.string :as str]
    [jsonista.core :as json]
    [org.corfield.logging4j2 :as log]
    [org.httpkit.server :as http]
+   [samuraibff.access.watch :as watch]
    [samuraibff.ws.access :as ws.access]
    [samuraibff.ws.auth :as ws.auth]
    [samuraibff.ws.registry :as ws.registry]
@@ -47,7 +50,7 @@
   Dependencies:
   - `:config`      (required)
   - `:ws-registry` (required)"
-  [{:keys [config ws-registry db]}]
+  [{:keys [config ws-registry db] :as deps}]
   (fn [{:keys [params] :as request}]
     (let [session-id (let [val (or (get params :session_id) (get params "session_id"))]
                        (when (and val (not (str/blank? (str val)))) (str val)))]
@@ -68,7 +71,9 @@
 
             :else
             (try
-              (let [still-allowed? (ws.access/session-check config (:ds db) user session-id :read)
+              (let [{:keys [allowed?] :as socket-watch}
+                    (ws.access/watch-socket (watch/for-deps deps) config
+                                            (:principal authorization) session-id :read)
                     session (ws.tenant/assert-session-access! config ws-registry tenant-id session-id)
                     out-ch (async/chan 64)
                     stop?* (atom false)]
@@ -78,11 +83,8 @@
               ;; connection immediately even though `as-channel` was called.
                 (http/as-channel
                  request
-                 (ws.auth/expiry-callbacks
-                  config user
-                  (ws.access/revocation-callbacks
-                   still-allowed?
-                   {:on-open (fn [ch]
+                 ((:wrap socket-watch)
+                  {:on-open (fn [ch]
                                (ws.registry/mark-events-connected! ws-registry session)
                                (log/info "WS /ws/events connected" {:session-id session-id})
 
@@ -93,8 +95,7 @@
                                    (if-let [event (async/<! out-ch)]
                                      (do
                                        (try
-                                         (when (and (ws.auth/authenticated-now? config user)
-                                                    (still-allowed?))
+                                         (when (allowed?)
                                            (http/send! ch (write-json event)))
                                          (catch Exception e
                                            (log/warn e "Failed sending ws event" {:session-id session-id
@@ -122,7 +123,7 @@
                                 (ws.registry/mark-events-disconnected! ws-registry session)
                                 (log/info "WS /ws/events closed" {:session-id session-id
                                                                   :tenant-id  (:tenant-id session)
-                                                                  :status     status}))}))))
+                                                                  :status     status}))})))
               (catch clojure.lang.ExceptionInfo e
                 (let [{:keys [type]} (ex-data e)]
                   (case type

@@ -1,8 +1,7 @@
 (ns samuraibff.access.policy-test
   (:require
    [clojure.test :refer [deftest is testing]]
-   [samuraibff.access.policy :as policy]
-   [samuraibff.access.revocation :as revocation]))
+   [samuraibff.access.policy :as policy]))
 
 (def tenant #uuid "11111111-1111-1111-1111-111111111111")
 (def other-tenant #uuid "22222222-2222-2222-2222-222222222222")
@@ -132,33 +131,6 @@
   (is (true? (:manage_people (policy/capabilities admin))))
   (is (false? (:manage_people (policy/capabilities bob))))
   (is (false? (:share_sessions (policy/capabilities service)))))
-
-(deftest bounded-checker-test
-  (let [now* (atom 0)
-        result* (atom true)
-        calls* (atom 0)
-        checker (revocation/bounded-checker (fn [] (swap! calls* inc)
-                                              (let [r @result*]
-                                                (if (instance? Exception r) (throw r) r)))
-                                            {:now #(deref now*)})]
-    (testing "no re-check inside the interval"
-      (is (checker))
-      (is (zero? @calls*)))
-    (testing "denial is final"
-      (reset! now* (inc revocation/check-interval-ms))
-      (is (checker))
-      (reset! result* false)
-      (reset! now* (* 2 (inc revocation/check-interval-ms)))
-      (is (false? (checker)))
-      (reset! result* true)
-      (is (false? (checker)))))
-  (testing "store outage fails closed after the bound"
-    (let [now* (atom 0)
-          checker (revocation/bounded-checker #(throw (ex-info "down" {})) {:now #(deref now*)})]
-      (reset! now* (inc revocation/check-interval-ms))
-      (is (checker) "within the bound")
-      (reset! now* (inc revocation/revocation-bound-ms))
-      (is (false? (checker)) "beyond the bound"))))
 
 (deftest guest-policy-test
   (let [guest (assoc (principal #uuid "00000000-0000-0000-0000-000000000001" :admin) :guest? true)
