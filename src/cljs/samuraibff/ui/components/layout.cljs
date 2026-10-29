@@ -7,6 +7,7 @@
    [samuraibff.ui.auth :as auth]
    [samuraibff.ui.access :as access]
    [samuraibff.ui.hooks :as hooks]
+   [samuraibff.ui.icons :as icons]
    [samuraibff.ui.permissions :as permissions]
    [samuraibff.ui.router :as router]
    [samuraibff.ui.store :as store]))
@@ -29,29 +30,35 @@
   - guest?: boolean; local mode hides API Credentials (no request needs a key)
 
   Returns:
-  - vector of item maps {:label string :route route-map :active? boolean}."
+  - vector of item maps {:label string :icon keyword :route route-map :active? boolean}."
   [active-page guest?]
   (cond-> [{:label "Sessions"
+            :icon :sessions
             :route {:page :recordings :params {}}
             :active? (= active-page :recordings)}
            {:label "Record"
+            :icon :record
             :route {:page :live :params {}}
             :active? (= active-page :live)}]
     (store/workflow-webhook-runtime-enabled?)
     (conj {:label "Webhooks"
+           :icon :webhooks
            :route {:page :webhooks :params {}}
            :active? (= active-page :webhooks)}
           {:label "Workflows"
+           :icon :workflows
            :route {:page :workflows :params {}}
            :active? (= active-page :workflows)})
 
     true
     (conj {:label "Speakers"
+           :icon :speakers
            :route {:page :speakers :params {}}
            :active? (= active-page :speakers)})
 
     (not guest?)
     (conj {:label "API Credentials"
+           :icon :api-credentials
            :route {:page :api-credentials :params {}}
            :active? (= active-page :api-credentials)})))
 
@@ -66,16 +73,22 @@
   [active-page manage-people?]
   (if manage-people?
     [{:label "People"
+      :icon :people
       :route {:page :people :params {}}
       :active? (= active-page :people)}]
     []))
 
 (defn- sidebar-item
-  [{:keys [active? label route on-click]}]
+  [{:keys [active? label icon route on-click]}]
   [router/link {:route route
                 :class (str "nav-item" (when active? " active"))
                 :on-click (when (fn? on-click) on-click)}
+   (icons/icon icon {:class "nav-icon"})
    [:span {:class "nav-label"} label]])
+
+(defn- brand-name
+  []
+  [:div {:class "brand-name"} "nanosamur" [:span {:class "brand-tld"} ".ai"]])
 
 (defn mobile-drawer
   "Off-canvas drawer navigation for small screens.
@@ -104,25 +117,27 @@
           [:div {:class "drawer-header"}
            [:div {:style {:display "flex" :gap "10px" :alignItems "center"}}
             [:img {:class "logo" :src logo-src :alt "nanosamur.ai"}]
-            [:div {:class "brand-name"} "nanosamur.ai"]]
+            [brand-name]]
            [:button {:class "btn ghost"
                      :title "Close"
                      :on-click (fn [_] (on-close))}
             "×"]]
           [:div {:class "sidebar-section"}
            [:div {:class "sidebar-title"} "Navigation"]
-           (for [{:keys [label route active?]} items]
+           (for [{:keys [label icon route active?]} items]
              ^{:key (str "drawer-item-" label)}
              [sidebar-item {:label label
+                            :icon icon
                             :route route
                             :active? active?
                             :on-click (fn [_] (on-close))}])]
           (when (seq admin-items)
             [:div {:class "sidebar-section" :style {:marginTop "18px"}}
              [:div {:class "sidebar-title"} "Administration"]
-             (for [{:keys [label route active?]} admin-items]
+             (for [{:keys [label icon route active?]} admin-items]
                ^{:key (str "drawer-admin-item-" label)}
                [sidebar-item {:label label
+                              :icon icon
                               :route route
                               :active? active?
                               :on-click (fn [_] (on-close))}])])]]))))
@@ -141,15 +156,15 @@
     [:aside {:class "sidebar"}
      [:div {:class "sidebar-section"}
       [:div {:class "sidebar-title"} "Navigation"]
-      (for [{:keys [label route active?]} items]
-        ^{:key (str "sidebar-item-" label)}
-        [sidebar-item {:label label :route route :active? active?}])]
+      (for [item items]
+        ^{:key (str "sidebar-item-" (:label item))}
+        [sidebar-item item])]
      (when (seq admin-items)
        [:div {:class "sidebar-section" :style {:marginTop "18px"}}
         [:div {:class "sidebar-title"} "Administration"]
-        (for [{:keys [label route active?]} admin-items]
-          ^{:key (str "sidebar-admin-item-" label)}
-          [sidebar-item {:label label :route route :active? active?}])])]))
+        (for [item admin-items]
+          ^{:key (str "sidebar-admin-item-" (:label item))}
+          [sidebar-item item])])]))
 
 (defn breadcrumbs
   "Breadcrumbs derived from current route.
@@ -202,7 +217,7 @@
         "☰"])
      [:div {:class "brand"}
       [:img {:class "logo" :src logo-src :alt "nanosamur.ai"}]
-      [:div {:class "brand-name"} "nanosamur.ai"]]
+      [brand-name]]
      [breadcrumbs route]
      [:div {:class "topbar-right"}
       (cond
