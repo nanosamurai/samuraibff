@@ -25,6 +25,9 @@
       --accent:#A88BFF;
       --selected:#241f3a;
       --shadow: rgba(0,0,0,.35);
+      /* Data URIs cannot use currentColor: the select chevron carries the --muted color. */
+      --chevron-down:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239fb2c9' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+      --chevron-right-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
     }
 
     *{box-sizing:border-box}
@@ -168,6 +171,22 @@
     }
 
     input{min-width:240px}
+
+    select{
+      appearance:none;
+      padding-right:32px;
+      background:var(--panel2) var(--chevron-down) no-repeat right 10px center / 16px;
+    }
+
+    summary{display:inline-flex;align-items:center;gap:6px;cursor:pointer;list-style:none}
+    summary::-webkit-details-marker{display:none}
+    summary::before{
+      content:"";width:14px;height:14px;flex-shrink:0;background:currentColor;
+      -webkit-mask:var(--chevron-right-mask) center / 14px no-repeat;
+      mask:var(--chevron-right-mask) center / 14px no-repeat;
+      transition:transform 120ms ease-out;
+    }
+    details[open]>summary::before{transform:rotate(90deg)}
 
     button{cursor:pointer}
     button:disabled{opacity:.55;cursor:not-allowed}
@@ -324,24 +343,6 @@
     .playback-header{justify-content:space-between;margin-bottom:10px}
     .playback-header .card-title{margin-bottom:0}
 
-    .track-picker{position:relative;width:min(100%,640px)}
-    .track-picker-summary{
-      display:flex;align-items:center;justify-content:space-between;gap:12px;
-      padding:9px 11px;border:1px solid rgba(34,48,70,.8);border-radius:10px;
-      background:var(--panel2);cursor:pointer;list-style:none
-    }
-    .track-picker-summary::-webkit-details-marker{display:none}
-    .track-picker-summary::after{content:"▾";color:var(--muted)}
-    .track-picker[open] .track-picker-summary::after{content:"▴"}
-    .track-picker.disabled .track-picker-summary{cursor:not-allowed;opacity:.55}
-    .track-picker-selected{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}
-    .track-picker-options{
-      position:absolute;z-index:30;top:calc(100% + 6px);left:0;right:0;
-      display:flex;flex-direction:column;gap:6px;padding:8px;
-      border:1px solid rgba(34,48,70,.9);border-radius:10px;
-      background:rgba(15,22,32,.99);box-shadow:0 14px 35px rgba(0,0,0,.45)
-    }
-
     /* --- Searchable dropdown (language select) --- */
 
     .dropdown{position:relative;min-width:240px}
@@ -388,7 +389,8 @@
       font-family:"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
     }
     .dropdown-label{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .dropdown-caret{opacity:.75;flex:0 0 auto}
+    .dropdown-caret{display:inline-flex;flex:0 0 auto;color:var(--muted);transition:transform 120ms ease-out}
+    .dropdown.open .dropdown-caret{transform:rotate(180deg)}
 
     .dropdown-menu{
       position:absolute;
@@ -654,9 +656,9 @@
     .sessions-pagination-controls{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px;margin-left:auto}
     .sessions-page-buttons{display:flex;gap:6px}
     .sessions-page-size{display:inline-flex;align-items:center;gap:6px;margin-right:8px}
-    .sessions-page-size select{padding:4px 6px;border-radius:7px;font-size:12px;min-height:30px}
+    .sessions-page-size select{padding:4px 26px 4px 8px;border-radius:7px;font-size:12px;min-height:30px;background-position:right 6px center;background-size:14px}
     .sessions-page-number{margin-right:4px;white-space:nowrap;font-variant-numeric:tabular-nums}
-    .sessions-pagination .btn{width:30px;height:30px;padding:0;border-radius:7px;font-size:18px}
+    .sessions-pagination .btn{width:30px;height:30px;padding:0;border-radius:7px}
     .sessions-range{font-variant-numeric:tabular-nums}
 
     .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}

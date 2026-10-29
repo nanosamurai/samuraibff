@@ -6,6 +6,7 @@
   (:require
    [clojure.string :as str]
    [io.factorhouse.hsx.core :as hsx]
+   [samuraibff.ui.icons :as icons]
    [samuraibff.ui.langs :as langs]
    ["react" :as react]))
 
@@ -193,11 +194,13 @@
           [:button {:type "button"
                     :disabled (boolean disabled)
                     :class "dropdown-trigger"
+                    :aria-haspopup "listbox"
+                    :aria-expanded (boolean (and open? (not disabled)))
                     :on-click (fn [_]
                                 (set-open! (not open?)))}
            [:span {:class "dropdown-flag"} (render-flag selected)]
            [:span {:class "dropdown-label"} (or (:label selected) placeholder)]
-           [:span {:class "dropdown-caret"} "v"]]
+           [:span {:class "dropdown-caret"} (icons/icon :chevron-down)]]
 
           menu
           (when (and open? (not disabled))

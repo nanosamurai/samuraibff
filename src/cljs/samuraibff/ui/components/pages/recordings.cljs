@@ -8,6 +8,7 @@
    [samuraibff.ui.api :as api]
    [samuraibff.ui.components.shared :as shared]
    [samuraibff.ui.hooks :as hooks]
+   [samuraibff.ui.icons :as icons]
    [samuraibff.ui.pagination :as pagination]
    [samuraibff.ui.permissions :as permissions]
    [samuraibff.ui.recordings-page :as recordings-page]
@@ -301,19 +302,19 @@
        [:button {:class "btn ghost" :aria-label "First page" :title "First page"
                  :disabled (or loading? (not previous?))
                  :on-click (fn [_] (set-page! 0))}
-        "«"]
+        (icons/icon :chevrons-left)]
        [:button {:class "btn ghost" :aria-label "Previous page" :title "Previous page"
                  :disabled (or loading? (not previous?))
                  :on-click (fn [_] (set-page! (dec page)))}
-        "‹"]
+        (icons/icon :chevron-left)]
        [:button {:class "btn ghost" :aria-label "Next page" :title "Next page"
                  :disabled (or loading? error (not next?))
                  :on-click (fn [_] (set-page! (inc page)))}
-        "›"]
+        (icons/icon :chevron-right)]
        [:button {:class "btn ghost" :aria-label "Last page" :title "Last page"
                  :disabled (or loading? error (not next?))
                  :on-click (fn [_] (set-page! (dec pages)))}
-        "»"]]]]))
+        (icons/icon :chevrons-right)]]]]))
 
 (defn recordings-table
   "Render a page of sessions as a table or mobile cards from pagination hook state."
