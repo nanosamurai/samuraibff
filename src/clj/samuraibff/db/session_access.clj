@@ -19,7 +19,7 @@
   - `readable-condition`, `scope-condition`, `key-manager-expr`,
     `legacy-manager-expr`
   - `find-accessible-session`, `list-recipients`
-  - `set-audience!`"
+  - `set-audience!`, `assign-owner!`"
   (:require
    [honey.sql :as sql]
    [honey.sql.helpers :as h]
@@ -276,3 +276,69 @@
              :revision new-revision
              :owner? (policy/owns-session? principal row)
              :recipients (list-recipients tx tenant-id session-id)}))))))
+
+(defn- valid-owner?
+  "True for an active human of the tenant other than the local guest."
+  [tx ^UUID tenant-id ^UUID owner-id]
+  (let [row (db.principals/find-by-id tx tenant-id owner-id)]
+    (and (= "human" (:principal_type row))
+         (= "active" (:status row))
+         (not= db.principals/guest-issuer (:issuer row)))))
+
+(defn assign-owner!
+  "Give an ownerless legacy session an owner.
+
+  Only an Admin who manages the session may assign, and only an active human
+  of the same tenant (not the guest) can become its owner. The audience stays;
+  a read grant of the new owner is dropped because owners need none. The
+  change applies only when `revision` equals the stored access revision and
+  bumps it, so it cannot race a Share save.
+
+  Inputs: DataSource, principal map, session UUID, {:owner-id uuid :revision long}.
+  Returns {:ok? true :revision long :visibility string :owner? boolean} or
+  {:ok? false :error kw :revision long?} with error one of :not-found
+  :forbidden :conflict :invalid-owner."
+  [ds principal ^UUID session-id {:keys [owner-id revision]}]
+  (jdbc/with-transaction [tx ds]
+    (let [row (lock-session! tx principal session-id)
+          tenant-id (:tenant-id principal)]
+      (cond
+        (nil? row)
+        {:ok? false :error :not-found}
+
+        (not (policy/can-assign-owner? principal row))
+        (if (policy/session-visible-to? principal row
+                                        (granted? tx tenant-id session-id (:id principal)))
+          {:ok? false :error :forbidden}
+          {:ok? false :error :not-found})
+
+        (not= (long (or revision -1)) (long (:access_revision row)))
+        {:ok? false :error :conflict :revision (:access_revision row)}
+
+        (not (and owner-id (valid-owner? tx tenant-id owner-id)))
+        {:ok? false :error :invalid-owner}
+
+        :else
+        (let [new-revision (inc (long (:access_revision row)))]
+          (jdbc/execute-one! tx (sql/format (-> (h/update :sessions)
+                                                (h/set {:user_id owner-id
+                                                        :access_revision new-revision})
+                                                (h/where [:= :id session-id]
+                                                         [:= :tenant_id tenant-id]
+                                                         [:= :user_id nil]))))
+          (jdbc/execute-one! tx (sql/format (-> (h/delete-from :session_access_grants)
+                                                (h/where [:= :tenant_id tenant-id]
+                                                         [:= :session_id session-id]
+                                                         [:= :user_id owner-id]))))
+          (db.audit/record! tx {:tenant-id tenant-id
+                                :actor-id (:id principal)
+                                :actor-kind "user"
+                                :action "session.owner.assigned"
+                                :target-type "session"
+                                :target-id session-id
+                                :outcome "succeeded"
+                                :details {:owner_id (str owner-id)}})
+          {:ok? true
+           :revision new-revision
+           :visibility (:visibility row)
+           :owner? (= owner-id (:id principal))})))))

@@ -9,6 +9,7 @@
    [next.jdbc.result-set]
    [samuraibff.access.membership :as membership]
    [samuraibff.access.principal :as access.principal]
+   [samuraibff.db.access-recheck :as db.recheck]
    [samuraibff.db.principals :as db.principals]
    [samuraibff.db.session-access :as session-access]
    [samuraibff.http.recordings :as http.recordings]
@@ -138,6 +139,126 @@
           (is (= 1 (count (get-in owner-view [:body :recipients]))))
           (is (nil? (get-in reader-view [:body :recipients])))
           (is (false? (get-in reader-view [:body :can_manage]))))))))
+
+(defn- insert-legacy-session!
+  "Insert a session as recorded before access control: no owner."
+  [ds visibility]
+  (let [id (UUID/randomUUID)]
+    (jdbc/execute! ds ["INSERT INTO sessions (id, tenant_id, user_id, session_key, status, visibility) VALUES (?, ?, NULL, ?, 'finished', ?)"
+                       id tenant (str id) visibility])
+    id))
+
+(defn- revision-of
+  [ds session-id]
+  (:access_revision (jdbc/execute-one! ds ["SELECT access_revision FROM sessions WHERE id=?" session-id]
+                                       {:builder-fn next.jdbc.result-set/as-unqualified-lower-maps})))
+
+(defn- count-of
+  [ds sql & params]
+  (:count (jdbc/execute-one! ds (into [sql] params)
+                             {:builder-fn next.jdbc.result-set/as-unqualified-lower-maps})))
+
+(deftest legacy-session-flow-test
+  (tc.pg/with-postgres [pg]
+    (let [ds (tc.pg/datasource (tc.pg/jdbc-url pg) "drsynth" "drsynth")
+          _ (tc.pg/apply-schema! ds)
+          {:keys [alice bob admin foreign service]} (setup! ds)
+          guest (tp/insert-guest! ds {:tenant-id tenant})
+          deps {:db {:ds ds} :config {:env :test}}
+          shared-id (insert-legacy-session! ds "tenant")
+          hidden-id (insert-legacy-session! ds "private")
+          doomed-id (insert-legacy-session! ds "tenant")]
+
+      (testing "everyone in the tenant still reads what they read before the upgrade"
+        (doseq [p [alice bob admin]]
+          (is (contains? (:ids (list-ids deps p :all)) (str shared-id)))
+          (is (= 200 (detail-status deps p shared-id))))
+        (is (contains? (:ids (list-ids deps alice :shared)) (str shared-id)))
+        (is (not (contains? (:ids (list-ids deps admin :mine)) (str shared-id))) "nobody owns it")
+        (doseq [p [service foreign]]
+          (is (not (contains? (:ids (list-ids deps p :all)) (str shared-id))))
+          (is (= 404 (detail-status deps p shared-id)))))
+
+      (testing "a private legacy session is readable only by Admins"
+        (is (= 200 (detail-status deps admin hidden-id)))
+        (is (= 404 (detail-status deps alice hidden-id)))
+        (is (= 404 (detail-status deps foreign hidden-id))))
+
+      (testing "the access summary says the owner is unknown and who manages it"
+        (let [admin-view (:body ((http.sharing/get-access-handler deps)
+                                 (tp/request-for admin {:path-params {:session_id (str shared-id)}})))
+              member-view (:body ((http.sharing/get-access-handler deps)
+                                  (tp/request-for alice {:path-params {:session_id (str shared-id)}})))]
+          (is (= "unknown" (get-in admin-view [:owner :kind])))
+          (is (true? (:can_manage admin-view)))
+          (is (true? (:can_assign_owner admin-view)))
+          (is (false? (:can_manage member-view)))
+          (is (false? (:can_assign_owner member-view)))))
+
+      (testing "Admins rename, reshare and delete it; members cannot"
+        (is (= 403 (:status ((http.ui/rename-session-handler deps)
+                             (tp/request-for alice {:path-params {:session_id (str shared-id)}
+                                                    :body-params {:title "x"}})))))
+        (is (= 200 (:status ((http.ui/rename-session-handler deps)
+                             (tp/request-for admin {:path-params {:session_id (str shared-id)}
+                                                    :body-params {:title "Board call"}})))))
+        (is (= :forbidden (:error (share! ds alice shared-id "private" []))))
+        (is (:ok? (share! ds admin hidden-id "selected" [bob])))
+        (is (= 200 (detail-status deps bob hidden-id)) "an Admin shared it with Bob")
+        (is (= 404 (detail-status deps alice hidden-id)))
+        (is (= 403 (:status ((http.recordings/delete-recording-handler deps)
+                             (tp/request-for alice {:path-params {:session_id (str doomed-id)}})))))
+        (is (= 200 (:status ((http.recordings/delete-recording-handler deps)
+                             (tp/request-for admin {:path-params {:session_id (str doomed-id)}})))))
+        (is (= 404 (detail-status deps admin doomed-id))))
+
+      (testing "owner assignment validates the caller, revision and owner"
+        (let [rev (revision-of ds shared-id)]
+          (is (= :forbidden (:error (session-access/assign-owner! ds alice shared-id {:owner-id (:id alice) :revision rev}))))
+          (is (= :not-found (:error (session-access/assign-owner! ds foreign shared-id {:owner-id (:id foreign) :revision rev}))))
+          (is (= :conflict (:error (session-access/assign-owner! ds admin shared-id {:owner-id (:id alice) :revision (inc rev)}))))
+          (doseq [bad [service foreign guest (tp/insert-principal! ds {:tenant-id tenant :status :suspended})]]
+            (is (= :invalid-owner (:error (session-access/assign-owner! ds admin shared-id {:owner-id (:id bad) :revision rev})))))
+          (is (= :forbidden (:error (session-access/assign-owner! ds guest hidden-id {:owner-id (:id alice)
+                                                                                       :revision (revision-of ds hidden-id)})))
+              "the guest belongs to this tenant here but cannot assign")))
+
+      (testing "assigning keeps the audience; the new owner manages it, Admin no longer does"
+        (let [resp ((http.sharing/put-owner-handler deps)
+                    (tp/request-for admin {:path-params {:session_id (str shared-id)}
+                                           :body-params {:owner_id (str (:id alice))
+                                                         :revision (revision-of ds shared-id)}}))]
+          (is (= 200 (:status resp)))
+          (is (= "tenant" (get-in resp [:body :visibility])))
+          (is (false? (get-in resp [:body :is_owner]))))
+        (is (contains? (:ids (list-ids deps alice :mine)) (str shared-id)))
+        (is (= 200 (detail-status deps bob shared-id)) "audience unchanged")
+        (is (= 403 (:status ((http.ui/rename-session-handler deps)
+                             (tp/request-for admin {:path-params {:session_id (str shared-id)}
+                                                    :body-params {:title "y"}})))))
+        (is (= :forbidden (:error (session-access/assign-owner! ds admin shared-id {:owner-id (:id bob)
+                                                                                     :revision (revision-of ds shared-id)})))
+            "an owned session cannot be reassigned")
+        (is (= 1 (count-of ds "SELECT count(*) AS count FROM access_audit_events WHERE action='session.owner.assigned' AND target_id=?"
+                           (str shared-id)))))
+
+      (testing "assigning to a grant holder drops the grant they no longer need"
+        (is (:ok? (session-access/assign-owner! ds admin hidden-id {:owner-id (:id bob) :revision (revision-of ds hidden-id)})))
+        (is (zero? (count-of ds "SELECT count(*) AS count FROM session_access_grants WHERE session_id=?" hidden-id)))
+        (is (= 404 (detail-status deps admin hidden-id)) "private to Bob now"))
+
+      (testing "the HTTP contract rejects malformed bodies"
+        (is (= 400 (:status ((http.sharing/put-owner-handler deps)
+                             (tp/request-for admin {:path-params {:session_id (str shared-id)}
+                                                    :body-params {:owner_id "nope" :revision 0}}))))))
+
+      (testing "the background re-check of open sockets applies the same rule"
+        (let [legacy (insert-legacy-session! ds "private")
+              [admin-view alice-view] (db.recheck/accessible-sessions
+                                       ds [{:principal admin :session-ids [legacy]}
+                                           {:principal alice :session-ids [legacy]}] 5)]
+          (is (contains? admin-view (str legacy)))
+          (is (not (contains? alice-view (str legacy)))))))))
 
 (deftest principal-resolution-test
   (tc.pg/with-postgres [pg]

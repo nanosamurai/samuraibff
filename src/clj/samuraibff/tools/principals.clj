@@ -22,7 +22,8 @@
   - list           --tenant UUID
   - legacy-report  Aggregate counts of sessions without an owner, per tenant.
   - assign-owner   --tenant UUID --session UUID --owner UUID
-                   Assigns a verified owner to one ownerless legacy session.
+                   Assigns an owner (an active person, not the guest) to one
+                   ownerless legacy session. Admins can do the same in the app.
 
   Every change writes an `operator` audit event. The command never prints
   emails, tokens or transcript content. The last active Admin is protected
@@ -184,11 +185,15 @@
         session-id (uuid! options :session)
         owner-id (uuid! options :owner)]
     (jdbc/with-transaction [tx ds]
-      (when-not (db.principals/find-by-id tx tenant-id owner-id)
-        (fail! "Owner is not a principal of this tenant"))
+      (let [owner (db.principals/find-by-id tx tenant-id owner-id)]
+        (when-not (and (= "human" (:principal_type owner))
+                       (= "active" (:status owner))
+                       (not= db.principals/guest-issuer (:issuer owner)))
+          (fail! "Owner must be an active person of this tenant")))
       (let [n (:next.jdbc/update-count
                (jdbc/execute-one! tx (sql/format (-> (h/update :sessions)
-                                                     (h/set {:user_id owner-id})
+                                                     (h/set {:user_id owner-id
+                                                             :access_revision [:+ :access_revision 1]})
                                                      (h/where [:= :tenant_id tenant-id]
                                                               [:= :id session-id]
                                                               [:= :user_id nil])))))]

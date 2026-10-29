@@ -61,6 +61,21 @@
                        503 {:body schemas/ApiErrorResponse}}
            :handler (http.sharing/put-access-handler deps)}}]
 
+   ["/sessions/:session_id/owner"
+    {:parameters {:path [:map [:session_id :string]]}
+     :put {:summary "Assign session owner"
+           :description (str "Admin only. Gives a session recorded before access control (owner unknown) "
+                             "an owner: an active person of the organization. The audience stays. "
+                             "Send the current revision; a stale revision returns 409.")
+           :parameters {:body access.schemas/AssignSessionOwnerRequest}
+           :responses {200 {:body access.schemas/SessionAccessResponse}
+                       400 {:body schemas/ApiErrorResponse}
+                       403 {:body schemas/ApiErrorResponse}
+                       404 {:body schemas/ApiErrorResponse}
+                       409 {:body [:map [:ok :boolean] [:message :string] [:revision {:optional true} :int]]}
+                       503 {:body schemas/ApiErrorResponse}}
+           :handler (http.sharing/put-owner-handler deps)}}]
+
    ["/people"
     {:no-doc false}
     [""

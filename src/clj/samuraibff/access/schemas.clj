@@ -8,6 +8,7 @@
   Public vars:
   - `AccessSummary`, `MeAccess`
   - `UpdateSessionAccessRequest`, `SessionAccessResponse`, `DirectoryResponse`
+  - `AssignSessionOwnerRequest`
   - `PersonItem`, `PeopleListResponse`, `AddPersonRequest`, `UpdatePersonRequest`,
     `PersonResponse`")
 
@@ -81,6 +82,12 @@
                              [:is_me :boolean]
                              [:kind {:optional true} [:enum "api_key" "unknown"]]]]
    [:recipients {:optional true} [:vector Recipient]]])
+
+(def AssignSessionOwnerRequest
+  "Body of PUT /api/sessions/{session_id}/owner (ownerless legacy sessions)."
+  [:map
+   [:owner_id Uuid]
+   [:revision [:int {:min 0}]]])
 
 (def DirectoryResponse
   "Response of GET /api/directory."
