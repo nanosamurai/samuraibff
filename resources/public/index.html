@@ -217,6 +217,14 @@
     .badge.bad{border-color:rgba(255,92,122,.55);color:rgba(255,92,122,.95)}
     .badge.warn{border-color:rgba(255,214,88,.45);color:var(--warn)}
     .badge.muted{border-color:rgba(34,48,70,.8);color:var(--muted)}
+    /* Session status: a quiet frame; the color is on the icon and the text. */
+    .badge.status{gap:5px;padding:2px 7px;border-radius:6px;font-size:11px;background:var(--panel)}
+    .badge.status,.badge.status.ok,.badge.status.bad,.badge.status.warn,.badge.status.muted{border-color:var(--line)}
+    .badge.status.ok{color:var(--ok)}
+    .badge.status.bad{color:var(--bad)}
+    .badge.status.warn{color:var(--txt)}
+    .badge.status.muted{color:var(--muted)}
+    .badge.status .rec-dot{width:7px;height:7px;transform:none}
     /* Used for ASR partials: more "draft" look + typing animation. */
     .badge.muted.typing{
       border-style: dashed;
