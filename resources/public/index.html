@@ -182,7 +182,9 @@
       background:var(--panel2) var(--chevron-down) no-repeat right 10px center / 16px;
     }
 
-    summary{display:inline-flex;align-items:center;gap:6px;cursor:pointer;list-style:none}
+    /* All disclosure toggles (Technical details, Advanced settings) look the same. */
+    summary{display:inline-flex;align-items:center;gap:6px;cursor:pointer;list-style:none;font-size:12px;color:var(--muted)}
+    summary:hover{color:var(--txt)}
     summary::-webkit-details-marker{display:none}
     summary::before{
       content:"";width:14px;height:14px;flex-shrink:0;background:currentColor;
