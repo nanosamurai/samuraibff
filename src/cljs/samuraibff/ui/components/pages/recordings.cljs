@@ -336,22 +336,25 @@
   (let [mobile? (hooks/use-media-query mobile-breakpoint-query)
         sharing? (permissions/use-capability? :share_sessions)]
     [:div {:class "card" :aria-busy (boolean loading?)}
-     [:div {:class (str "row sessions-table-header" (when sharing? " with-tabs"))}
-      (if sharing?
-        [:div {:class "tabs sessions-scope-tabs" :role "tablist" :aria-label "Sessions view"}
-         (for [[value label] scopes]
-           [:button {:key value :type "button" :role "tab"
-                     :class (str "tab " (when (= value scope) "active"))
-                     :aria-selected (= value scope)
-                     :on-click (fn [_] (set-scope! value))}
-            label])]
-        [:div {:class "card-title"} "Sessions"])
-      (when-not sharing? [:div {:class "spacer"}])
-      (when (or show-drafts? (pos? drafts-count))
-        [:label {:class "muted sessions-drafts"}
-         [:input {:type "checkbox" :checked (boolean show-drafts?) :disabled loading?
-                  :on-change (fn [e] (set-show-drafts! (.. e -target -checked)))}]
-         (str "Show drafts (" drafts-count ")")])]
+     (let [drafts-toggle? (or show-drafts? (pos? drafts-count))]
+       ;; The page title already says Sessions: without scope tabs the header
+       ;; only holds the drafts toggle, and is left out when there is none.
+       (when (or sharing? drafts-toggle?)
+         [:div {:class (str "row sessions-table-header" (when sharing? " with-tabs"))}
+          (if sharing?
+            [:div {:class "tabs sessions-scope-tabs" :role "tablist" :aria-label "Sessions view"}
+             (for [[value label] scopes]
+               [:button {:key value :type "button" :role "tab"
+                         :class (str "tab " (when (= value scope) "active"))
+                         :aria-selected (= value scope)
+                         :on-click (fn [_] (set-scope! value))}
+                label])]
+            [:div {:class "spacer"}])
+          (when drafts-toggle?
+            [:label {:class "muted sessions-drafts"}
+             [:input {:type "checkbox" :checked (boolean show-drafts?) :disabled loading?
+                      :on-change (fn [e] (set-show-drafts! (.. e -target -checked)))}]
+             (str "Show drafts (" drafts-count ")")])]))
      (cond
        loading?
        [:div {:class "muted sessions-list-message"} "Loading sessions…"]
@@ -392,6 +395,7 @@
   "Render Sessions with server pagination and the existing create/record actions."
   []
   (let [{:keys [loading? refresh!] :as state} (recordings-page/use-recordings-page)
+        sharing? (permissions/use-capability? :share_sessions)
         new-draft! (fn []
                      (store/append-log! "[ui] creating session draft...")
                      (let [req (session.req/create-session-request-body
@@ -416,7 +420,10 @@
      [:div {:class "page-header"}
       [:div
        [:div {:class "page-title"} "Sessions"]
-       [:div {:class "muted"} "All sessions (drafts and recordings)."]]
+       [:div {:class "muted"}
+        (if sharing?
+          "Your recordings and drafts, and the ones shared with you."
+          "Your recordings and drafts.")]]
       [:div {:class "row"}
        [:button {:class "btn" :disabled loading? :on-click (fn [_] (refresh!))}
         (if loading? "Refreshing…" "Refresh")]
