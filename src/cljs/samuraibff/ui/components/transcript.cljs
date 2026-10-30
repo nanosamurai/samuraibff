@@ -128,7 +128,7 @@
                                (message-actions {:idx idx :msg msg}))]
             [:div {:class "msg" :key k}
              (when (or (= "asr" (:kind msg)) (seq speaker))
-               [:div {:class "avatar"} avatar])
+               [:div {:class "msg-avatar"} avatar])
              [:div {:class "msgBody"}
               [:div {:class "msgHeader"}
                (when (or (= "asr" (:kind msg)) (seq speaker))

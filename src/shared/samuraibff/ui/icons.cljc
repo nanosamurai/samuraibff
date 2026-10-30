@@ -4,7 +4,8 @@
   Icons are 24x24 outlines drawn in `currentColor`, so they follow the text
   color of their parent (muted, hover, active). Most shapes come from Lucide
   (ISC license); the webhook mark is the one used on the nanosamur.ai site.
-  Icons are decorative: the visible label next to them carries the meaning.")
+  Icons are decorative: the visible label next to them, or the aria-label of
+  an icon-only button, carries the meaning.")
 
 (def ^:private stroke-attrs
   {:fill "none"
@@ -30,8 +31,55 @@
        "A5.606 5.606 0 0 0 1 17.5 5.532 5.532 0 0 0 6.5 23a5.573 5.573 0 0 0 5.478-5"
        "h4.08a2.487 2.487 0 0 0 2.442 2zm0-4a1.5 1.5 0 1 1-1.5 1.5 1.509 1.509 0 0 1 1.5-1.5z"))
 
-(def ^:private shapes
-  "Icon name -> {:attrs svg attributes, :children hiccup children}."
+(defn- stroked
+  "Return a Lucide-style stroked shape from hiccup children."
+  [& children]
+  {:attrs stroke-attrs :children (vec children)})
+
+(def ^:private control-shapes
+  "Icons for controls, menus, pagination and status (Lucide)."
+  {:arrow-up-right (stroked [:path {:d "M7 7h10v10"}] [:path {:d "M7 17 17 7"}])
+   :chevron-down (stroked [:path {:d "m6 9 6 6 6-6"}])
+   :chevron-left (stroked [:path {:d "m15 18-6-6 6-6"}])
+   :chevron-right (stroked [:path {:d "m9 18 6-6-6-6"}])
+   :chevrons-left (stroked [:path {:d "m11 17-5-5 5-5"}] [:path {:d "m18 17-5-5 5-5"}])
+   :chevrons-right (stroked [:path {:d "m6 17 5-5-5-5"}] [:path {:d "m13 17 5-5-5-5"}])
+   :circle-check (stroked [:circle {:cx 12 :cy 12 :r 10}] [:path {:d "m16 9-5.5 5.5L8 12"}])
+   :circle-dashed (stroked [:path {:d "M10.1 2.182a10 10 0 0 1 3.8 0"}]
+                           [:path {:d "M13.9 21.818a10 10 0 0 1-3.8 0"}]
+                           [:path {:d "M17.609 3.721a10 10 0 0 1 2.69 2.7"}]
+                           [:path {:d "M2.182 13.9a10 10 0 0 1 0-3.8"}]
+                           [:path {:d "M20.279 17.609a10 10 0 0 1-2.7 2.69"}]
+                           [:path {:d "M21.818 10.1a10 10 0 0 1 0 3.8"}]
+                           [:path {:d "M3.721 6.391a10 10 0 0 1 2.7-2.69"}]
+                           [:path {:d "M6.391 20.279a10 10 0 0 1-2.69-2.7"}])
+   :circle-stop (stroked [:circle {:cx 12 :cy 12 :r 10}] [:rect {:x 9 :y 9 :width 6 :height 6 :rx 1}])
+   :circle-x (stroked [:circle {:cx 12 :cy 12 :r 10}] [:path {:d "m15 9-6 6"}] [:path {:d "m9 9 6 6"}])
+   :loader-circle (stroked [:path {:d "M21 12a9 9 0 1 1-6.219-8.56"}])
+   :menu (stroked [:path {:d "M4 5h16"}] [:path {:d "M4 12h16"}] [:path {:d "M4 19h16"}])
+   :panel-right-close (stroked [:rect {:width 18 :height 18 :x 3 :y 3 :rx 2}]
+                               [:path {:d "M15 3v18"}] [:path {:d "m8 9 3 3-3 3"}])
+   :panel-right-open (stroked [:rect {:width 18 :height 18 :x 3 :y 3 :rx 2}]
+                              [:path {:d "M15 3v18"}] [:path {:d "m10 15-3-3 3-3"}])
+   :plus (stroked [:path {:d "M5 12h14"}] [:path {:d "M12 5v14"}])
+   :share (stroked [:circle {:cx 18 :cy 5 :r 3}] [:circle {:cx 6 :cy 12 :r 3}]
+                   [:circle {:cx 18 :cy 19 :r 3}]
+                   [:line {:x1 8.59 :x2 15.42 :y1 13.51 :y2 17.49}]
+                   [:line {:x1 15.41 :x2 8.59 :y1 6.51 :y2 10.49}])
+   :settings (stroked [:path {:d (str "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915"
+                                      " 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1"
+                                      "-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0"
+                                      " 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0"
+                                      " 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915")}]
+                      [:circle {:cx 12 :cy 12 :r 3}])
+   :square (stroked [:rect {:width 18 :height 18 :x 3 :y 3 :rx 2}])
+   :trash (stroked [:path {:d "M10 11v6"}] [:path {:d "M14 11v6"}]
+                   [:path {:d "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"}]
+                   [:path {:d "M3 6h18"}] [:path {:d "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"}])
+   :x (stroked [:path {:d "M18 6 6 18"}] [:path {:d "m6 6 12 12"}])})
+
+(def ^:private nav-shapes
+  "Navigation icons."
   {:sessions {:attrs stroke-attrs
               :children [[:path {:d "M2 10v3"}] [:path {:d "M6 6v11"}] [:path {:d "M10 3v18"}]
                          [:path {:d "M14 8v7"}] [:path {:d "M18 5v13"}] [:path {:d "M22 10v3"}]]}
@@ -61,6 +109,10 @@
             :children [[:path {:d "M18 21a8 8 0 0 0-16 0"}]
                        [:circle {:cx 10 :cy 8 :r 5}]
                        [:path {:d "M22 20c0-3.37-2-6.5-4-8a5 5 0 0 0-.45-8.3"}]]}})
+
+(def ^:private shapes
+  "Icon name -> {:attrs svg attributes, :children hiccup children}."
+  (merge nav-shapes control-shapes))
 
 (def names
   "Known icon names."

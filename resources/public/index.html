@@ -11,6 +11,8 @@
   <title>nanosamur.ai</title>
   <style>
     :root {
+      /* Native parts (select lists, scrollbars, checkboxes, date pickers) follow the dark theme. */
+      color-scheme:dark;
       --bg:#0b0f14;
       --panel:#0f1620;
       --panel2:#0c121b;
@@ -19,16 +21,24 @@
       --muted:#9fb2c9;
       --ok:#6BCBFF;
       --bad:#FF5C7A;
+      --warn:#FFD658;
       --accent:#A88BFF;
       --selected:#241f3a;
       --shadow: rgba(0,0,0,.35);
+      /* Data URIs cannot use currentColor: the select chevron carries the --muted color. */
+      --chevron-down:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239fb2c9' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+      --chevron-right-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
     }
 
     *{box-sizing:border-box}
     html, body {height:100%}
-    body{margin:0;background:var(--bg);color:var(--txt);font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif;}
+    body{margin:0;background:var(--bg);color:var(--txt);font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif;font-size:14px}
 
     a{color:inherit;text-decoration:none}
+
+    /* One keyboard focus ring for every control (zero specificity, so components can still override). */
+    :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+    input:focus, select:focus, textarea:focus{border-color:var(--accent)}
 
     #app{height:100%}
 
@@ -155,7 +165,8 @@
 
     .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 
-    input, button, select{
+    input, button, select, textarea{
+      font:inherit;
       border-radius:10px;
       border:1px solid rgba(34,48,70,.8);
       background:var(--panel2);
@@ -165,6 +176,24 @@
 
     input{min-width:240px}
 
+    select{
+      appearance:none;
+      padding-right:32px;
+      background:var(--panel2) var(--chevron-down) no-repeat right 10px center / 16px;
+    }
+
+    /* All disclosure toggles (Technical details, Advanced settings) look the same. */
+    summary{display:inline-flex;align-items:center;gap:6px;cursor:pointer;list-style:none;font-size:12px;color:var(--muted)}
+    summary:hover{color:var(--txt)}
+    summary::-webkit-details-marker{display:none}
+    summary::before{
+      content:"";width:14px;height:14px;flex-shrink:0;background:currentColor;
+      -webkit-mask:var(--chevron-right-mask) center / 14px no-repeat;
+      mask:var(--chevron-right-mask) center / 14px no-repeat;
+      transition:transform 120ms ease-out;
+    }
+    details[open]>summary::before{transform:rotate(90deg)}
+
     button{cursor:pointer}
     button:disabled{opacity:.55;cursor:not-allowed}
 
@@ -173,15 +202,29 @@
     .btn.primary{background:rgba(168,139,255,.18);border-color:rgba(168,139,255,.45)}
     .btn.primary:hover{background:rgba(168,139,255,.24)}
     .btn.ghost{background:transparent}
+    .btn.danger{color:var(--bad)}
+    .btn.danger:hover{border-color:rgba(255,92,122,.45)}
+    /* Unavailable actions rendered as spans keep their tooltip, so no pointer-events:none. */
+    .btn.disabled,.btn[aria-disabled="true"]{opacity:.45;cursor:not-allowed}
+    .btn:disabled:hover,.btn.disabled:hover,.btn[aria-disabled="true"]:hover{border-color:rgba(34,48,70,.8)}
+    .error{color:var(--bad);font-size:12px}
 
     .muted{color:var(--muted)}
     .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace}
 
     .badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid rgba(34,48,70,.8);background:rgba(12,18,27,.7)}
-    .badge.ok{border-color:rgba(107,203,255,.45);color:rgba(230,240,255,.95)}
+    .badge.ok{border-color:rgba(107,203,255,.45);color:var(--ok)}
     .badge.bad{border-color:rgba(255,92,122,.55);color:rgba(255,92,122,.95)}
-    .badge.warn{border-color:rgba(255,92,122,.55);color:rgba(230,240,255,.95)}
+    .badge.warn{border-color:rgba(255,214,88,.45);color:var(--warn)}
     .badge.muted{border-color:rgba(34,48,70,.8);color:var(--muted)}
+    /* Session status: a quiet frame; the color is on the icon and the text. */
+    .badge.status{gap:5px;padding:2px 7px;border-radius:6px;font-size:11px;background:var(--panel)}
+    .badge.status,.badge.status.ok,.badge.status.bad,.badge.status.warn,.badge.status.muted{border-color:var(--line)}
+    .badge.status.ok{color:var(--ok)}
+    .badge.status.bad{color:var(--bad)}
+    .badge.status.warn{color:var(--txt)}
+    .badge.status.muted{color:var(--muted)}
+    .badge.status .rec-dot{width:7px;height:7px;transform:none}
     /* Used for ASR partials: more "draft" look + typing animation. */
     .badge.muted.typing{
       border-style: dashed;
@@ -265,7 +308,8 @@
     .output-tab.active,.settings-tab.active{border-bottom-color:var(--accent)}
     .output-tab.active button,.settings-tab.active{color:var(--txt)}
     .output-tab-count{font-size:10px;color:var(--muted);border-radius:5px;padding:1px 5px;background:rgba(255,255,255,.06)}
-    .settings-tabs button:focus-visible,.settings-tabs input:focus-visible,.track-choice:focus-within{outline:2px solid var(--accent);outline-offset:3px}
+    .track-choice:focus-within{outline:2px solid var(--accent);outline-offset:3px}
+    .track-choice input:focus-visible{outline:none}
     .settings-content{padding-top:20px;min-width:0}
     .stage-fieldset{border:0;margin:0;padding:0;min-width:0}
     .stage-settings{display:flex;flex-direction:column;gap:18px;max-width:940px}
@@ -314,24 +358,6 @@
     .playback-header{justify-content:space-between;margin-bottom:10px}
     .playback-header .card-title{margin-bottom:0}
 
-    .track-picker{position:relative;width:min(100%,640px)}
-    .track-picker-summary{
-      display:flex;align-items:center;justify-content:space-between;gap:12px;
-      padding:9px 11px;border:1px solid rgba(34,48,70,.8);border-radius:10px;
-      background:var(--panel2);cursor:pointer;list-style:none
-    }
-    .track-picker-summary::-webkit-details-marker{display:none}
-    .track-picker-summary::after{content:"▾";color:var(--muted)}
-    .track-picker[open] .track-picker-summary::after{content:"▴"}
-    .track-picker.disabled .track-picker-summary{cursor:not-allowed;opacity:.55}
-    .track-picker-selected{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}
-    .track-picker-options{
-      position:absolute;z-index:30;top:calc(100% + 6px);left:0;right:0;
-      display:flex;flex-direction:column;gap:6px;padding:8px;
-      border:1px solid rgba(34,48,70,.9);border-radius:10px;
-      background:rgba(15,22,32,.99);box-shadow:0 14px 35px rgba(0,0,0,.45)
-    }
-
     /* --- Searchable dropdown (language select) --- */
 
     .dropdown{position:relative;min-width:240px}
@@ -378,7 +404,8 @@
       font-family:"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
     }
     .dropdown-label{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .dropdown-caret{opacity:.75;flex:0 0 auto}
+    .dropdown-caret{display:inline-flex;flex:0 0 auto;color:var(--muted);transition:transform 120ms ease-out}
+    .dropdown.open .dropdown-caret{transform:rotate(180deg)}
 
     .dropdown-menu{
       position:absolute;
@@ -461,7 +488,7 @@
     .who{font-weight:650}
     .ts{color:var(--muted);font-size:12px}
 
-    .avatar{
+    .msg-avatar{
       width:28px;height:28px;border-radius:10px;
       border:1px solid rgba(34,48,70,.7);
       background: #101a26;
@@ -546,6 +573,7 @@
 
     @media (prefers-reduced-motion: reduce){
       .revision-text{animation-duration:1ms}
+      .typing-dots::before,.typing-dots::after,.typing-dots span{animation:none;opacity:1}
     }
 
     /* --- Karaoke word highlighting --- */
@@ -583,8 +611,10 @@
     .tab{padding:9px 0;margin-bottom:-1px;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:var(--muted);font:inherit;font-size:13px;cursor:pointer}
     .tab:hover{color:var(--txt)}
     .tab.active{border-bottom-color:var(--accent);color:var(--txt)}
-    .tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
     .sessions-scope-tabs{margin-bottom:0;flex:1}
+    /* The underline spans the whole header, including the drafts toggle. */
+    .sessions-table-header.with-tabs{border-bottom:1px solid var(--line);margin-bottom:12px}
+    .sessions-table-header.with-tabs .tabs{border-bottom:0}
 
     .account{display:flex;align-items:center;gap:10px;min-width:0}
     .account-org{font-weight:600;font-size:13px;padding-right:12px;border-right:1px solid var(--line);white-space:nowrap}
@@ -624,6 +654,7 @@
     }
 
     .rec-dot.blink{animation: recBlink 0.9s infinite ease-in-out}
+    @media (prefers-reduced-motion: reduce){.rec-dot.blink{animation:none}}
 
     .log{flex:1;min-height:0;overflow:auto;padding:10px;border-radius:12px;border:1px solid rgba(34,48,70,.6);background:rgba(12,18,27,.35);font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;font-size:12px;white-space:pre-wrap}
     .log-line{padding:2px 0}
@@ -640,13 +671,17 @@
     .sessions-drafts{display:inline-flex;gap:6px;align-items:center;font-size:12px}
     .sessions-drafts input{min-width:0;width:14px;height:14px;margin:0;accent-color:var(--accent)}
     .sessions-list-message{padding:18px 0}
+    .session-actions{display:flex;gap:6px;align-items:center;justify-content:flex-end}
+    .btn.icon-only{width:32px;height:32px;padding:0}
+    .btn.session-open{padding:6px 12px}
+    .btn.session-delete:hover{color:var(--bad);border-color:rgba(255,92,122,.45)}
     .sessions-pagination{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;font-size:12px}
     .sessions-pagination-controls{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px;margin-left:auto}
     .sessions-page-buttons{display:flex;gap:6px}
     .sessions-page-size{display:inline-flex;align-items:center;gap:6px;margin-right:8px}
-    .sessions-page-size select{padding:4px 6px;border-radius:7px;font-size:12px;min-height:30px}
+    .sessions-page-size select{padding:4px 26px 4px 8px;border-radius:7px;font-size:12px;min-height:30px;background-position:right 6px center;background-size:14px}
     .sessions-page-number{margin-right:4px;white-space:nowrap;font-variant-numeric:tabular-nums}
-    .sessions-pagination .btn{width:30px;height:30px;padding:0;border-radius:7px;font-size:18px}
+    .sessions-pagination .btn{width:30px;height:30px;padding:0;border-radius:7px}
     .sessions-range{font-variant-numeric:tabular-nums}
 
     .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}

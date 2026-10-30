@@ -6,6 +6,7 @@
   (:require
    [clojure.string :as str]
    [io.factorhouse.hsx.core :as hsx]
+   [samuraibff.ui.icons :as icons]
    [samuraibff.ui.langs :as langs]
    ["react" :as react]))
 
@@ -27,18 +28,6 @@
 
 ;; --- UI primitives ---
 
-(defn icon
-  "Render a lightweight icon glyph (no external deps).
-
-  Inputs:
-  - s: string
-  - opts: optional map {:title string}
-
-  Returns: hiccup."
-  ([s] (icon s nil))
-  ([s {:keys [title]}]
-   [:span {:class "icon" :title title} (or s "")]))
-
 (defn status-pill
   "Render a compact session status pill.
 
@@ -58,6 +47,22 @@
      [:span {:class (str "rec-dot " (name kind) (when blink? " blink"))
              :title tooltip}]
      [:span {:style {:marginLeft "8px"}} (str (or label ""))]]))
+
+(defn session-status-badge
+  "Render a session status badge.
+
+  Inputs:
+  - {:keys [label badge-class icon tooltip]} from
+    `samuraibff.ui.session-status/display-status`; :icon is an icon name or
+    :rec-dot for the recording indicator.
+
+  Returns: hiccup."
+  [{:keys [label badge-class icon tooltip]}]
+  [:span {:class (str "badge status " badge-class) :title tooltip}
+   (if (= :rec-dot icon)
+     [:span {:class "rec-dot" :aria-hidden true}]
+     (icons/icon icon {:size 13}))
+   label])
 
 ;; --- Fetch / clipboard safety helpers ---
 
@@ -193,11 +198,13 @@
           [:button {:type "button"
                     :disabled (boolean disabled)
                     :class "dropdown-trigger"
+                    :aria-haspopup "listbox"
+                    :aria-expanded (boolean (and open? (not disabled)))
                     :on-click (fn [_]
                                 (set-open! (not open?)))}
            [:span {:class "dropdown-flag"} (render-flag selected)]
            [:span {:class "dropdown-label"} (or (:label selected) placeholder)]
-           [:span {:class "dropdown-caret"} "v"]]
+           [:span {:class "dropdown-caret"} (icons/icon :chevron-down)]]
 
           menu
           (when (and open? (not disabled))

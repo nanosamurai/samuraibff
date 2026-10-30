@@ -8,12 +8,14 @@
    [samuraibff.ui.access :as access]
    [samuraibff.ui.api :as api]
    [samuraibff.ui.hooks :as hooks]
+   [samuraibff.ui.icons :as icons]
    [samuraibff.ui.components.share-dialog :as share-dialog]
    [samuraibff.ui.components.shared :as shared]
    [samuraibff.ui.permissions :as permissions]
    [samuraibff.ui.components.transcript :as components.transcript]
    [samuraibff.ui.recording-detail :as recording-detail]
    [samuraibff.ui.router :as router]
+   [samuraibff.ui.session-status :as session-status]
    [samuraibff.ui.store :as store]
    [samuraibff.ui.util :as util]
    [samuraibff.ui.webhook-delivery-outcomes :as ui.wh.outcomes]
@@ -312,8 +314,9 @@
                                    (< (:start_s msg) (:end_s msg)))
                           [:div {:class "bubble-actions"}
                            [:button {:class "bubble-action-btn" :title "Recognize this speaker in future transcripts"
+                                     :aria-label "Add speaker"
                                      :on-click #(do (.stopPropagation %) (set-enroll! msg))}
-                            (shared/icon "＋" {:title "Add speaker"})]]))]
+                            (icons/icon :plus)]]))]
     (react/useEffect
      (fn []
        (let [active? (atom true)
@@ -351,8 +354,9 @@
         [:div
          [:div {:class "page-title"} title
           [:span {:style {:marginLeft "10px"}}
-           [shared/status-pill {:label (if (= status "active") "Recording" (str/capitalize (or status "Loading")))
-                                :kind :muted}]]]
+           (if session
+             [shared/session-status-badge (session-status/display-status session)]
+             [shared/status-pill {:label "Loading" :kind :muted}])]]
          (when access-label
            [:div {:class "muted"} access-label])
          [:details {:class "muted"}
@@ -371,7 +375,8 @@
            [title-editor {:session-id session-id :current-title (:title session)
                           :on-saved #(set-detail! (fn [old] (assoc-in old [:session :title] %)))}])
          (when (and can-share? (some? session-access) can-manage?)
-           [:button {:class "btn" :type "button" :on-click #(set-share-open! true)} "Share"])
+           [:button {:class "btn" :type "button" :on-click #(set-share-open! true)}
+            (icons/icon :share) "Share"])
          [:button {:class "btn" :on-click refresh!} "Refresh"]]]
        (when error [:p {:role "alert" :class "badge bad"} error])
        [:div {:class "tabs transcript-tabs" :role "tablist" :aria-label "Transcripts"}

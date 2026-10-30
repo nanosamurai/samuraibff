@@ -10,6 +10,7 @@
    [samuraibff.ui.access-api :as access-api]
    [samuraibff.ui.api :as api]
    [samuraibff.ui.components.shared :as shared]
+   [samuraibff.ui.icons :as icons]
    [samuraibff.ui.pagination :as pagination]
    [samuraibff.ui.permissions :as permissions]
    ["react" :as react]))
@@ -275,9 +276,9 @@
          [:button {:class "btn ghost" :aria-label "Previous page" :title "Previous page"
                    :disabled (or loading? (not previous?))
                    :on-click (fn [_] (set-query! #(assoc % :page (dec page))))}
-          "‹"]
+          (icons/icon :chevron-left)]
          [:button {:class "btn ghost" :aria-label "Next page" :title "Next page"
                    :disabled (or loading? (not next?))
                    :on-click (fn [_] (set-query! #(assoc % :page (inc page))))}
-          "›"]]]]]
+          (icons/icon :chevron-right)]]]]]
      [:div {:class "muted"} "Keep at least one active Admin."]]))
