@@ -295,14 +295,14 @@
                       :title    "Start recording"}
              [:span {:class (str "rec-dot" (when running? " blink"))}]
              (if starting? "Starting…" "Record now")])
-          [:button {:class      "btn icon"
+          [:button {:class      "btn quiet"
                     :type       "button"
-                    :aria-label "Session settings"
+                    :aria-expanded (true? settings-open?)
                     :title      "Session settings"
                     :on-click   (fn [_]
                                   (when set-settings-open!
                                     (set-settings-open! (not (true? settings-open?)))))}
-           (icons/icon :settings)]]
+           (icons/icon :settings) "Settings"]]
          [share-dialog/who-can-access-row
           {:session-id id
            :session-title (get @store/session* :title)
@@ -324,7 +324,7 @@
         [:div {:class "stream-controls-title"}
          [:div {:class "stream-controls-title-text"} "Session settings"]
          [:div {:class "muted"} "Choose your transcripts and recording preferences."]]
-        [:button {:class "btn ghost" :type "button" :on-click #(when set-open! (set-open! false))} "Close"]]
+        [:button {:class "btn quiet" :type "button" :on-click #(when set-open! (set-open! false))} "Close"]]
        [:div {:class "settings-tabs" :role "tablist" :aria-label "Session settings"}
         (for [[stage label] [[:realtime "Real-time"] [:refined "Refined"] [:final "Final"]]]
           [stream-controls/tab-header {:key stage :stage stage :label label :active? (= tab stage)

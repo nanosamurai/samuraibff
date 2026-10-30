@@ -418,7 +418,7 @@
        extra
        [:div {:class "spacer"}]
        (when manager?
-         [:button {:class "btn" :type "button" :disabled (boolean disabled?)
+         [:button {:class "btn quiet" :type "button" :disabled (boolean disabled?)
                    :on-click (fn [_] (set-open! true))}
           "Change"])
        [share-dialog {:open? open?

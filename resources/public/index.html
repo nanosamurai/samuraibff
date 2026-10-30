@@ -16,6 +16,7 @@
       --bg:#0b0f14;
       --panel:#0f1620;
       --panel2:#0c121b;
+      --soft:#141e2b;
       --line:#223046;
       --txt:#e6f0ff;
       --muted:#9fb2c9;
@@ -111,11 +112,10 @@
     .list{display:flex;flex-direction:column;gap:10px}
 
     .list-item{
-      background:rgba(15,22,32,.85);
-      border:1px solid rgba(34,48,70,.7);
-      border-radius:14px;
+      background:var(--panel);
+      border:1px solid var(--line);
+      border-radius:12px;
       padding:12px;
-      box-shadow:0 10px 30px var(--shadow);
       display:flex;
       flex-direction:column;
       gap:10px;
@@ -160,7 +160,8 @@
 
     /* --- Common UI primitives --- */
 
-    .card{background:rgba(15,22,32,.85);border:1px solid rgba(34,48,70,.7);border-radius:14px;padding:14px;box-shadow:0 10px 30px var(--shadow)}
+    /* In-page panels are flat: one border, no shadow. Shadows stay on dialogs, menus and the drawer. */
+    .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
     .card-title{font-weight:700;margin-bottom:10px}
 
     .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
@@ -179,8 +180,16 @@
     select{
       appearance:none;
       padding-right:32px;
-      background:var(--panel2) var(--chevron-down) no-repeat right 10px center / 16px;
+      background:var(--soft) var(--chevron-down) no-repeat right 10px center / 16px;
     }
+
+    /* Quiet fields: a soft fill instead of a border; the border shows on hover and focus. */
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea, .dropdown .dropdown-trigger{
+      background-color:var(--soft);border-color:transparent;
+    }
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):hover, select:hover, textarea:hover, .dropdown .dropdown-trigger:hover{border-color:var(--line)}
+    input:focus, select:focus, textarea:focus, .dropdown .dropdown-trigger:focus-visible{border-color:var(--accent)}
+    input:disabled, select:disabled, textarea:disabled, .dropdown .dropdown-trigger:disabled{border-color:transparent;opacity:.6;cursor:not-allowed}
 
     /* All disclosure toggles (Technical details, Advanced settings) look the same. */
     summary{display:inline-flex;align-items:center;gap:6px;cursor:pointer;list-style:none;font-size:12px;color:var(--muted)}
@@ -202,6 +211,9 @@
     .btn.primary{background:rgba(168,139,255,.18);border-color:rgba(168,139,255,.45)}
     .btn.primary:hover{background:rgba(168,139,255,.24)}
     .btn.ghost{background:transparent}
+    /* Quiet buttons: secondary actions inside a panel (Settings, Close, Change). */
+    .btn.quiet{background:transparent;border-color:transparent;color:var(--muted)}
+    .btn.quiet:hover{background:var(--soft);border-color:transparent;color:var(--txt)}
     .btn.danger{color:var(--bad)}
     .btn.danger:hover{border-color:rgba(255,92,122,.45)}
     /* Unavailable actions rendered as spans keep their tooltip, so no pointer-events:none. */
@@ -272,8 +284,15 @@
 
     /* --- Live recording --- */
 
-    .controls{padding:12px 12px 10px;border-radius:14px;border:1px solid rgba(34,48,70,.7);background:rgba(15,22,32,.5)}
+    .controls{padding:16px;border-radius:12px;border:1px solid var(--line);background:var(--panel)}
     .controls-row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start}
+    /* Fields share the row on wide screens (name widest) and wrap on narrow ones. */
+    .controls-row>.field{flex:1 1 200px;max-width:360px;min-width:0}
+    .controls-row>.field:first-child{flex:2 1 260px;max-width:520px}
+    .controls-row>.field input,.controls-row>.field select,.controls-row>.field .dropdown{width:100%;min-width:0}
+    .controls-row>.spacer{flex:1 0 0}
+    /* Line buttons up with the fields under their labels. */
+    .controls-row>.btn{margin-top:24px}
     .field{display:flex;flex-direction:column;gap:6px}
     .label{font-size:12px;color:var(--muted)}
     .spacer{flex:1}
@@ -316,9 +335,9 @@
     .stage-heading h3{font-size:15px;font-weight:650;margin:0 0 6px}
     .stage-heading p,.stage-settings p{margin:0;font-size:12px;line-height:1.6}
     .track-choice-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:10px}
-    .track-choice{display:flex;align-items:flex-start;gap:11px;padding:14px;border:1px solid rgba(34,48,70,.8);border-radius:11px;background:rgba(12,18,27,.35);cursor:pointer;transition:border-color .15s,background .15s}
-    .track-choice:hover{border-color:rgba(168,139,255,.5)}
-    .track-choice.selected{border-color:rgba(168,139,255,.35);background:rgba(168,139,255,.06)}
+    .track-choice{display:flex;align-items:flex-start;gap:11px;padding:10px 12px;border:1px solid transparent;border-radius:8px;background:transparent;cursor:pointer;transition:background .15s}
+    .track-choice:hover{background:var(--soft)}
+    .track-choice.selected{background:var(--selected)}
     .track-choice input{flex-shrink:0;min-width:15px;width:15px;height:15px;margin:2px 0 0;accent-color:var(--accent)}
     .track-choice-copy{display:flex;flex-direction:column;gap:6px;min-width:0;overflow-wrap:anywhere}
     .track-choice-copy strong{font-size:13px;font-weight:600}
@@ -347,10 +366,7 @@
       display:flex;
       align-items:center;
       gap:8px;
-      padding:6px 8px;
-      border:1px solid rgba(34,48,70,.45);
-      border-radius:10px;
-      background:rgba(12,18,27,.22);
+      padding:2px 0;
     }
 
     .checkbox-row input{min-width:auto}
@@ -458,11 +474,11 @@
     .realtime-track-grid{display:grid;gap:12px;min-width:0;overflow-x:auto;padding-bottom:2px}
     .realtime-track-panel{
       min-width:280px;overflow:hidden;border:1px solid rgba(34,48,70,.7);
-      border-radius:14px;background:rgba(15,22,32,.42)
+      border-radius:12px;background:var(--panel)
     }
     .realtime-track-panel-header{
       display:flex;align-items:center;justify-content:space-between;gap:10px;
-      padding:9px 12px;border-bottom:1px solid rgba(34,48,70,.65);background:rgba(12,18,27,.5)
+      padding:9px 12px;border-bottom:1px solid var(--line)
     }
     .realtime-track-label{font-weight:750;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace}
     .realtime-track-profile{font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -477,7 +493,7 @@
 
     .transcript{height:calc(100vh - 56px - 16px - 16px - 68px);min-height:340px}
     .transcript-feed{height:100%;overflow:auto;padding-right:6px}
-    .empty{padding:18px;border-radius:14px;border:1px dashed rgba(34,48,70,.6);background:rgba(12,18,27,.35)}
+    .empty{padding:18px 4px}
     .empty-title{font-weight:700;margin-bottom:8px}
 
     /* --- Transcript thread (Slack-like) --- */
@@ -718,6 +734,9 @@
       input{min-width:0;width:100%}
       .grid-2{grid-template-columns:1fr}
       .dropdown{min-width:0;width:100%}
+      .controls-row>.field,.controls-row>.field:first-child{flex-basis:100%;max-width:none}
+      .controls-row>.spacer{display:none}
+      .controls-row>.btn{margin-top:0}
       .realtime-track-grid{grid-template-columns:1fr!important}
       .realtime-track-panel{min-width:0}
 

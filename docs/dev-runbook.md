@@ -80,6 +80,14 @@ the page font.
 * **Focus:** one `:focus-visible` ring in the accent color for all controls.
   Do not add per-component focus rules. Animations stop under
   `prefers-reduced-motion`.
+* **Fewer boxes:** in-page panels (`card`, `controls`, `list-item`) have one
+  `--line` border and no shadow; shadows are for dialogs, menus and the
+  drawer. Do not nest a bordered box inside a panel. Fields use the `--soft`
+  fill with a border only on hover and focus. Secondary actions inside a
+  panel (Settings, Close, Change) use `btn quiet`.
+* **Wide screens:** the Record fields grow to share the row (`.controls-row`)
+  and stack at full width below 768px. Check new layouts at phone width and
+  on a wide monitor.
 
 ## gRPC proto generation
 
