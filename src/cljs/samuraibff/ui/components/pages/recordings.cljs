@@ -336,7 +336,7 @@
   (let [mobile? (hooks/use-media-query mobile-breakpoint-query)
         sharing? (permissions/use-capability? :share_sessions)]
     [:div {:class "card" :aria-busy (boolean loading?)}
-     [:div {:class "row sessions-table-header"}
+     [:div {:class (str "row sessions-table-header" (when sharing? " with-tabs"))}
       (if sharing?
         [:div {:class "tabs sessions-scope-tabs" :role "tablist" :aria-label "Sessions view"}
          (for [[value label] scopes]
@@ -346,7 +346,7 @@
                      :on-click (fn [_] (set-scope! value))}
             label])]
         [:div {:class "card-title"} "Sessions"])
-      [:div {:class "spacer"}]
+      (when-not sharing? [:div {:class "spacer"}])
       (when (or show-drafts? (pos? drafts-count))
         [:label {:class "muted sessions-drafts"}
          [:input {:type "checkbox" :checked (boolean show-drafts?) :disabled loading?

@@ -602,6 +602,9 @@
     .tab:hover{color:var(--txt)}
     .tab.active{border-bottom-color:var(--accent);color:var(--txt)}
     .sessions-scope-tabs{margin-bottom:0;flex:1}
+    /* The underline spans the whole header, including the drafts toggle. */
+    .sessions-table-header.with-tabs{border-bottom:1px solid var(--line);margin-bottom:12px}
+    .sessions-table-header.with-tabs .tabs{border-bottom:0}
 
     .account{display:flex;align-items:center;gap:10px;min-width:0}
     .account-org{font-weight:600;font-size:13px;padding-right:12px;border-right:1px solid var(--line);white-space:nowrap}
