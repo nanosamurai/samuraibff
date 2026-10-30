@@ -375,7 +375,8 @@
            [title-editor {:session-id session-id :current-title (:title session)
                           :on-saved #(set-detail! (fn [old] (assoc-in old [:session :title] %)))}])
          (when (and can-share? (some? session-access) can-manage?)
-           [:button {:class "btn" :type "button" :on-click #(set-share-open! true)} "Share"])
+           [:button {:class "btn" :type "button" :on-click #(set-share-open! true)}
+            (icons/icon :share) "Share"])
          [:button {:class "btn" :on-click refresh!} "Refresh"]]]
        (when error [:p {:role "alert" :class "badge bad"} error])
        [:div {:class "tabs transcript-tabs" :role "tablist" :aria-label "Transcripts"}

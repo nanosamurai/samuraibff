@@ -16,7 +16,7 @@
     (doseq [icon-name [:arrow-up-right :chevron-down :chevron-left :chevron-right
                        :chevrons-left :chevrons-right :circle-check :circle-dashed
                        :circle-stop :circle-x :loader-circle :menu :panel-right-close
-                       :panel-right-open :plus :settings :square :trash :x]]
+                       :panel-right-open :plus :settings :share :square :trash :x]]
       (is (contains? icons/names icon-name) (str icon-name))
       (is (seq (drop 2 (icons/icon icon-name))) (str icon-name))))
   (testing "icons draw in the current text color"

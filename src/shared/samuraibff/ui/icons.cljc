@@ -62,6 +62,10 @@
    :panel-right-open (stroked [:rect {:width 18 :height 18 :x 3 :y 3 :rx 2}]
                               [:path {:d "M15 3v18"}] [:path {:d "m10 15-3-3 3-3"}])
    :plus (stroked [:path {:d "M5 12h14"}] [:path {:d "M12 5v14"}])
+   :share (stroked [:circle {:cx 18 :cy 5 :r 3}] [:circle {:cx 6 :cy 12 :r 3}]
+                   [:circle {:cx 18 :cy 19 :r 3}]
+                   [:line {:x1 8.59 :x2 15.42 :y1 13.51 :y2 17.49}]
+                   [:line {:x1 15.41 :x2 8.59 :y1 6.51 :y2 10.49}])
    :settings (stroked [:path {:d (str "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915"
                                       " 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1"
                                       "-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0"
