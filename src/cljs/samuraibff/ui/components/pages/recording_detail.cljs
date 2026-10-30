@@ -15,6 +15,7 @@
    [samuraibff.ui.components.transcript :as components.transcript]
    [samuraibff.ui.recording-detail :as recording-detail]
    [samuraibff.ui.router :as router]
+   [samuraibff.ui.session-status :as session-status]
    [samuraibff.ui.store :as store]
    [samuraibff.ui.util :as util]
    [samuraibff.ui.webhook-delivery-outcomes :as ui.wh.outcomes]
@@ -353,8 +354,9 @@
         [:div
          [:div {:class "page-title"} title
           [:span {:style {:marginLeft "10px"}}
-           [shared/status-pill {:label (if (= status "active") "Recording" (str/capitalize (or status "Loading")))
-                                :kind :muted}]]]
+           (if session
+             [shared/session-status-badge (session-status/display-status session)]
+             [shared/status-pill {:label "Loading" :kind :muted}])]]
          (when access-label
            [:div {:class "muted"} access-label])
          [:details {:class "muted"}

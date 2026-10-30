@@ -14,6 +14,7 @@
    [samuraibff.ui.recordings-page :as recordings-page]
    [samuraibff.ui.router :as router]
    [samuraibff.ui.session-request :as session.req]
+   [samuraibff.ui.session-status :as session-status]
    [samuraibff.ui.store :as store]
    [samuraibff.ui.util :as util]))
 
@@ -22,72 +23,6 @@
 
   Must match the @media rule in `resources/public/index.html`."
   "(max-width: 768px)")
-
-(defn- rec->display-status
-  "Derive a compact UI status descriptor for a DB recording row.
-
-  Inputs:
-  - rec: map from /api/recordings with keys:
-      :status (string)
-      :has_recording (boolean)
-      :has_final_transcript (boolean)
-
-  Returns:
-  - {:label string :badge-class string :icon keyword :tooltip string}
-    (:icon is an icon name, or :rec-dot for the recording indicator)"
-  [{:keys [status has_recording has_final_transcript]}]
-  (let [status (some-> status str)
-        has-recording? (true? has_recording)
-        has-final? (true? has_final_transcript)]
-    (cond
-      (= status "failed")
-      {:label "Failed"
-       :badge-class "bad"
-       :icon :circle-x
-       :tooltip "Session failed"}
-
-      (= status "active")
-      {:label "Recording"
-       :badge-class "warn"
-       :icon :rec-dot
-       :tooltip "Recording/transcription in progress"}
-
-      (= status "created")
-      {:label "Created"
-       :badge-class "muted"
-       :icon :circle-dashed
-       :tooltip "Draft session (recording not started)"}
-
-      (and (= status "finished") has-final?)
-      {:label "Finalized"
-       :badge-class "ok"
-       :icon :circle-check
-       :tooltip "Final transcript is available"}
-
-      (= status "finished")
-      {:label "Finished"
-       :badge-class "muted"
-       :icon :circle-stop
-       :tooltip "Recording stopped; final transcript not available yet"}
-
-      has-recording?
-      {:label "Processing"
-       :badge-class "muted"
-       :icon :loader-circle
-       :tooltip "Recording finished; final transcript not available yet"}
-
-      :else
-      {:label "Created"
-       :badge-class "muted"
-       :icon :circle-dashed
-       :tooltip "Session created"})))
-
-(defn- status-icon
-  "Render the status icon from `rec->display-status` :icon."
-  [icon-name]
-  (if (= :rec-dot icon-name)
-    [:span {:class "rec-dot" :aria-hidden true}]
-    (icons/icon icon-name {:size 14})))
 
 (defn- row-access
   "Return {:can-manage? boolean :access-label string?} for a recording row.
@@ -114,8 +49,7 @@
 
   Returns: hiccup <tr>"
   [{:keys [session_id title started_at created_at] :as rec} on-deleted!]
-  (let [{:keys [label badge-class tooltip]
-         status-glyph :icon} (rec->display-status rec)
+  (let [display-status (session-status/display-status rec)
         session-status (str (or (:status rec) ""))
         active? (= "active" session-status)
         {:keys [can-manage? access-label]} (row-access rec)
@@ -139,11 +73,7 @@
          [:span {:class "muted" :style {:fontSize "12px"}} access-label])]]
      [:td {:class "muted"} (or (shared/iso->local created_at) "")]
      [:td {:class "muted"} (or (shared/iso->local started_at) "")]
-     [:td
-      [:span {:class (str "badge " badge-class)
-              :title tooltip}
-       (status-icon status-glyph)
-       [:span {:style {:marginLeft "8px"}} label]]]
+     [:td [shared/session-status-badge display-status]]
      [:td {:style {:textAlign "right"}}
       [:div {:class "row"}
        [router/link {:route {:page :recording :params {:session_id session_id}}
@@ -208,8 +138,7 @@
 
   Returns: hiccup <div>."
   [{:keys [session_id title started_at created_at] :as rec} on-deleted!]
-  (let [{:keys [label badge-class tooltip]
-         status-glyph :icon} (rec->display-status rec)
+  (let [display-status (session-status/display-status rec)
         session-status (str (or (:status rec) ""))
         active? (= "active" session-status)
         {:keys [can-manage? access-label]} (row-access rec)
@@ -235,11 +164,7 @@
         (when access-label
           [:span access-label])]]
 
-      [:div
-       [:span {:class (str "badge " badge-class)
-               :title tooltip}
-        (status-icon status-glyph)
-        [:span {:style {:marginLeft "8px"}} label]]]]
+      [:div [shared/session-status-badge display-status]]]
 
      [:div {:class "list-item-actions"}
       [router/link {:route {:page :recording :params {:session_id session_id}}

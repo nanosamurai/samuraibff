@@ -48,6 +48,22 @@
              :title tooltip}]
      [:span {:style {:marginLeft "8px"}} (str (or label ""))]]))
 
+(defn session-status-badge
+  "Render a session status badge.
+
+  Inputs:
+  - {:keys [label badge-class icon tooltip]} from
+    `samuraibff.ui.session-status/display-status`; :icon is an icon name or
+    :rec-dot for the recording indicator.
+
+  Returns: hiccup."
+  [{:keys [label badge-class icon tooltip]}]
+  [:span {:class (str "badge " badge-class) :title tooltip}
+   (if (= :rec-dot icon)
+     [:span {:class "rec-dot" :aria-hidden true}]
+     (icons/icon icon {:size 14}))
+   [:span {:style {:marginLeft "8px"}} label]])
+
 ;; --- Fetch / clipboard safety helpers ---
 
 (defn safe-http-error
