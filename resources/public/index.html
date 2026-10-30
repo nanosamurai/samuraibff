@@ -16,6 +16,7 @@
       --bg:#0b0f14;
       --panel:#0f1620;
       --panel2:#0c121b;
+      --soft:#141e2b;
       --line:#223046;
       --txt:#e6f0ff;
       --muted:#9fb2c9;
@@ -179,8 +180,16 @@
     select{
       appearance:none;
       padding-right:32px;
-      background:var(--panel2) var(--chevron-down) no-repeat right 10px center / 16px;
+      background:var(--soft) var(--chevron-down) no-repeat right 10px center / 16px;
     }
+
+    /* Quiet fields: a soft fill instead of a border; the border shows on hover and focus. */
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea, .dropdown .dropdown-trigger{
+      background-color:var(--soft);border-color:transparent;
+    }
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):hover, select:hover, textarea:hover, .dropdown .dropdown-trigger:hover{border-color:var(--line)}
+    input:focus, select:focus, textarea:focus, .dropdown .dropdown-trigger:focus-visible{border-color:var(--accent)}
+    input:disabled, select:disabled, textarea:disabled, .dropdown .dropdown-trigger:disabled{border-color:transparent;opacity:.6;cursor:not-allowed}
 
     /* All disclosure toggles (Technical details, Advanced settings) look the same. */
     summary{display:inline-flex;align-items:center;gap:6px;cursor:pointer;list-style:none;font-size:12px;color:var(--muted)}
