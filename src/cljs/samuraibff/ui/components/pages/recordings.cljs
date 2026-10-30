@@ -6,6 +6,7 @@
    [clojure.string :as str]
    [samuraibff.ui.access :as access]
    [samuraibff.ui.api :as api]
+   [samuraibff.ui.components.share-dialog :as share-dialog]
    [samuraibff.ui.components.shared :as shared]
    [samuraibff.ui.hooks :as hooks]
    [samuraibff.ui.icons :as icons]
@@ -16,7 +17,8 @@
    [samuraibff.ui.session-request :as session.req]
    [samuraibff.ui.session-status :as session-status]
    [samuraibff.ui.store :as store]
-   [samuraibff.ui.util :as util]))
+   [samuraibff.ui.util :as util]
+   ["react" :as react]))
 
 (def ^:private mobile-breakpoint-query
   "CSS media query used as the threshold for mobile layout.
@@ -40,22 +42,101 @@
 (def ^:private scopes
   [["all" "All"] ["mine" "My sessions"] ["shared" "Shared with me"]])
 
+(defn- session-actions
+  "Render the actions of a session row or card.
+
+  Record shows only for a draft the user can record into, before the other
+  actions, so Open, Share and Delete line up across rows. Share shows when
+  sharing is available and is disabled for people who cannot manage the
+  session. Unavailable actions say why in their tooltip.
+
+  Inputs:
+  - rec: a map from /api/recordings
+  - opts: {:class string, :on-deleted! (fn []), :on-share! (fn [rec]) or nil
+    when sharing is not available}
+
+  Returns: hiccup <div>."
+  [{:keys [session_id title created_at] :as rec} {:keys [class on-deleted! on-share!]}]
+  (let [session-status (str (or (:status rec) ""))
+        active? (= "active" session-status)
+        {:keys [can-manage?]} (row-access rec)
+        recordable? (and can-manage?
+                         (= "created" session-status)
+                         (false? (:has_recording rec)))
+        shareable? (and can-manage? (some? (:access rec)))
+        created-at-ms (or (util/iso->ms created_at) (util/now-ms))
+        session-title (let [t (str/trim (str (or title "")))]
+                        (when (seq t) t))
+        session-title-display (or session-title (util/default-session-title created-at-ms))
+        unavailable (fn [icon-name title]
+                      [:span {:class "btn ghost icon-only disabled" :aria-disabled "true" :title title}
+                       (icons/icon icon-name)])]
+    [:div {:class (str "session-actions " class)}
+     (when recordable?
+       [router/link {:route {:page :live :params {}}
+                     :class "btn ghost icon-only"
+                     :title "Record with this session"
+                     :aria-label "Record with this session"
+                     :on-click (fn [_]
+                                 (store/set-session-id! session_id)
+                                 (store/set-session-created-at-ms! created-at-ms)
+                                 (store/set-session-title! (or session-title ""))
+                                 (store/set-session-status! (:status rec)))}
+        (icons/icon :record)])
+
+     [router/link {:route {:page :recording :params {:session_id session_id}}
+                   :class "btn session-open"
+                   :title "Open session"}
+      "Open"]
+
+     (when (fn? on-share!)
+       (if shareable?
+         [:button {:class "btn ghost icon-only"
+                   :type "button"
+                   :title "Share session"
+                   :aria-label "Share session"
+                   :on-click (fn [_] (on-share! rec))}
+          (icons/icon :share)]
+         (unavailable :share (if can-manage?
+                               "Sharing is not available for this session"
+                               "Only the owner can share this session"))))
+
+     (cond
+       (not can-manage?)
+       (unavailable :trash "Only the owner can delete this session")
+
+       active?
+       (unavailable :trash "Stop recording before deleting this session")
+
+       :else
+       [:button {:class "btn ghost icon-only session-delete"
+                 :type "button"
+                 :title "Delete session"
+                 :aria-label "Delete session"
+                 :on-click (fn [_]
+                             (when (js/confirm (str "Delete session “" session-title-display "”"
+                                                    "?\n\nThis will remove recordings and transcripts."))
+                               (-> (api/delete-recording! session_id)
+                                   (.then (fn [_]
+                                            (store/remove-recording-db! session_id)
+                                            (on-deleted!)))
+                                   (.catch (fn [e]
+                                             (store/append-log!
+                                              (str "[ui] failed deleting session: " e)))))))}
+        (icons/icon :trash)])]))
+
 (defn- recordings-row
   "Render a single recordings table row.
 
   Inputs:
   - rec: a map from /api/recordings
   - on-deleted!: no-argument callback that refreshes the current page
+  - on-share!: (fn [rec]) that opens the share dialog, or nil without sharing
 
   Returns: hiccup <tr>"
-  [{:keys [session_id title started_at created_at] :as rec} on-deleted!]
+  [{:keys [title started_at created_at] :as rec} on-deleted! on-share!]
   (let [display-status (session-status/display-status rec)
-        session-status (str (or (:status rec) ""))
-        active? (= "active" session-status)
-        {:keys [can-manage? access-label]} (row-access rec)
-        recordable? (and can-manage?
-                         (= "created" session-status)
-                         (false? (:has_recording rec)))
+        {:keys [access-label]} (row-access rec)
         created-at-ms (or (util/iso->ms created_at) (util/now-ms))
         session-title (let [t (str/trim (str (or title "")))]
                         (when (seq t) t))
@@ -74,60 +155,7 @@
      [:td {:class "muted"} (or (shared/iso->local created_at) "")]
      [:td {:class "muted"} (or (shared/iso->local started_at) "")]
      [:td [shared/session-status-badge display-status]]
-     [:td {:style {:textAlign "right"}}
-      [:div {:class "row"}
-       [router/link {:route {:page :recording :params {:session_id session_id}}
-                     :class "btn"
-                     :title "Open detail"
-                     :aria-label "Open session"}
-        (icons/icon :arrow-up-right)]
-
-       (if recordable?
-         [router/link {:route {:page :live :params {}}
-                       :class "btn ghost"
-                       :title "Record with this session"
-                       :aria-label "Record with this session"
-                       :on-click (fn [_]
-                                   (store/set-session-id! session_id)
-                                   (store/set-session-created-at-ms! created-at-ms)
-                                   (store/set-session-title!
-                                    (or session-title
-                                        (util/default-session-title created-at-ms)
-                                        ""))
-                                   (store/set-session-status! (:status rec)))}
-          (icons/icon :record)]
-         [:span {:class "btn ghost disabled" :aria-disabled "true"
-                 :title (if can-manage?
-                          "Start a new session to make another recording"
-                          "Only the owner can record into this session")}
-          (icons/icon :record)])
-
-       (cond
-         (not can-manage?)
-         [:span {:class "btn ghost disabled" :aria-disabled "true"
-                 :title "Only the owner can delete this session"}
-          (icons/icon :trash)]
-
-         active?
-         [:span {:class "btn ghost disabled" :aria-disabled "true"
-                 :title "Stop recording before deleting this session"}
-          (icons/icon :trash)]
-
-         :else
-         [:button {:class "btn ghost"
-                   :title "Delete session"
-                   :aria-label "Delete session"
-                   :on-click (fn [_]
-                               (when (js/confirm (str "Delete session “" session-title-display "”"
-                                                      "?\n\nThis will remove recordings and transcripts."))
-                                 (-> (api/delete-recording! session_id)
-                                     (.then (fn [_]
-                                              (store/remove-recording-db! session_id)
-                                              (on-deleted!)))
-                                     (.catch (fn [e]
-                                               (store/append-log!
-                                                (str "[ui] failed deleting session: " e)))))))}
-          (icons/icon :trash)])]]]))
+     [:td [session-actions rec {:on-deleted! on-deleted! :on-share! on-share!}]]]))
 
 (defn- recordings-card
   "Render a single recording as a stacked card (mobile layout).
@@ -135,16 +163,12 @@
   Inputs:
   - rec: a map from /api/recordings
   - on-deleted!: no-argument callback that refreshes the current page
+  - on-share!: (fn [rec]) that opens the share dialog, or nil without sharing
 
   Returns: hiccup <div>."
-  [{:keys [session_id title started_at created_at] :as rec} on-deleted!]
+  [{:keys [title started_at created_at] :as rec} on-deleted! on-share!]
   (let [display-status (session-status/display-status rec)
-        session-status (str (or (:status rec) ""))
-        active? (= "active" session-status)
-        {:keys [can-manage? access-label]} (row-access rec)
-        recordable? (and can-manage?
-                         (= "created" session-status)
-                         (false? (:has_recording rec)))
+        {:keys [access-label]} (row-access rec)
         created-at-ms (or (util/iso->ms created_at) (util/now-ms))
         session-title (let [t (str/trim (str (or title "")))]
                         (when (seq t) t))
@@ -166,59 +190,7 @@
 
       [:div [shared/session-status-badge display-status]]]
 
-     [:div {:class "list-item-actions"}
-      [router/link {:route {:page :recording :params {:session_id session_id}}
-                    :class "btn icon"
-                    :title "Open detail"
-                    :aria-label "Open session"}
-       (icons/icon :arrow-up-right)]
-
-      (if recordable?
-        [router/link {:route {:page :live :params {}}
-                      :class "btn ghost icon"
-                      :title "Record with this session"
-                      :aria-label "Record with this session"
-                      :on-click (fn [_]
-                                  (store/set-session-id! session_id)
-                                  (store/set-session-created-at-ms! created-at-ms)
-                                  (store/set-session-title!
-                                   (or session-title
-                                       (util/default-session-title created-at-ms)
-                                       ""))
-                                  (store/set-session-status! (:status rec)))}
-         (icons/icon :record)]
-        [:span {:class "btn ghost icon disabled" :aria-disabled "true"
-                :title (if can-manage?
-                         "Start a new session to make another recording"
-                         "Only the owner can record into this session")}
-         (icons/icon :record)])
-
-      (cond
-        (not can-manage?)
-        [:span {:class "btn ghost icon disabled" :aria-disabled "true"
-                :title "Only the owner can delete this session"}
-         (icons/icon :trash)]
-
-        active?
-        [:span {:class "btn ghost icon disabled" :aria-disabled "true"
-                :title "Stop recording before deleting this session"}
-         (icons/icon :trash)]
-
-        :else
-        [:button {:class "btn ghost icon"
-                  :title "Delete session"
-                  :aria-label "Delete session"
-                  :on-click (fn [_]
-                              (when (js/confirm (str "Delete session “" session-title-display "”"
-                                                     "?\n\nThis will remove recordings and transcripts."))
-                                (-> (api/delete-recording! session_id)
-                                    (.then (fn [_]
-                                             (store/remove-recording-db! session_id)
-                                             (on-deleted!)))
-                                    (.catch (fn [e]
-                                              (store/append-log!
-                                               (str "[ui] failed deleting session: " e)))))))}
-         (icons/icon :trash)])]]))
+     [session-actions rec {:class "list-item-actions" :on-deleted! on-deleted! :on-share! on-share!}]]))
 
 (defn- pagination-footer
   "Render compact pagination from use-recordings-page state; return footer Hiccup."
@@ -259,8 +231,18 @@
   "Render a page of sessions as a table or mobile cards from pagination hook state."
   [{:keys [items drafts-count show-drafts? scope loading? error set-show-drafts! set-scope! refresh!] :as state}]
   (let [mobile? (hooks/use-media-query mobile-breakpoint-query)
-        sharing? (permissions/use-capability? :share_sessions)]
+        sharing? (permissions/use-capability? :share_sessions)
+        [share-rec set-share-rec!] (react/useState nil)
+        on-share! (when sharing? set-share-rec!)]
     [:div {:class "card" :aria-busy (boolean loading?)}
+     [share-dialog/share-dialog {:open? (some? share-rec)
+                                 :session-id (:session_id share-rec)
+                                 :session-title (or (not-empty (str/trim (str (or (:title share-rec) ""))))
+                                                    (util/default-session-title
+                                                     (or (util/iso->ms (:created_at share-rec)) (util/now-ms))))
+                                 :on-close #(set-share-rec! nil)
+                                 :on-saved (fn [_] (refresh!))
+                                 :on-owner-assigned (fn [_] (refresh!))}]
      (let [drafts-toggle? (or show-drafts? (pos? drafts-count))]
        ;; The page title already says Sessions: without scope tabs the header
        ;; only holds the drafts toggle, and is left out when there is none.
@@ -299,7 +281,7 @@
        [:div {:class "list"}
         (for [{:keys [session_id] :as rec} items]
           ^{:key (str "rec-card-" session_id)}
-          [recordings-card rec refresh!])]
+          [recordings-card rec refresh! on-share!])]
 
        :else
        [:table {:class "table"}
@@ -313,7 +295,7 @@
         [:tbody
          (for [{:keys [session_id] :as rec} items]
            ^{:key (str "rec-" session_id)}
-           [recordings-row rec refresh!])]])
+           [recordings-row rec refresh! on-share!])]])
      [pagination-footer state]]))
 
 (defn recordings-page
