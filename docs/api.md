@@ -28,12 +28,15 @@ This is a navigational overview. For detailed semantics, see the linked docs.
 ### Sessions
 
 * `POST /api/sessions` – create a session (optionally with title and overrides)
+* `POST /api/sessions/upload` – create a session from an audio/video file
+  (multipart); the final transcript follows asynchronously
 * `POST /api/sessions/{session_id}/finish` – finish a session (persist `ended_at`)
 * `PATCH /api/sessions/{session_id}` – update session title (when enabled)
 
 See also:
 
 * `docs/ws-contract.md` (how sessions relate to WS connection semantics)
+* `docs/features-file-uploads.md` (file upload fields, limits, status)
 * `docs/features-webhooks-workflows.md` (session override concepts)
 
 ### Recordings + transcripts

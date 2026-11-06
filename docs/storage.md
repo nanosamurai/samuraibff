@@ -82,6 +82,12 @@ Environment variables:
 * `SAMURAIBFF_S3_RECORDINGS_BUCKET`
 * `SAMURAIBFF_S3_RECORDINGS_PREFIX`
 
+Uploaded files (`POST /api/sessions/upload`) are stored unchanged in the
+recordings bucket at `<recordings-prefix>/<tenant_id>/uploads/<session_id>/source`
+until `recorder_worker` converts and deletes them. The BFF needs
+`s3:PutObject`, `s3:AbortMultipartUpload` and `s3:DeleteObject` on these keys.
+See `docs/features-file-uploads.md`.
+
 ### Tests (LocalStack)
 
 Integration tests use LocalStack S3 via Testcontainers. Run:

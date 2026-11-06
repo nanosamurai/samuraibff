@@ -49,12 +49,14 @@ flowchart LR
 
     SamuraiBFF -->|"produce protobuf AudioChunk\ntopic: audio.raw"| KafkaBroker
     SamuraiBFF -->|"produce compacted JSON\ntopic: sessions.meta"| KafkaBroker
+    SamuraiBFF -->|"uploaded file stored in S3\ntopic: recordings.uploaded"| KafkaBroker
 
     KafkaBroker -->|"consume protobuf RefinedEvent\ntopic: transcripts.refined"| SamuraiBFF
     KafkaBroker -->|"consume\ntopic: audio.raw"| WhisperXWorker
     WhisperXWorker -->|"produce protobuf RefinedEvent\ntopic: transcripts.refined"| KafkaBroker
 
     KafkaBroker -->|"consume\ntopic: audio.raw"| RecorderWorker
+    KafkaBroker -->|"consume (FFmpeg conversion)\ntopic: recordings.uploaded"| RecorderWorker
     RecorderWorker -->|"produce protobuf RecordingFinished\ntopic: recordings.finished"| KafkaBroker
 
     KafkaBroker -->|"consume\ntopic: recordings.finished"| FinalizerWorker
@@ -333,6 +335,7 @@ See:
 * Storage (Postgres + S3): `docs/storage.md`
 * Transcripts (realtime/refined/final): `docs/features-transcripts.md`
 * Recordings + playback + karaoke: `docs/features-recordings-playback-karaoke.md`
+* File uploads (`POST /api/sessions/upload`): `docs/features-file-uploads.md`
 * Webhooks + workflows: `docs/features-webhooks-workflows.md`
 
 Workflow transcript triggers select one explicit `trigger.track_id` in addition
