@@ -9,6 +9,7 @@
   - session_transcripts (append-only transcript records)
 
   Public API:
+  - `sort-keys`, `sort-orders`
   - `sessions-page-query`
   - `list-sessions-for-principal`
   - `find-session-by-id`
@@ -29,24 +30,120 @@
    [next.jdbc :as jdbc]
    [next.jdbc.result-set :as rs]
    [org.corfield.logging4j2 :as log]
-   [samuraibff.db.session-access :as session-access])
+   [samuraibff.db.session-access :as session-access]
+   [samuraibff.ui.session-status :as session-status])
   (:import
    (java.util UUID)
    (javax.sql DataSource)))
+
+(def sort-keys
+  "Sort keys that `sessions-page-query` accepts. Each maps to a fixed
+  HoneySQL expression; no caller value goes into SQL."
+  #{:title :created_at :started_at :duration :status})
+
+(def sort-orders
+  "Sort directions that `sessions-page-query` accepts."
+  #{:asc :desc})
+
+(def ^:private latest-recording-duration
+  "HoneySQL subquery: `duration_s` of the latest recording of session `s`.
+  Uses the same order as the latest-recording lookup of the page."
+  {:select [:r.duration_s]
+   :from [[:recordings :r]]
+   :where [:= :r.session_id :s.id]
+   :order-by [[:r.created_at :desc] [:r.id :desc]]
+   :limit 1})
+
+(def ^:private session-duration-expr
+  "HoneySQL expression: duration of session `s` in seconds (double), or NULL.
+
+  Drafts (`created`) and running sessions (`active`) have no duration. Other
+  sessions use `ended_at - started_at`. When the session times are missing or
+  out of order, the latest recording's `duration_s` is used."
+  [:case
+   [:in :s.status ["created" "active"]] nil
+   [:>= :s.ended_at :s.started_at] [:date_part [:inline "epoch"] [:- :s.ended_at :s.started_at]]
+   :else latest-recording-duration])
+
+(defn- status-rank-expr
+  "Return a HoneySQL expression: the sort rank of the status label of session
+  `s`, as `samuraibff.ui.session-status/display-status` derives it.
+
+  Each branch mirrors one branch of `display-status` and takes its rank from
+  the label that `display-status` returns for an example session, so labels
+  and ranks have one source. Inputs: tenant UUID for the final transcript
+  lookup. Returns: CASE expression with inline integer ranks."
+  [tenant-id]
+  (let [rank-of (fn [session]
+                  [:inline (session-status/label-sort-rank
+                            (:label (session-status/display-status session)))])
+        has-final [:exists {:select [1]
+                            :from [[:session_transcripts :st]]
+                            :where [:and [:= :st.session_id :s.id]
+                                    [:= :st.tenant_id tenant-id]
+                                    [:= :st.type "final"]]}]
+        has-recording [:exists {:select [1]
+                                :from [[:recordings :r]]
+                                :where [:= :r.session_id :s.id]}]]
+    [:case
+     [:= :s.status "failed"] (rank-of {:status "failed"})
+     [:= :s.status "active"] (rank-of {:status "active"})
+     [:= :s.status "created"] (rank-of {:status "created"})
+     [:and [:= :s.status "finished"] has-final] (rank-of {:status "finished" :has_final_transcript true})
+     [:= :s.status "finished"] (rank-of {:status "finished"})
+     has-recording (rank-of {:status "other" :has_recording true})
+     :else (rank-of {:status "other"})]))
+
+(defn- sort-expr
+  "Return the fixed HoneySQL sort expression on sessions alias `s`.
+
+  Inputs: sort key from `sort-keys` and the tenant UUID. Title sorts ignore
+  case and treat a blank title as empty. Returns nil for :duration: the page
+  then sorts by its `session_duration_s` column, so the duration is computed
+  once. Throws ex-info for an unknown key."
+  [sort-key tenant-id]
+  (case sort-key
+    :title [:nullif [:lower [:trim :s.title]] ""]
+    :created_at :s.created_at
+    :started_at :s.started_at
+    :duration nil
+    :status (status-rank-expr tenant-id)
+    (throw (ex-info "Unsupported sessions sort key" {:sort sort-key}))))
+
+(defn- order-by-clauses
+  "Return HoneySQL :order-by clauses for a sort value column and an id column.
+
+  Empty sort values come last in both directions. The id is the tie-breaker,
+  so pages stay stable. Throws ex-info for an unknown direction."
+  [sort-column id-column order]
+  (case order
+    :asc [[sort-column :asc-nulls-last] [id-column :asc]]
+    :desc [[sort-column :desc-nulls-last] [id-column :desc]]
+    (throw (ex-info "Unsupported sessions sort order" {:order order}))))
 
 (defn sessions-page-query
   "Build a parameterized HoneySQL page query of the sessions a principal may read.
 
   Inputs: principal map (see `samuraibff.access.policy`) and options :limit
   (integer, default 200), :offset (integer, default 0), :show-drafts?
-  (boolean, default true) and :scope (:all | :mine | :shared, default :all).
-  Returns a HoneySQL map. The access policy and scope apply before counts and
-  pagination. Counts and rows share one statement snapshot. A counts-only row
-  survives an empty page; recording and transcript lookups run only for
-  sessions on the selected page."
-  [principal {:keys [limit offset show-drafts? scope]
-              :or {limit 200 offset 0 show-drafts? true scope :all}}]
+  (boolean, default true), :scope (:all | :mine | :shared, default :all),
+  :sort (a `sort-keys` keyword, default :created_at) and :order (:asc | :desc,
+  default :desc). Returns a HoneySQL map. The access policy and scope apply
+  before counts and pagination; the sort changes only the row order. Rows
+  include :session_duration_s (see `session-duration-expr`). Throws ex-info for
+  an unknown sort key or order. Counts and rows share one statement snapshot.
+  A counts-only row survives an empty page; recording and transcript lookups
+  run only for sessions on the selected page."
+  [principal {:keys [limit offset show-drafts? scope sort order]
+              :or {limit 200 offset 0 show-drafts? true scope :all
+                   sort :created_at order :desc}}]
   (let [tenant-id (:tenant-id principal)
+        sort-value (sort-expr sort tenant-id)
+        [page-sort-column outer-sort-column] (if sort-value
+                                               [:sort_value :p.sort_value]
+                                               [:session_duration_s :p.session_duration_s])
+        page-order (order-by-clauses page-sort-column :s.id order)
+        outer-order (order-by-clauses outer-sort-column :p.id order)
         accessible (session-access/scope-condition principal scope)
         visible-status [:is-distinct-from :s.status "created"]
         counts {:select [[(if show-drafts?
@@ -55,19 +152,21 @@
                          [[:filter [:count :*] {:where [:= :s.status "created"]}] :drafts_count]]
                 :from [[:sessions :s]]
                 :where accessible}
-        page {:select [:s.id :s.tenant_id :s.user_id :s.session_key :s.title :s.status
-                       :s.started_at :s.ended_at :s.created_at :s.visibility
-                       :s.created_via_credential_id
-                       [:o.name :owner_name] [:o.email :owner_email]
-                       [:o.principal_type :owner_type] [:cv.name :created_via_name]
-                       [(session-access/key-manager-expr principal) :key_manager]]
+        page {:select (cond-> [:s.id :s.tenant_id :s.user_id :s.session_key :s.title :s.status
+                               :s.started_at :s.ended_at :s.created_at :s.visibility
+                               :s.created_via_credential_id
+                               [:o.name :owner_name] [:o.email :owner_email]
+                               [:o.principal_type :owner_type] [:cv.name :created_via_name]
+                               [(session-access/key-manager-expr principal) :key_manager]
+                               [session-duration-expr :session_duration_s]]
+                        sort-value (conj [sort-value :sort_value]))
               :from [[:sessions :s]]
               :left-join [[:app_users :o] [:= :o.id :s.user_id]
                           [:api_credentials :cv] [:and [:= :cv.id :s.created_via_credential_id]
                                                   [:= :cv.tenant_id :s.tenant_id]]]
               :where (cond-> [:and accessible]
                        (not show-drafts?) (conj visible-status))
-              :order-by [[:s.created_at :desc] [:s.id :desc]]
+              :order-by page-order
               :limit (long limit)
               :offset (long offset)}
         recording {:select [:session_id [:created_at :recording_created_at] :duration_s :sample_rate :lang]
@@ -85,6 +184,7 @@
               :p.id :p.user_id :p.session_key :p.title :p.status :p.started_at :p.ended_at :p.created_at
               :p.visibility :p.owner_name :p.owner_email
               :p.created_via_credential_id :p.owner_type :p.created_via_name :p.key_manager
+              :p.session_duration_s
               :lr.recording_created_at :lr.duration_s :lr.sample_rate :lr.lang
               [[:is-not :lr.session_id nil] :has_recording]
               [[:is-not :ft.session_id nil] :has_final_transcript]]
@@ -92,7 +192,7 @@
      :left-join [[page :p] true
                  [[:lateral recording] :lr] true
                  [[:lateral final-transcript] :ft] true]
-     :order-by [[:p.created_at :desc] [:p.id :desc]]}))
+     :order-by outer-order}))
 
 (defn list-sessions-for-principal
   "Fetch one page and both counts of the sessions a principal may read.
