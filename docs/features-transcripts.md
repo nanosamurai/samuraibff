@@ -85,8 +85,8 @@ track, or all refined windows of the track ordered by audio start.
 
 | Format | Content |
 | --- | --- |
-| `srt` | Numbered cues, `HH:MM:SS,mmm` times, `Speaker: text` |
-| `vtt` | `WEBVTT` header, `HH:MM:SS.mmm` times, `<v Speaker>` voice tags, escaped text |
+| `srt` | Numbered cues, `HH:MM:SS,mmm` times, `Speaker: text`; `<` `>` become `‹` `›` because SRT has no escaping |
+| `vtt` | `WEBVTT` header, `HH:MM:SS.mmm` times, `<v Speaker>Speaker: text` (voice tag plus visible name), escaped text |
 | `txt` | One `[HH:MM:SS] Speaker: text` line per segment |
 | `docx` | Word document: title, then one `[HH:MM:SS] Speaker: text` paragraph per segment |
 | `json` | `{session_id, title, stage, track_id, lang, text, segments}`; each segment has `start_s`, `end_s`, `text`, optional `speaker` and optional `words` (`start_s`, `end_s`, `text`) |

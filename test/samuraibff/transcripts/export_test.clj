@@ -51,8 +51,8 @@
 
 (deftest srt-test
   (let [srt (export/->srt segments)]
-    (is (= (str "1\n00:00:00,000 --> 00:00:01,250\nAlice: Hello <world> & you\n\n"
-                "2\n01:02:03,500 --> 01:02:05,004\nBob: Žluťoučký kůň šel --> dál\n\n"
+    (is (= (str "1\n00:00:00,000 --> 00:00:01,250\nAlice: Hello ‹world› & you\n\n"
+                "2\n01:02:03,500 --> 01:02:05,004\nBob: Žluťoučký kůň šel --› dál\n\n"
                 "3\n00:00:06,000 --> 00:00:07,000\nNo speaker\n\n")
            srt))
     (testing "round trip keeps timings of exported cues"
@@ -65,12 +65,12 @@
 (deftest vtt-test
   (let [vtt (export/->vtt segments)]
     (is (str/starts-with? vtt "WEBVTT\n\n"))
-    (is (str/includes? vtt "00:00:00.000 --> 00:00:01.250\n<v Alice>Hello &lt;world&gt; &amp; you\n\n"))
-    (is (str/includes? vtt "<v Bob>Žluťoučký kůň šel --&gt; dál\n\n") "cue text cannot contain -->")
+    (is (str/includes? vtt "00:00:00.000 --> 00:00:01.250\n<v Alice>Alice: Hello &lt;world&gt; &amp; you\n\n"))
+    (is (str/includes? vtt "<v Bob>Bob: Žluťoučký kůň šel --&gt; dál\n\n") "cue text cannot contain -->")
     (is (str/includes? vtt "00:00:06.000 --> 00:00:07.000\nNo speaker\n\n"))
     (is (= [[0.0 1.25] [3723.5 3725.004] [6.0 7.0]] (cue-times vtt))))
   (is (= "WEBVTT\n\n" (export/->vtt [])))
-  (is (str/includes? (export/->vtt [{:start_s 0 :end_s 1 :speaker "A<b>" :text "x"}]) "<v A&lt;b&gt;>x")))
+  (is (str/includes? (export/->vtt [{:start_s 0 :end_s 1 :speaker "A<b>" :text "x"}]) "<v A&lt;b&gt;>A&lt;b&gt;: x")))
 
 (deftest txt-test
   (is (= (str "[00:00:00] Alice: Hello <world> & you\n"

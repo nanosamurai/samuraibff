@@ -74,16 +74,23 @@
   [segments]
   (remove #(str/blank? (:text %)) segments))
 
+(defn- srt-text
+  "Replace `<` and `>` with `‹` and `›`: SRT has no escaping, and players
+  drop text that looks like a formatting tag."
+  [s]
+  (-> s (str/replace "<" "‹") (str/replace ">" "›")))
+
 (defn ->srt
   "Render segments as SubRip (SRT): numbered cues, `HH:MM:SS,mmm` times and
-  `Speaker: ` prefixes. Returns a string (empty for no segments)."
+  `Speaker: ` prefixes. Angle brackets become `‹›` (see `srt-text`).
+  Returns a string (empty for no segments)."
   [segments]
   (apply str
          (map-indexed (fn [idx segment]
                         (let [[start end] (cue-times segment)]
                           (str (inc idx) "\n"
                                (format-timestamp start ",") " --> " (format-timestamp end ",") "\n"
-                               (speaker-line segment) "\n\n")))
+                               (srt-text (speaker-line segment)) "\n\n")))
                       (exportable segments))))
 
 (defn- vtt-escape
@@ -92,17 +99,17 @@
   (-> (str s) (str/replace "&" "&amp;") (str/replace "<" "&lt;") (str/replace ">" "&gt;")))
 
 (defn ->vtt
-  "Render segments as WebVTT: `HH:MM:SS.mmm` times and `<v Speaker>` voice
-  tags. Cue text and speaker names are escaped. Returns a string that always
-  starts with the `WEBVTT` header."
+  "Render segments as WebVTT: `HH:MM:SS.mmm` times, a `<v Speaker>` voice
+  tag and a visible `Speaker: ` prefix (many players do not show voice
+  names). Cue text and speaker names are escaped. Returns a string that
+  always starts with the `WEBVTT` header."
   [segments]
   (apply str "WEBVTT\n\n"
          (map (fn [segment]
-                (let [[start end] (cue-times segment)
-                      text (vtt-escape (one-line (:text segment)))]
+                (let [[start end] (cue-times segment)]
                   (str (format-timestamp start ".") " --> " (format-timestamp end ".") "\n"
-                       (if-let [who (speaker segment)] (str "<v " (vtt-escape who) ">" text) text)
-                       "\n\n")))
+                       (when-let [who (speaker segment)] (str "<v " (vtt-escape who) ">"))
+                       (vtt-escape (speaker-line segment)) "\n\n")))
               (exportable segments))))
 
 (defn- timed?
