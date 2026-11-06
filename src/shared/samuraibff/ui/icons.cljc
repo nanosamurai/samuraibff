@@ -42,6 +42,8 @@
    :chevron-down (stroked [:path {:d "m6 9 6 6 6-6"}])
    :chevron-left (stroked [:path {:d "m15 18-6-6 6-6"}])
    :chevron-right (stroked [:path {:d "m9 18 6-6-6-6"}])
+   :chevron-up (stroked [:path {:d "m18 15-6-6-6 6"}])
+   :chevrons-up-down (stroked [:path {:d "m7 15 5 5 5-5"}] [:path {:d "m7 9 5-5 5 5"}])
    :chevrons-left (stroked [:path {:d "m11 17-5-5 5-5"}] [:path {:d "m18 17-5-5 5-5"}])
    :chevrons-right (stroked [:path {:d "m6 17 5-5-5-5"}] [:path {:d "m13 17 5-5-5-5"}])
    :circle-check (stroked [:circle {:cx 12 :cy 12 :r 10}] [:path {:d "m16 9-5.5 5.5L8 12"}])

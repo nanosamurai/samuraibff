@@ -15,6 +15,7 @@
    [samuraibff.ui.recordings-page :as recordings-page]
    [samuraibff.ui.router :as router]
    [samuraibff.ui.session-request :as session.req]
+   [samuraibff.ui.session-sort :as session-sort]
    [samuraibff.ui.session-status :as session-status]
    [samuraibff.ui.store :as store]
    [samuraibff.ui.util :as util]
@@ -154,6 +155,7 @@
          [:span {:class "muted" :style {:fontSize "12px"}} access-label])]]
      [:td {:class "muted"} (or (shared/iso->local created_at) "")]
      [:td {:class "muted"} (or (shared/iso->local started_at) "")]
+     [:td {:class "muted sessions-duration"} (session-sort/duration-text rec)]
      [:td [shared/session-status-badge display-status]]
      [:td [session-actions rec {:on-deleted! on-deleted! :on-share! on-share!}]]]))
 
@@ -185,12 +187,53 @@
        [:div {:class "list-item-meta"}
         [:span (str "Created: " (or (shared/iso->local created_at) "—"))]
         [:span (str "Started: " (or (shared/iso->local started_at) "—"))]
+        (let [duration (session-sort/duration-text rec)]
+          (when (seq duration)
+            [:span (str "Duration: " duration)]))
         (when access-label
           [:span access-label])]]
 
       [:div [shared/session-status-badge display-status]]]
 
      [session-actions rec {:class "list-item-actions" :on-deleted! on-deleted! :on-share! on-share!}]]))
+
+(defn- sort-header
+  "Render one sortable column header of the Sessions table.
+
+  Inputs:
+  - current: sort map {:sort string :order string} from use-recordings-page
+  - column: a map from `session-sort/columns`
+  - opts: {:on-sort! (fn [sort-map]), :disabled? boolean}
+
+  The header is a button, so keyboard users can sort with Enter or Space.
+  Only the active column has `aria-sort`. Returns hiccup <th>."
+  [current {:keys [key label] :as column} {:keys [on-sort! disabled?]}]
+  (let [aria-sort (session-sort/aria-sort current key)]
+    [:th (cond-> {:class "sessions-sort-header"}
+           aria-sort (assoc :aria-sort aria-sort))
+     [:button {:type "button"
+               :class (str "sessions-sort-button" (when aria-sort " active"))
+               :title (session-sort/header-title current column)
+               :disabled disabled?
+               :on-click (fn [_] (on-sort! (session-sort/next-sort current key)))}
+      [:span label]
+      (icons/icon (session-sort/indicator-icon current key) {:size 14})]]))
+
+(defn- sort-select
+  "Render the sort control of the mobile card view.
+
+  Inputs: {:sort sort map, :set-sort! (fn [sort-map]), :loading? boolean}.
+  Offers the same sorts as the table headers. Returns hiccup <label>."
+  [{:keys [sort set-sort! loading?]}]
+  [:label {:class "sessions-sort-select muted"}
+   "Sort"
+   [:select {:aria-label "Sort sessions"
+             :value (session-sort/option-value sort)
+             :disabled loading?
+             :on-change (fn [e]
+                          (set-sort! (session-sort/parse-option-value (.. e -target -value))))}
+    (for [[value label] session-sort/select-options]
+      ^{:key value} [:option {:value value} label])]])
 
 (defn- pagination-footer
   "Render compact pagination from use-recordings-page state; return footer Hiccup."
@@ -228,8 +271,14 @@
         (icons/icon :chevrons-right)]]]]))
 
 (defn recordings-table
-  "Render a page of sessions as a table or mobile cards from pagination hook state."
-  [{:keys [items drafts-count show-drafts? scope loading? error set-show-drafts! set-scope! refresh!] :as state}]
+  "Render a page of sessions as a table or mobile cards from pagination hook state.
+
+  Sortable column headers (and a Sort select on mobile) ask the BFF for a new
+  sort through :set-sort!; Actions is not sortable."
+  [{:keys [items drafts-count show-drafts? scope loading? error
+           set-show-drafts! set-scope! set-sort! refresh!]
+    current-sort :sort
+    :as state}]
   (let [mobile? (hooks/use-media-query mobile-breakpoint-query)
         sharing? (permissions/use-capability? :share_sessions)
         [share-rec set-share-rec!] (react/useState nil)
@@ -262,6 +311,8 @@
              [:input {:type "checkbox" :checked (boolean show-drafts?) :disabled loading?
                       :on-change (fn [e] (set-show-drafts! (.. e -target -checked)))}]
              (str "Show drafts (" drafts-count ")")])]))
+     (when mobile?
+       [sort-select state])
      (cond
        loading?
        [:div {:class "muted sessions-list-message"} "Loading sessions…"]
@@ -287,10 +338,8 @@
        [:table {:class "table"}
         [:thead
          [:tr
-          [:th "Session"]
-          [:th "Created"]
-          [:th "Started"]
-          [:th "Status"]
+          (for [{:keys [key] :as column} session-sort/columns]
+            ^{:key key} [sort-header current-sort column {:on-sort! set-sort! :disabled? loading?}])
           [:th {:style {:textAlign "right"}} "Actions"]]]
         [:tbody
          (for [{:keys [session_id] :as rec} items]

@@ -13,7 +13,8 @@
         (is (= "false" (:focusable attrs)))
         (is (seq children)))))
   (testing "control icons render"
-    (doseq [icon-name [:arrow-up-right :chevron-down :chevron-left :chevron-right
+    (doseq [icon-name [:arrow-up-right :chevron-down :chevron-left :chevron-right :chevron-up
+                       :chevrons-up-down
                        :chevrons-left :chevrons-right :circle-check :circle-dashed
                        :circle-stop :circle-x :loader-circle :menu :panel-right-close
                        :panel-right-open :plus :settings :share :square :trash :x]]
