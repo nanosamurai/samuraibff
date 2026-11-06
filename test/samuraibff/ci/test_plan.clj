@@ -40,6 +40,7 @@
     samuraibff.http.server-test
     samuraibff.keycloak.admin-privacy-test
     samuraibff.observability.diagnostics-test
+    samuraibff.s3.uploads-test
     samuraibff.secrets.aws-transport-test
     samuraibff.transcripts.export-test
     samuraibff.ui.transcript-test
