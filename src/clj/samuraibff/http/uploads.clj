@@ -16,6 +16,9 @@
   4. Publish `recordings.uploaded` and wait for the broker ack. The recorder
      worker decodes the file and publishes the normal `recordings.finished`.
 
+  `create-upload-session!` runs steps 1-4 for every upload API, such as the
+  OpenAI-compatible transcription endpoint (`samuraibff.http.openai`).
+
   Status and results use the existing recording endpoints and the
   `transcript.final.ready` webhook. When the recorder cannot convert the file,
   `samuraibff.kafka.upload-failed-consumer` sets the session to `failed`.
@@ -37,8 +40,9 @@
   (:import
    (org.apache.commons.fileupload2.core FileUploadException FileUploadSizeException)))
 
-(def ^:private max-form-items
-  "File part plus the optional text fields, with room for clients that send extras."
+(def ^:private default-max-form-items
+  "Default multipart part limit: the file part plus the optional text fields,
+  with room for clients that send extras."
   8)
 
 (defn- error
@@ -75,7 +79,7 @@
   Returns {:params map :stored {:bytes long :container keyword}}.
   Throws an upload failure for malformed requests, unsupported media or too
   large files. Deletes the stored object when parsing fails after the copy."
-  [req s3 bucket key max-bytes]
+  [req s3 bucket key max-bytes max-form-items]
   (let [stored (atom nil)
         store (fn [{:keys [stream]}]
                 (when @stored
@@ -104,6 +108,83 @@
                 (some? (:max-file-count (ex-data t)))) (fail! 400 "invalid-multipart")
             :else (throw t)))))))
 
+(defn reject!
+  "Throw an upload rejection that maps to an HTTP status and message.
+
+  Inputs: status (int), message (string) and optional extra data (map, for
+  example {:param \"model\"}). Always throws; see `file-source/reject!`."
+  ([status message]
+   (file-source/reject! status message))
+  ([status message extra]
+   (file-source/reject! status message extra)))
+
+(defn rejection
+  "Return {:status :message ...} when `e` is an upload rejection, else nil."
+  [e]
+  (file-source/rejection e))
+
+(defn create-upload-session!
+  "Store an uploaded file and create its session. Shared by every upload API.
+
+  Inputs:
+  - deps: {:config map :db {:ds DataSource} :kafka-producer {:producer ...}}
+  - req: Ring request with :auth/principal and a multipart body
+  - opts: {:prepare-params (fn [params] params') maps the parsed multipart
+           params (string keys) to the upload fields `title`, `lang`,
+           `final_tracks` and `store_recording`; it may call `reject!`.
+           Default: identity.
+          :max-form-items int, default 8}
+
+  Returns: {:session-id string :tenant-id UUID :title string :controls map
+            :params map} where :params are the parsed multipart params.
+  Throws: an upload rejection (see `rejection`) for client and availability
+  errors; other exceptions for unexpected failures. A stored file is deleted
+  on every failure."
+  [{:keys [config db kafka-producer]} req {:keys [prepare-params max-form-items]
+                                           :or {prepare-params identity
+                                                max-form-items default-max-form-items}}]
+  (let [principal (:auth/principal req)
+        max-bytes (features/uploads-max-bytes config)
+        {:keys [bucket prefix]} (get-in config [:s3 :buckets :recordings])
+        ds (:ds db)]
+    (when-not (:record (policy/capabilities principal))
+      (fail! 403 "forbidden"))
+    (when-not (pos? max-bytes)
+      (fail! 503 "uploads-disabled"))
+    (when-not ds
+      (fail! 503 "db-unavailable"))
+    (when-not (:producer kafka-producer)
+      (fail! 503 "kafka-unavailable"))
+    (let [tenant-uuid (:tenant-id principal)
+          session-uuid (uuid/uuid7)
+          session-id (str session-uuid)
+          key (s3.uploads/source-key prefix tenant-uuid session-id)
+          s3 (s3.client/build-s3-client config)
+          log-ctx {:tenant_id (str tenant-uuid)
+                   :principal_id (str (:id principal))
+                   :session_id session-id}
+          _ (log/info "Receiving uploaded file" log-ctx)
+          {:keys [params stored]} (store-upload! req s3 bucket key max-bytes max-form-items)]
+      (try
+        (let [{:keys [title lang controls]} (parse-fields config (prepare-params params))
+              title (or title (format "Upload %1$tF %1$tR" (java.time.ZonedDateTime/now)))]
+          (file-source/start-session! config ds kafka-producer principal session-uuid title controls
+                                      {:source db.sessions/upload-source})
+          (file-source/publish-source! kafka-producer ds tenant-uuid session-uuid bucket key lang
+                                       controls log-ctx)
+          (log/info "Uploaded file accepted" (assoc log-ctx
+                                                    :bytes (:bytes stored)
+                                                    :container (name (:container stored))
+                                                    :final_tracks (:final_tracks controls)))
+          {:session-id session-id
+           :tenant-id tenant-uuid
+           :title title
+           :controls controls
+           :params params})
+        (catch Throwable t
+          (s3.uploads/delete-source! s3 bucket key)
+          (throw t))))))
+
 (defn upload-session-handler
   "Return a Ring handler for `POST /api/sessions/upload`.
 
@@ -123,50 +204,15 @@
   - 400 invalid request or field, 403 forbidden, 413 file-too-large,
     415 unsupported-media-type, 503 uploads-disabled / db-unavailable /
     kafka-unavailable, 500 upload-failed"
-  [{:keys [config db kafka-producer]}]
+  [deps]
   (fn [req]
-    (let [principal (:auth/principal req)
-          max-bytes (features/uploads-max-bytes config)
-          {:keys [bucket prefix]} (get-in config [:s3 :buckets :recordings])
-          ds (:ds db)]
-      (try
-        (when-not (:record (policy/capabilities principal))
-          (fail! 403 "forbidden"))
-        (when-not (pos? max-bytes)
-          (fail! 503 "uploads-disabled"))
-        (when-not ds
-          (fail! 503 "db-unavailable"))
-        (when-not (:producer kafka-producer)
-          (fail! 503 "kafka-unavailable"))
-        (let [tenant-uuid (:tenant-id principal)
-              session-uuid (uuid/uuid7)
-              session-id (str session-uuid)
-              key (s3.uploads/source-key prefix tenant-uuid session-id)
-              s3 (s3.client/build-s3-client config)
-              log-ctx {:tenant_id (str tenant-uuid)
-                       :principal_id (str (:id principal))
-                       :session_id session-id}
-              _ (log/info "Receiving uploaded file" log-ctx)
-              {:keys [params stored]} (store-upload! req s3 bucket key max-bytes)]
-          (try
-            (let [{:keys [title lang controls]} (parse-fields config params)
-                  title (or title (format "Upload %1$tF %1$tR" (java.time.ZonedDateTime/now)))]
-              (file-source/start-session! config ds kafka-producer principal session-uuid title controls
-                                          {:source db.sessions/upload-source})
-              (file-source/publish-source! kafka-producer ds tenant-uuid session-uuid bucket key lang
-                                           controls log-ctx)
-              (log/info "Uploaded file accepted" (assoc log-ctx
-                                                        :bytes (:bytes stored)
-                                                        :container (name (:container stored))
-                                                        :final_tracks (:final_tracks controls)))
-              {:status 200 :body {:session_id session-id :title title}})
-            (catch Throwable t
-              (s3.uploads/delete-source! s3 bucket key)
-              (throw t))))
-        (catch clojure.lang.ExceptionInfo e
-          (or (file-source/rejection-response e)
-              (do (log/error e "Failed to create upload session" {:uri (:uri req)})
-                  (error 500 "upload-failed"))))
-        (catch Exception e
-          (log/error e "Failed to create upload session" {:uri (:uri req)})
-          (error 500 "upload-failed"))))))
+    (try
+      (let [{:keys [session-id title]} (create-upload-session! deps req {})]
+        {:status 200 :body {:session_id session-id :title title}})
+      (catch clojure.lang.ExceptionInfo e
+        (or (file-source/rejection-response e)
+            (do (log/error e "Failed to create upload session" {:uri (:uri req)})
+                (error 500 "upload-failed"))))
+      (catch Exception e
+        (log/error e "Failed to create upload session" {:uri (:uri req)})
+        (error 500 "upload-failed")))))
