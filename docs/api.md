@@ -38,7 +38,11 @@ See also:
 
 ### Recordings + transcripts
 
-* `GET /api/recordings` – list sessions (tenant-scoped)
+* `GET /api/recordings` – list sessions (tenant-scoped). Query: `limit`,
+  `offset`, `show_drafts`, `scope` (`all` | `mine` | `shared`), `sort`
+  (`title` | `created_at` | `started_at` | `duration` | `status`) and `order`
+  (`asc` | `desc`); default sort `created_at` `desc`. Items include the session
+  `duration_s`. See `docs/features-recordings-playback-karaoke.md`.
 * `GET /api/recordings/{session_id}` – recording detail (includes stored transcripts)
 * `GET /api/recordings/{session_id}/audio` – audio stream (supports HTTP Range)
 * `DELETE /api/recordings/{session_id}` – delete a session (and cascaded recordings/transcripts)

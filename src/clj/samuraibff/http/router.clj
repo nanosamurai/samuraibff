@@ -396,12 +396,17 @@
 
            ["/recordings" {:get {:summary "List recordings"
                                  :description (str "Returns sessions the caller may read: own sessions and sessions "
-                                                   "shared with them. scope=mine|shared filters rows and counts.")
+                                                   "shared with them. scope=mine|shared filters rows and counts. "
+                                                   "sort and order set the row order across all pages "
+                                                   "(default created_at desc); empty values come last.")
                                  :parameters {:query [:map
                                                       [:limit {:optional true} :int]
                                                       [:offset {:optional true} :int]
                                                       [:show_drafts {:optional true} :boolean]
-                                                      [:scope {:optional true} [:enum "all" "mine" "shared"]]]}
+                                                      [:scope {:optional true} [:enum "all" "mine" "shared"]]
+                                                      [:sort {:optional true}
+                                                       [:enum "title" "created_at" "started_at" "duration" "status"]]
+                                                      [:order {:optional true} [:enum "asc" "desc"]]]}
                                  :responses {200 {:body schemas/RecordingsListResponse}
                                              400 {:body schemas/ApiErrorResponse}
                                              403 {:body schemas/ApiErrorResponse}
