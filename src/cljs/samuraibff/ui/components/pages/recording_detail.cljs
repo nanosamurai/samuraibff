@@ -240,6 +240,36 @@
        [:div {:class "muted"}
         "No audio is available for playback."])]))
 
+(def ^:private export-formats
+  "Export choices as [format label], most common first."
+  [["docx" "Word document (DOCX)"]
+   ["txt" "Plain text (TXT)"]
+   ["srt" "Subtitles (SRT)"]
+   ["vtt" "Subtitles (WebVTT)"]
+   ["json" "Data with timings (JSON)"]])
+
+(defn- export-control
+  "Render a format picker and download link for the selected saved transcript.
+
+  Inputs:
+  - session-id: string
+  - stage: :final or :refined
+  - track-id: string; the selected tab's track
+
+  Returns: hiccup. The link downloads through the session-scoped export API,
+  so it exports only what the reader can open."
+  [{:keys [session-id stage track-id]}]
+  (let [[fmt set-fmt!] (react/useState "docx")]
+    [:div {:class "row" :style {:marginBottom "10px"}}
+     [:label {:class "muted" :for "transcript-export-format"} "Export this transcript as"]
+     [:select {:id "transcript-export-format" :value fmt
+               :on-change #(set-fmt! (.. % -target -value))}
+      (for [[value label] export-formats]
+        [:option {:key value :value value} label])]
+     [:a {:class "btn" :download ""
+          :href (api/recording-export-url session-id {:format fmt :stage (name stage) :track-id track-id})}
+      "Download"]]))
+
 (defn- unavailable-page
   "Render the page shown when a session is not (or no longer) readable.
 
@@ -400,6 +430,8 @@
               (icons/icon (if show-workflows? :panel-right-close :panel-right-open))]]))]
        [:div {:class "split"}
         [:div {:class "split-main"}
+         (when (and (#{:final :refined} stage) (seq rows))
+           [export-control {:session-id session-id :stage stage :track-id (second (:id selected))}])
          (when (= stage :final)
            [final-audio-player {:session-id session-id :enabled? playback? :audio-ref audio-ref
                                 :on-time #(set-time! (on-time->current-time-s %))

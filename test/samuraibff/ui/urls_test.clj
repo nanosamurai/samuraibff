@@ -17,3 +17,8 @@
            (urls/recording-audio-url "" "session one")))
     (is (= "https://app.example/api/recordings/session%20one/audio"
            (urls/recording-audio-url "https://app.example" "session one")))))
+
+(deftest recording-export-url-test
+  (testing "export URLs encode the session, format, stage and track"
+    (is (= "/api/recordings/session%20one/export?format=srt&stage=final&track_id=test%26shadow"
+           (urls/recording-export-url "" "session one" {:format "srt" :stage "final" :track-id "test&shadow"})))))
