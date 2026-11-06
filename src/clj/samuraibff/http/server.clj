@@ -23,6 +23,21 @@
 
 ;; --- HTTP Server Component ---
 
+(def ^:private default-max-body
+  "http-kit's default request body limit (8 MiB)."
+  8388608)
+
+(defn max-body
+  "Return the http-kit request body limit in bytes for `config`.
+
+  http-kit buffers each request body in memory before routing. The limit is
+  the default 8 MiB, or the upload limit ([:uploads :max-bytes]) plus 1 MiB of
+  multipart overhead when that is larger. Capped at Integer/MAX_VALUE."
+  [config]
+  (let [upload-max (long (or (get-in config [:uploads :max-bytes]) 0))]
+    (min Integer/MAX_VALUE
+         (max default-max-body (+ upload-max (* 1024 1024))))))
+
 (defn start-server
   "Start the HTTP server with the given configuration and handler.
 
@@ -31,16 +46,18 @@
     - or a full app config map containing [:http :port]
   handler - Ring handler to process requests
 
-  Returns the server instance." 
+  Returns the server instance."
   [config handler]
   (let [port (or (:port config) (get-in config [:http :port]))
         ip (or (:ip config) (get-in config [:http :host]))
         ;; http-kit cannot handle {:ip nil}; omit the key when no host is configured.
-        opts (cond-> {:port port}
+        opts (cond-> {:port port
+                      :max-body (max-body config)}
                (and (some? ip) (not (str/blank? (str ip))))
                (assoc :ip (str ip)))
         server (org.httpkit.server/run-server handler opts)]
-    (log/info (format "HTTP server started on %s:%d" (or ip "<default>") port))
+    (log/info (format "HTTP server started on %s:%d (max body %d bytes)"
+                      (or ip "<default>") port (:max-body opts)))
     server))
 
 (defn stop-server [server]

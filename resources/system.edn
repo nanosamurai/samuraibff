@@ -154,6 +154,13 @@
   ;; - For file:// URLs, we only allow paths under `:recordings :local-root`.
   :recordings {:local-root ""}
 
+  ;; --- File uploads (POST /api/sessions/upload) ---
+  ;; Largest accepted file in bytes (SAMURAIBFF_UPLOAD_MAX_BYTES); 0 disables
+  ;; uploads. The HTTP server buffers each request body in memory, so this
+  ;; also raises the server's request body limit and needs matching heap.
+  ;; Files are stored in the recordings bucket and converted by recorder_worker.
+  :uploads {:max-bytes 134217728}
+
   ;; --- Secrets (webhook auth) ---
   ;; Customer-managed webhook secrets must be write-only and must not be stored in Postgres.
   ;;

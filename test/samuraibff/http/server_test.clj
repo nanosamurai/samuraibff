@@ -59,3 +59,10 @@
         ;; Halt the component
         (ig/halt-key! :samuraibff/http-server init-result)
         (is true "Component halted successfully")))))
+
+(deftest max-body-test
+  (testing "the request body limit follows the upload limit but never drops below 8 MiB"
+    (is (= 8388608 (server/max-body {})))
+    (is (= 8388608 (server/max-body {:uploads {:max-bytes 0}})))
+    (is (= (+ 134217728 1048576) (server/max-body {:uploads {:max-bytes 134217728}})))
+    (is (= Integer/MAX_VALUE (server/max-body {:uploads {:max-bytes (* 4 1024 1024 1024)}})))))
