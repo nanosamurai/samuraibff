@@ -222,6 +222,18 @@
 
       :uploads {:max-bytes (some-> (getenv-fn "SAMURAIBFF_UPLOAD_MAX_BYTES") str str/trim not-empty parse-long)}
 
+      :openai {:wait-timeout-s (i "SAMURAIBFF_OPENAI_WAIT_TIMEOUT_S")
+               :max-concurrent-waits (i "SAMURAIBFF_OPENAI_MAX_CONCURRENT_WAITS")
+               :model-aliases (when-let [raw (s "SAMURAIBFF_OPENAI_MODEL_ALIASES")]
+                                (let [aliases (json/parse-string raw)]
+                                  (when-not (and (map? aliases)
+                                                 (<= 1 (count aliases) 16)
+                                                 (every? #(re-matches #"[A-Za-z0-9][A-Za-z0-9._:-]{0,63}" %) (keys aliases))
+                                                 (every? #(and (string? %) (re-matches #"[a-z0-9][a-z0-9_-]{0,63}" %))
+                                                         (vals aliases)))
+                                    (throw (ex-info "Invalid SAMURAIBFF_OPENAI_MODEL_ALIASES" {})))
+                                  aliases))}
+
       :default-tracks {:realtime (s "SAMURAIBFF_DEFAULT_REALTIME_TRACK")
                        :refined (s "SAMURAIBFF_DEFAULT_REFINEMENT_TRACK")
                        :final (s "SAMURAIBFF_DEFAULT_FINAL_TRACK")}

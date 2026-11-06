@@ -26,6 +26,7 @@
    [samuraibff.ws.events :as ws.events]
    [samuraibff.http.access-routes :as http.access-routes]
    [samuraibff.http.auth :as http.auth]
+   [samuraibff.http.openai :as http.openai]
    [samuraibff.http.origin :as http.origin]
    [samuraibff.http.recordings :as http.recordings]
    [samuraibff.http.retranscription :as http.retranscription]
@@ -768,6 +769,31 @@
                                   403 {:body schemas/ApiErrorResponse}
                                   404 {:body schemas/ApiErrorResponse}}
                       :handler (http.api-creds/revoke-api-credential-handler deps)}}]]
+
+           ;; OpenAI-compatible transcription (same auth and access as /api)
+          ["/v1" {:tags ["openai"]
+                  :openapi {:id customer-openapi-id}
+                  :security [{:bearerAuth []}]
+                  :middleware [http.openai/wrap-openai-errors
+                               wrap-require-auth
+                               (http.access-routes/principal-middleware deps)]}
+           ["/audio/transcriptions"
+            {:post {:summary "Transcribe a file (OpenAI-compatible)"
+                    :description (str "OpenAI audio transcription shape. multipart/form-data fields: file and model "
+                                      "(required), language, response_format (json|text|srt|vtt|verbose_json), "
+                                      "timestamp_granularities[]; prompt and temperature are ignored. model is a "
+                                      "configured final track ID or alias (default whisper-1). Waits for the final "
+                                      "transcript; 504 returns error.session_id. Errors use the OpenAI error shape.")
+                    :responses {200 {:description "Transcript in the requested response_format"}
+                                400 {:description "OpenAI error"}
+                                401 {:description "OpenAI error"}
+                                403 {:description "OpenAI error"}
+                                413 {:description "OpenAI error"}
+                                415 {:description "OpenAI error"}
+                                429 {:description "OpenAI error"}
+                                503 {:description "OpenAI error"}
+                                504 {:description "OpenAI error with session_id"}}
+                    :handler (http.openai/transcriptions-handler deps)}}]]
 
            ;; Health check endpoint
           (healthcheck-route)

@@ -161,6 +161,17 @@
   ;; Files are stored in the recordings bucket and converted by recorder_worker.
   :uploads {:max-bytes 134217728}
 
+  ;; --- OpenAI-compatible transcription (POST /v1/audio/transcriptions) ---
+  ;; Each request is an upload that waits for its final transcript.
+  ;; - wait-timeout-s (SAMURAIBFF_OPENAI_WAIT_TIMEOUT_S): then 504 with session_id
+  ;; - max-concurrent-waits (SAMURAIBFF_OPENAI_MAX_CONCURRENT_WAITS): more get 429
+  ;; - model-aliases (SAMURAIBFF_OPENAI_MODEL_ALIASES, JSON object): model name ->
+  ;;   configured final track ID. Unset: whisper-1 -> the default final track.
+  ;;   Configured final track IDs are always accepted as model names.
+  :openai {:wait-timeout-s 600
+           :max-concurrent-waits 16
+           :poll-interval-ms 2000}
+
   ;; --- Secrets (webhook auth) ---
   ;; Customer-managed webhook secrets must be write-only and must not be stored in Postgres.
   ;;
