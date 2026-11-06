@@ -13,6 +13,7 @@ The OpenAPI spec intentionally includes only:
 
 * `/auth/*` (browser login flow)
 * `/api/*` (tenant-scoped REST API)
+* `/v1/audio/transcriptions` (OpenAI-compatible transcription)
 
 It intentionally excludes:
 
@@ -109,3 +110,80 @@ Definitions are `personal` or `published`; roles decide who can list, edit,
 publish and set defaults. See:
 
 * `docs/features-webhooks-workflows.md`
+
+### OpenAI-compatible transcription
+
+`POST /v1/audio/transcriptions` accepts the OpenAI audio transcription request
+shape, so OpenAI clients can use nanosamurai as their base URL. Each request is
+a file upload (`POST /api/sessions/upload`) that waits for its final transcript:
+the same permission, ownership, size limit (`[:uploads :max-bytes]`) and media
+checks apply, and the session stays visible in Sessions and through
+`GET /api/recordings/{session_id}`.
+
+Authentication: send a nanosamurai access token or API key token as
+`Authorization: Bearer <token>`. While sign-in is not required (guest mode),
+any value works and the request runs as the guest.
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="https://<nanosamurai-host>/v1", api_key="<token>")
+with open("meeting.mp3", "rb") as audio:
+    srt = client.audio.transcriptions.create(model="whisper-1", file=audio, response_format="srt")
+```
+
+The same request with curl:
+
+```bash
+curl https://<nanosamurai-host>/v1/audio/transcriptions   -H "Authorization: Bearer <token>"   -F file=@meeting.mp3 -F model=whisper-1 -F response_format=srt
+```
+
+Fields (multipart/form-data):
+
+| Field | Behavior |
+| --- | --- |
+| `file` | Required. One audio or video file. |
+| `model` | Required. A configured final track ID (as listed in `/api/me`) or an alias. Default alias: `whisper-1` = the default final track. Other values return 400 `model_not_found`. |
+| `language` | Optional language code such as `en` or `pt-BR`. Empty = detect. |
+| `response_format` | `json` (default, `{"text": ...}`), `text`, `srt`, `vtt` or `verbose_json`. |
+| `timestamp_granularities[]` | `segment` (default) and/or `word`. Applies to `verbose_json`: `segment` adds `segments` (`id`, `seek` = 0, `start`, `end`, `text`); `word` adds `words` (`word`, `start`, `end`) when the track stores word timings. |
+| `prompt`, `temperature` | Accepted and ignored. No final track takes a prompt. |
+
+Differences from the OpenAI API:
+
+* `verbose_json.language` is the stored language code (for example `en`), not
+  a language name. Segments have no token or probability fields.
+* `srt` and `vtt` cues start with `Speaker: ` when the track labels speakers.
+* Not supported: `/v1/audio/translations`, `stream=true` (400
+  `unsupported_parameter`) and the realtime API.
+
+Waiting and limits:
+
+* The BFF polls the stored final transcript of the selected track. Waiting
+  does not hold a request thread.
+* After `[:openai :wait-timeout-s]` the response is 504
+  `transcription_timeout`. `error.session_id` names the session; the
+  transcription continues and the result appears in
+  `GET /api/recordings/{session_id}`. A failed conversion also ends as 504.
+* When `[:openai :max-concurrent-waits]` requests already wait, a new request
+  gets 429 `too_many_pending_transcriptions` before the file is stored.
+* A load balancer or proxy in front of the BFF must allow idle requests at
+  least as long as the wait timeout.
+
+Errors use the OpenAI shape
+`{"error": {"message", "type", "param", "code"}}` with the matching HTTP
+status. A missing or invalid token is 401 `invalid_api_key`. Upload errors
+keep their upload code, for example 413 `file-too-large` or 415
+`unsupported-media-type`.
+
+Configuration:
+
+| Key | Env var | Default |
+| --- | --- | --- |
+| `[:openai :wait-timeout-s]` | `SAMURAIBFF_OPENAI_WAIT_TIMEOUT_S` | `600` |
+| `[:openai :max-concurrent-waits]` | `SAMURAIBFF_OPENAI_MAX_CONCURRENT_WAITS` | `16` (per BFF replica) |
+| `[:openai :poll-interval-ms]` | none | `2000` |
+| `[:openai :model-aliases]` | `SAMURAIBFF_OPENAI_MODEL_ALIASES` (JSON object, for example `{"whisper-1":"whisperx","fast":"parakeet"}`) | `{"whisper-1": <default final track>}` |
+
+Setting `model-aliases` replaces the default alias. An alias to a track that
+is not in `[:final-tracks]` is ignored.
