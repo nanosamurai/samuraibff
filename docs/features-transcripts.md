@@ -66,3 +66,38 @@ model.
 
 Final transcripts are stored/persisted and served via the Recordings REST API.
 The UI renders them under the “Final transcript” tab.
+
+## Export
+
+`GET /api/recordings/{session_id}/export` downloads one saved transcript track
+as a file. The recording detail page offers the same formats for the selected
+Final or Refined tab.
+
+Query parameters:
+
+* `format` (required): `srt`, `vtt`, `txt`, `json` or `docx`.
+* `stage` (optional): `final` (default) or `refined`.
+* `track_id` (optional): the track to export. Without it, the export uses the
+  track of the earliest stored result for that stage.
+
+The rows are the same as on the detail page: the latest final result of the
+track, or all refined windows of the track ordered by audio start.
+
+| Format | Content |
+| --- | --- |
+| `srt` | Numbered cues, `HH:MM:SS,mmm` times, `Speaker: text` |
+| `vtt` | `WEBVTT` header, `HH:MM:SS.mmm` times, `<v Speaker>` voice tags, escaped text |
+| `txt` | One `[HH:MM:SS] Speaker: text` line per segment |
+| `docx` | Word document: title, then one `[HH:MM:SS] Speaker: text` paragraph per segment |
+| `json` | `{session_id, title, stage, track_id, lang, text, segments}`; each segment has `start_s`, `end_s`, `text`, optional `speaker` and optional `words` (`start_s`, `end_s`, `text`) |
+
+Cue text is kept on one line. Segments with blank text are left out. Text-only
+results have no timing: SRT and VTT place them at `00:00:00`, TXT and DOCX
+omit the time. The response is an attachment with an ASCII filename built from
+the session title (or ID) and track.
+
+Access uses the recording detail read check: a reader can export each session
+they can open, and an unreadable session returns 404. A track with no stored
+result also returns 404 `transcript-not-found`.
+
+The formatters are plain functions in `samuraibff.transcripts.export`.

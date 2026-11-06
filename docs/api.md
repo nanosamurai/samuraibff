@@ -45,6 +45,8 @@ See also:
   `duration_s`. See `docs/features-recordings-playback-karaoke.md`.
 * `GET /api/recordings/{session_id}` – recording detail (includes stored transcripts)
 * `GET /api/recordings/{session_id}/audio` – audio stream (supports HTTP Range)
+* `GET /api/recordings/{session_id}/export?format=srt|vtt|txt|json|docx` – download one
+  saved transcript track (see `docs/features-transcripts.md`)
 * `DELETE /api/recordings/{session_id}` – delete a session (and cascaded recordings/transcripts)
 
   Notes:
