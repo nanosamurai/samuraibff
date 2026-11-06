@@ -208,9 +208,14 @@
                     (if transcript
                       (log/info "OpenAI transcription completed" log-ctx)
                       (log/info "OpenAI transcription wait timed out" log-ctx))
-                    (respond! (if transcript
-                                (openai/render options transcript)
-                                (timeout-response session-id wait-timeout-s))))))
+                    (respond! (try
+                                (if transcript
+                                  (openai/render options transcript)
+                                  (timeout-response session-id wait-timeout-s))
+                                (catch Throwable t
+                                  (log/error t "Rendering the OpenAI transcription failed" log-ctx)
+                                  (openai/error-response 500 "internal_error" "The transcription request failed"
+                                                         nil {:session_id session-id})))))))
                release!))
             (catch clojure.lang.ExceptionInfo e
               (release!)
