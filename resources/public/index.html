@@ -611,6 +611,8 @@
     .tab{padding:9px 0;margin-bottom:-1px;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:var(--muted);font:inherit;font-size:13px;cursor:pointer}
     .tab:hover{color:var(--txt)}
     .tab.active{border-bottom-color:var(--accent);color:var(--txt)}
+    /* Groups the tabs for assistive technology without changing the .tabs layout. */
+    .tabs-group{display:contents}
     .sessions-scope-tabs{margin-bottom:0;flex:1}
     /* The underline spans the whole header, including the drafts toggle. */
     .sessions-table-header.with-tabs{border-bottom:1px solid var(--line);margin-bottom:12px}
