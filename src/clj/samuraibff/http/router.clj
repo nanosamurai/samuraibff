@@ -292,6 +292,7 @@
           ["/recordings" {:get {:handler http.ui/index-handler}}]
           ["/recordings/:session_id" {:get {:handler http.ui/index-handler}}]
           ["/live" {:get {:handler http.ui/index-handler}}]
+          ["/upload" {:get {:handler http.ui/index-handler}}]
           ["/api-credentials" {:get {:handler http.ui/index-handler}}]
           ["/webhooks" {:get {:handler http.ui/index-handler}}]
           ["/webhooks-defaults" {:get {:handler http.ui/index-handler}}]
