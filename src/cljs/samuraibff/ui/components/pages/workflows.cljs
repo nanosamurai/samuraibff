@@ -90,6 +90,10 @@
                         nil)
           track-options (filterv #(= track-stage (:stage %)) (get-in auth [:detail :async_tracks]))
 
+          provider-types (vec (or (seq (get-in auth [:detail :workflow_provider_types])) ["bedrock"]))
+          stored-provider-type (get-in initial [:provider :type])
+          [provider-type set-provider-type!] (react/useState (or stored-provider-type (first provider-types)))
+
           model-id* (react/useState (or (get-in initial [:provider :model_id]) ""))
           model-id (aget model-id* 0)
           set-model-id! (aget model-id* 1)
@@ -137,7 +141,7 @@
                                    :enabled (boolean enabled?)
                                    :trigger (cond-> {:type trigger}
                                               track-stage (assoc :track_id track-id))
-                                   :provider {:type "bedrock"
+                                   :provider {:type provider-type
                                               :model_id (str/trim (str model-id))
                                               :params params}
                                    :prompt {:text (str prompt)}
@@ -250,9 +254,17 @@
                "Personal workflows run only for their owner's sessions. Publishing lets everyone choose this workflow; it gives no access to their recordings.")]]
 
         [:div {:class "card"}
-         [:div {:class "card-title"} "Provider (Bedrock)"]
+         [:div {:class "card-title"} "Provider"]
          [:div {:class "row"}
-          [:input {:placeholder "Model id (e.g. anthropic.claude-3-5-sonnet-20240620-v1:0)"
+          [:select {:value provider-type
+                    :aria-label "Provider type"
+                    :on-change (fn [e] (set-provider-type! (.. e -target -value)))}
+           (when (and (seq stored-provider-type) (not (some #{stored-provider-type} provider-types)))
+             [:option {:value stored-provider-type} (str stored-provider-type " (current)")])
+           (for [t provider-types]
+             ^{:key (str "pt-" t)}
+             [:option {:value t} t])]
+          [:input {:placeholder "Model ID"
                    :value model-id
                    :on-change (fn [e] (set-model-id! (.. e -target -value)))}]]
          [:div {:class "hint" :style {:marginTop "6px"}}
