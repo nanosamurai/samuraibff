@@ -367,6 +367,25 @@
       (.then (fn [body]
                (js->clj body :keywordize-keys true)))))
 
+(defn run-workflow!
+  "Start a workflow run on a finished session.
+
+  Endpoint:
+  - POST /api/recordings/{session_id}/workflows/{workflow_id}/runs
+
+  Inputs:
+  - session-id, workflow-id: strings
+  - source: {:stage \"final\"|\"refined\" :track_id string} or nil for the
+    workflow's own source
+
+  Returns:
+  - Promise resolving to {:ok true :workflow_run_id :workflow_id :stage :track_id}.
+    Rejects like `ensure-ok!`."
+  [session-id workflow-id source]
+  (fetch-json! (str "/api/recordings/" (js/encodeURIComponent (or session-id ""))
+                    "/workflows/" (js/encodeURIComponent (or workflow-id "")) "/runs")
+               {:method "POST" :body (or source {})}))
+
 (defn recording-audio-url
   "Return the audio playback URL for a recording.
 

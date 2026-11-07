@@ -548,6 +548,17 @@
   (let [limit (:uploads_max_bytes (feature-state))]
     (if (and (number? limit) (pos? limit)) limit 0)))
 
+(defn workflows-enabled?
+  "Return true when workflow definitions, on-demand runs and saved workflow
+  results should be shown. Also true in Community Edition when the
+  deployment enables workflows.
+
+  Inputs: none.
+
+  Returns: boolean."
+  []
+  (true? (:workflows_enabled (feature-state))))
+
 (def ^:private max-log-lines 200)
 (def ^:private max-segments 400)
 

@@ -136,7 +136,7 @@
            :webhooks (if (store/workflow-webhook-runtime-enabled?)
                        [pages.webhooks/webhooks-page]
                        [feature-unavailable-page "Webhooks"])
-           :workflows (if (store/workflow-webhook-runtime-enabled?)
+           :workflows (if (store/workflows-enabled?)
                         [pages.workflows/workflows-page]
                         [feature-unavailable-page "Workflows"])
            :speakers [pages.speakers/speakers-page]
