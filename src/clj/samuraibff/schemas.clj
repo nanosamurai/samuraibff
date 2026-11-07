@@ -672,6 +672,9 @@
   Notes:
   - Timestamp fields are nullable, depending on whether a session was started/ended.
   - `recording` contains best-effort metadata from the latest recording.
+  - `duration_s` is the session duration in seconds: `ended_at - started_at`,
+    or the latest recording's duration when the session times are missing.
+    It is null for drafts and running sessions.
   - The API intentionally does NOT expose internal recording URLs (file://, s3://...)."
   [:map
    [:session_id Uuid]
@@ -681,6 +684,7 @@
    [:started_at [:maybe :string]]
    [:ended_at [:maybe :string]]
    [:created_at [:maybe :string]]
+   [:duration_s {:optional true} [:maybe :double]]
    [:has_recording :boolean]
    [:has_final_transcript :boolean]
    [:access {:optional true} access.schemas/AccessSummary]
@@ -697,6 +701,8 @@
    [:ok :boolean]
    [:tenant_id Uuid]
    [:scope {:optional true} [:enum "all" "mine" "shared"]]
+   [:sort {:optional true} [:enum "title" "created_at" "started_at" "duration" "status"]]
+   [:order {:optional true} [:enum "asc" "desc"]]
    [:total NonNegInt]
    [:drafts_count NonNegInt]
    [:items [:sequential RecordingItem]]])

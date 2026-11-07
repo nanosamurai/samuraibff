@@ -60,3 +60,23 @@
        :badge-class "muted"
        :icon :circle-dashed
        :tooltip "Session created"})))
+
+(def labels-in-sort-order
+  "Status labels in the order that a Sessions status sort uses (ascending).
+
+  The order follows the life of a session: draft, recording, processing,
+  stopped, final transcript ready, then failed. The BFF builds its SQL sort
+  from this vector (see `samuraibff.db.recordings`), so the list order and
+  the labels from `display-status` stay the same."
+  ["Created" "Recording" "Processing" "Finished" "Finalized" "Failed"])
+
+(defn label-sort-rank
+  "Return the zero-based sort rank of a status label.
+
+  Inputs: label string from `display-status`.
+  Returns: integer index in `labels-in-sort-order`. Throws for an unknown
+  label, so a new label cannot be added without a sort position."
+  [label]
+  (or (first (keep-indexed (fn [rank known] (when (= known label) rank))
+                           labels-in-sort-order))
+      (throw (ex-info "Unknown session status label" {:label label}))))

@@ -180,7 +180,14 @@ Sessions loads one server-side page at a time, newest first. A compact footer
 shows the row range, First/Previous/Next/Last controls, and a **Rows** selector for 20
 (default), 30, or 50 sessions. The same controls work with mobile cards.
 **Show drafts** filters before pagination; changing it or the page size returns
-to page one. Refresh keeps the current page, and deleting the last row on a
+to page one.
+
+Click the **Session**, **Created**, **Started**, **Duration** or **Status**
+column header to sort by it; click it again to reverse the order. On mobile,
+use the **Sort** list. The BFF sorts all sessions, not only the current page,
+and a new sort returns to page one. Sessions without a value in the sorted
+column come last. **Duration** shows how long the session recorded (for
+example `12:05`), `—` when there is none, and nothing while it is recording. Refresh keeps the current page, and deleting the last row on a
 page moves back to the last available page. Failed requests show a retry message.
 
 Access control in the UI (the BFF authorizes every request again; the UI only

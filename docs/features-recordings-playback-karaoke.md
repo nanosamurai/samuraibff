@@ -15,8 +15,7 @@ For the original implementation plan, see:
 
 The list accepts `limit` (default 200), `offset` (default 0), and `show_drafts`
 (boolean, default true). Set `show_drafts=false` to exclude sessions whose status
-is `created` before applying pagination. Results sort by `created_at DESC, id DESC`
-so tied timestamps have a stable order. The response includes `items`, `total`
+is `created` before applying pagination. The response includes `items`, `total`
 (matching sessions), and `drafts_count` (all drafts for the authenticated tenant).
 Counts remain available on empty pages. Existing callers retain their defaults.
 Offset pages reflect current data; creating or deleting sessions can shift rows
@@ -24,6 +23,34 @@ between requests.
 
 Items and both counts share one database snapshot. Latest-recording ties use
 `id DESC` after `created_at DESC`.
+
+### Sort
+
+`sort` and `order` set the row order in the BFF, before pagination, so the
+order holds across all pages:
+
+* `sort`: `title`, `created_at` (default), `started_at`, `duration` or `status`.
+* `order`: `asc` or `desc` (default).
+* Other values return HTTP 400 `{"ok":false,"message":"invalid-sort"}`.
+* Empty values (no title, not started, no duration) come last in both
+  directions. The session `id` breaks ties in the same direction, so pages are
+  stable.
+* `title` ignores case and spaces at the ends.
+* `status` sorts by the label that the UI shows, in this order: Created,
+  Recording, Processing, Finished, Finalized, Failed (`asc`).
+  `samuraibff.ui.session-status/labels-in-sort-order` holds this order for the
+  UI and the SQL.
+* Sorting does not change which sessions are listed or the counts.
+
+The response echoes `sort` and `order`.
+
+### Duration
+
+Each item has `duration_s`: the session duration in seconds, `ended_at -
+started_at`. If the session times are missing or out of order, the latest
+recording's `duration_s` is used. `duration_s` is `null` for drafts (`created`)
+and running sessions (`active`). `recording.duration_s` is unchanged and still
+holds the latest recording's own duration.
 
 Important:
 

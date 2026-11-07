@@ -517,6 +517,35 @@
           (log/error e "Unexpected error serving recording audio")
           (json-response 500 {:ok false :message "internal-error"}))))))
 
+(def ^:private list-sort-params
+  "Allowed `sort` query values of `GET /api/recordings`, mapped to the sort
+  keys of `samuraibff.db.recordings/sessions-page-query`."
+  {"title" :title
+   "created_at" :created_at
+   "started_at" :started_at
+   "duration" :duration
+   "status" :status})
+
+(def ^:private list-order-params
+  "Allowed `order` query values of `GET /api/recordings`."
+  {"asc" :asc "desc" :desc})
+
+(defn- parse-list-sort
+  "Parse the `sort` and `order` query values of the sessions list.
+
+  Inputs: merged query map with string or keyword keys. Missing values use
+  the default sort, `created_at` `desc`. Returns {:sort keyword :order
+  keyword}. Throws ex-info of type :samuraibff.http/invalid-sort for any
+  other value; the value is never put into SQL."
+  [query]
+  (let [sort-param (get query :sort (get query "sort" "created_at"))
+        order-param (get query :order (get query "order" "desc"))
+        sort-key (get list-sort-params (str sort-param))
+        order (get list-order-params (str order-param))]
+    (when-not (and sort-key order)
+      (throw (ex-info "invalid-sort" {:type :samuraibff.http/invalid-sort})))
+    {:sort sort-key :order order}))
+
 (defn list-recordings-handler
   "Handler for `GET /api/recordings`.
 
@@ -524,9 +553,14 @@
   - limit (optional, default 200)
   - offset (optional, default 0)
   - show_drafts (optional boolean, default true)
+  - scope (optional all | mine | shared, default all)
+  - sort (optional title | created_at | started_at | duration | status,
+    default created_at) and order (optional asc | desc, default desc).
+    Other sort or order values return 400 invalid-sort.
 
   Response body:
-  - {:items [ ... ] :total integer :drafts_count integer}
+  - {:items [ ... ] :total integer :drafts_count integer :scope string
+     :sort string :order string}
 
   Total respects the draft filter; drafts_count counts all tenant drafts.
 
@@ -552,11 +586,14 @@
                       "mine" :mine
                       "shared" :shared
                       :all)
+              {:keys [sort order]} (parse-list-sort query)
               principal (session-guard/require-principal! req)
               page (db.recordings/list-sessions-for-principal ds principal {:limit limit
                                                                             :offset offset
                                                                             :show-drafts? show-drafts?
-                                                                            :scope scope})
+                                                                            :scope scope
+                                                                            :sort sort
+                                                                            :order order})
               items (mapv (fn [r]
                             {:session_id (str (:id r))
                              :access (session-guard/access-summary
@@ -567,6 +604,7 @@
                              :started_at (some-> (:started_at r) str)
                              :ended_at (some-> (:ended_at r) str)
                              :created_at (some-> (:created_at r) str)
+                             :duration_s (some-> (:session_duration_s r) double)
                              :has_recording (boolean (:has_recording r))
                              :has_final_transcript (boolean (:has_final_transcript r))
                              :recording {:created_at (some-> (:recording_created_at r) str)
@@ -577,6 +615,8 @@
               body {:ok true
                     :tenant_id (str tenant-uuid)
                     :scope (name scope)
+                    :sort (name sort)
+                    :order (name order)
                     :total (:total page)
                     :drafts_count (:drafts_count page)
                     :items items}]
@@ -589,6 +629,7 @@
             (case type
               :samuraibff.http/missing-tenant-id (json-response 403 {:ok false :message "missing-tenant-id"})
               :samuraibff.http/invalid-tenant-id (json-response 400 {:ok false :message "invalid-tenant-id"})
+              :samuraibff.http/invalid-sort (json-response 400 {:ok false :message "invalid-sort"})
               :samuraibff.http/missing-datasource (json-response 503 {:ok false :message "db-unavailable"})
               (:samuraibff.http/not-found :samuraibff.http/read-only :samuraibff.http/forbidden)
               (session-guard/error-response type)

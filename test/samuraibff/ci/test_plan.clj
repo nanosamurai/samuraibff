@@ -35,6 +35,7 @@
     samuraibff.http.auth-refresh-test
     samuraibff.http.error-security-test
     samuraibff.http.readiness-integration-test
+    samuraibff.http.recordings-sort-test
     samuraibff.http.server-integration-test
     samuraibff.http.server-test
     samuraibff.keycloak.admin-privacy-test
@@ -43,6 +44,7 @@
     samuraibff.ui.transcript-test
     samuraibff.ui.urls-test
     samuraibff.ui.pagination-test
+    samuraibff.ui.session-sort-test
     samuraibff.ws.registry-test
     samuraibff.ws.ws-auth-required-integration-test
     samuraibff.ws.token-lifetime-integration-test

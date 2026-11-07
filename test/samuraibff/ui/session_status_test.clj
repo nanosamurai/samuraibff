@@ -21,3 +21,19 @@
     (doseq [s [{:status "failed"} {:status "created"} {:status "finished" :has_final_transcript true}
                {:status "finished"} {:status "x" :has_recording true}]]
       (is (contains? icons/names (:icon (session-status/display-status s))) (pr-str s)))))
+
+(deftest label-sort-rank-test
+  (testing "every label that display-status returns has a sort rank"
+    (doseq [status ["created" "active" "finished" "failed" "stopping" nil]
+            has-recording [true false]
+            has-final [true false]]
+      (let [label (:label (session-status/display-status {:status status
+                                                          :has_recording has-recording
+                                                          :has_final_transcript has-final}))]
+        (is (nat-int? (session-status/label-sort-rank label)) label))))
+  (testing "ascending status order follows the life of a session"
+    (is (= ["Created" "Recording" "Processing" "Finished" "Finalized" "Failed"]
+           (sort-by session-status/label-sort-rank
+                    ["Failed" "Finalized" "Processing" "Created" "Finished" "Recording"]))))
+  (testing "an unknown label has no rank"
+    (is (thrown? clojure.lang.ExceptionInfo (session-status/label-sort-rank "Unknown")))))

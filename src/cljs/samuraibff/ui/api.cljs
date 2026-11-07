@@ -314,8 +314,10 @@
 (defn list-recordings!
   "List sessions/recordings for the authenticated tenant.
 
-  Options: :limit/:offset integers, :show-drafts? boolean (default true) and
-  :scope string \"all\" | \"mine\" | \"shared\" (default all).
+  Options: :limit/:offset integers, :show-drafts? boolean (default true),
+  :scope string \"all\" | \"mine\" | \"shared\" (default all), :sort string
+  (title | created_at | started_at | duration | status) and :order string
+  (asc | desc). Without :sort and :order the BFF sorts newest first.
 
   Returns:
   - Promise resolving to response map with keys:
@@ -325,12 +327,14 @@
   Throws on non-2xx."
   ([]
    (list-recordings! {}))
-  ([{:keys [limit offset show-drafts? scope]}]
+  ([{:keys [limit offset show-drafts? scope sort order]}]
    (let [params (cond-> {}
                   (some? limit) (assoc "limit" (str limit))
                   (some? offset) (assoc "offset" (str offset))
                   (some? show-drafts?) (assoc "show_drafts" (str show-drafts?))
-                  (seq (str scope)) (assoc "scope" (str scope)))
+                  (seq (str scope)) (assoc "scope" (str scope))
+                  (seq (str sort)) (assoc "sort" (str sort))
+                  (seq (str order)) (assoc "order" (str order)))
          qs (when (seq params)
               (->> params
                    (map (fn [[k v]] (str (js/encodeURIComponent k)
