@@ -77,6 +77,16 @@ the page font.
 * **Chevrons:** native `select` elements get a chevron from CSS
   (`--chevron-down`); `details > summary` gets a turning chevron. Do not add
   arrow characters.
+* **Side panels:** a page opens its right-side panel with an icon-only
+  `btn ghost icon` at the right end of the tab row (a `spacer` before it),
+  showing `:panel-right-open` or `:panel-right-close`, with an `aria-label`
+  and `aria-expanded`. Record and the session detail page use it. Keep the
+  toggle outside the `role="tablist"` element; `.tabs-group` groups the tabs
+  without changing the `.tabs` layout. When the main column holds more than
+  the transcript (for example the Playback card), add `match-main` to
+  `.split-side`: the panel then takes the height of the main column, so both
+  columns end at the same line. On narrow screens the panel goes below the
+  main column.
 * **Focus:** one `:focus-visible` ring in the accent color for all controls.
   Do not add per-component focus rules. Animations stop under
   `prefers-reduced-motion`.
