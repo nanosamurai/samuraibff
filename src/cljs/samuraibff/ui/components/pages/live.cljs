@@ -235,6 +235,7 @@
             {:value       (or lang "")
              :options     (langs/language-options)
              :placeholder "Auto"
+             :aria-label "Language"
              :disabled (stream-controls/locked? session running?)
              :on-change   (fn [new-val]
                             (store/set-lang! new-val))}]]

@@ -118,17 +118,18 @@
 (defn searchable-dropdown
   "A lightweight searchable dropdown.
 
-  Used for language selection on Record.
+  Used for language selection on Record and Upload.
 
   Inputs:
   - value: currently selected option value (string)
   - options: vector of options {:value string :label string :flag string}
   - placeholder: string shown when no matching option is found
   - disabled: boolean; prevents changing a frozen execution choice
+  - aria-label: optional accessible name; the trigger reads `<name>: <choice>`
   - on-change: (fn [new-value] ...)
 
   Returns: hiccup."
-  [{:keys [value options placeholder on-change disabled]}]
+  [{:keys [value options placeholder on-change disabled aria-label]}]
   (let [open?* (react/useState false)
         open? (aget open?* 0)
         set-open! (aget open?* 1)
@@ -198,6 +199,8 @@
           [:button {:type "button"
                     :disabled (boolean disabled)
                     :class "dropdown-trigger"
+                    :aria-label (when (seq (str aria-label))
+                                  (str aria-label ": " (or (:label selected) placeholder)))
                     :aria-haspopup "listbox"
                     :aria-expanded (boolean (and open? (not disabled)))
                     :on-click (fn [_]
