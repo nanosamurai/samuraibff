@@ -46,6 +46,8 @@
    :chevrons-up-down (stroked [:path {:d "m7 15 5 5 5-5"}] [:path {:d "m7 9 5-5 5 5"}])
    :chevrons-left (stroked [:path {:d "m11 17-5-5 5-5"}] [:path {:d "m18 17-5-5 5-5"}])
    :chevrons-right (stroked [:path {:d "m6 17 5-5-5-5"}] [:path {:d "m13 17 5-5-5-5"}])
+   :download (stroked [:path {:d "M12 15V3"}] [:path {:d "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"}]
+                      [:path {:d "m7 10 5 5 5-5"}])
    :circle-check (stroked [:circle {:cx 12 :cy 12 :r 10}] [:path {:d "m16 9-5.5 5.5L8 12"}])
    :circle-dashed (stroked [:path {:d "M10.1 2.182a10 10 0 0 1 3.8 0"}]
                            [:path {:d "M13.9 21.818a10 10 0 0 1-3.8 0"}]
