@@ -54,6 +54,7 @@
     samuraibff.ws.ws-auth-required-integration-test
     samuraibff.ws.token-lifetime-integration-test
     samuraibff.ws.ws-tenant-isolation-integration-test
+    samuraibff.workflows.runs-test
     samuraibff.workflows.track-test])
 
 (defn run
