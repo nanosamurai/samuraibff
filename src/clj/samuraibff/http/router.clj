@@ -28,6 +28,7 @@
    [samuraibff.http.auth :as http.auth]
    [samuraibff.http.origin :as http.origin]
    [samuraibff.http.recordings :as http.recordings]
+   [samuraibff.http.transcript-export :as http.transcript-export]
    [samuraibff.http.webhook-delivery-outcomes :as http.wh.outcomes]
    [samuraibff.http.api-credentials :as http.api-creds]
    [samuraibff.http.internal :as http.internal]
@@ -450,7 +451,21 @@
                                 404 {:body schemas/ApiErrorResponse}
                                 416 {:body schemas/ApiErrorResponse}
                                 503 {:body schemas/ApiErrorResponse}}
-                    :handler (http.recordings/get-recording-audio-handler deps)}}]]
+                    :handler (http.recordings/get-recording-audio-handler deps)}}]
+            ["/export"
+             {:get {:summary "Export transcript"
+                    :description (str "Downloads one stored transcript track as srt, vtt, txt, json or docx. "
+                                      "stage defaults to final; track_id defaults to the first stored track.")
+                    :parameters {:query [:map
+                                         [:format [:enum "srt" "vtt" "txt" "json" "docx"]]
+                                         [:stage {:optional true} [:enum "final" "refined"]]
+                                         [:track_id {:optional true} :string]]}
+                    :responses {200 {:description "Transcript file (attachment)"}
+                                400 {:body schemas/ApiErrorResponse}
+                                403 {:body schemas/ApiErrorResponse}
+                                404 {:body schemas/ApiErrorResponse}
+                                503 {:body schemas/ApiErrorResponse}}
+                    :handler (http.transcript-export/export-transcript-handler deps)}}]]
            ["/sessions" {:post {:summary "Create session"
                                 :description "Creates a new session identifier for WebSocket streaming."
                                 :parameters {:body schemas/CreateSessionRequest}

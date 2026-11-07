@@ -43,3 +43,19 @@
            (str "/api/recordings/"
                 (encode-component session-id)
                 "/audio")))
+
+(defn recording-export-url
+  "Build the BFF transcript export (download) URL.
+
+  Inputs:
+  - backend-base: empty string for same-origin, or an absolute origin string.
+  - session-id: recording session identifier.
+  - opts: {:format \"srt\"|\"vtt\"|\"txt\"|\"json\"|\"docx\", :stage \"final\"|\"refined\", :track-id string}.
+
+  Returns: URL string for `GET /api/recordings/{session_id}/export`."
+  [backend-base session-id {:keys [format stage track-id]}]
+  (api-url backend-base
+           (str "/api/recordings/" (encode-component session-id) "/export"
+                "?format=" (encode-component format)
+                "&stage=" (encode-component stage)
+                "&track_id=" (encode-component track-id))))

@@ -41,6 +41,7 @@
     samuraibff.keycloak.admin-privacy-test
     samuraibff.observability.diagnostics-test
     samuraibff.secrets.aws-transport-test
+    samuraibff.transcripts.export-test
     samuraibff.ui.transcript-test
     samuraibff.ui.urls-test
     samuraibff.ui.pagination-test

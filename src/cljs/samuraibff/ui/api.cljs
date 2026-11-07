@@ -377,6 +377,16 @@
   [session-id]
   (urls/recording-audio-url (env/backend-base-url) session-id))
 
+(defn recording-export-url
+  "Return the transcript download URL for one saved track.
+
+  Inputs: session-id string and {:format :stage :track-id} (see
+  `samuraibff.ui.urls/recording-export-url`).
+
+  Returns: string URL resolved through the common BFF API URL builder."
+  [session-id opts]
+  (urls/recording-export-url (env/backend-base-url) session-id opts))
+
 (defn delete-recording!
   "Delete a session/recording (tenant-scoped).
 

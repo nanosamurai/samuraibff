@@ -454,3 +454,11 @@ Text-only results remain readable without fabricated timing or
 speakers. Direct links and reloads preserve the session and nested controls.
 Realtime messages without a speaker label retain the `?` avatar and `Unknown`
 name, keeping partial text aligned with diarized turns.
+
+## Transcript export
+
+`GET /api/recordings/{session_id}/export?format=srt|vtt|txt|json|docx` downloads
+one saved Final or Refined track (`stage`, `track_id`). On the recording detail
+page, a download icon opens the same export choices. Readers can export what they
+can open. See
+`docs/features-transcripts.md#export`.
