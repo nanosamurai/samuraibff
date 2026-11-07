@@ -3,11 +3,15 @@
 
   Community Edition defaults to enabled. In CE mode, workflow/webhook runtime
   features are disabled for product clarity and easier local operation.
+  `[:features :workflows-enabled?]` (SAMURAIBFF_WORKFLOWS_ENABLED) enables
+  workflow definitions and on-demand runs in CE. Automatic event-triggered
+  workflows and webhooks stay full-stack features.
 
   Public API:
   - ce-mode?
   - workflow-webhook-runtime-enabled?
   - uploads-max-bytes
+  - workflows-enabled?
   - feature-state
   - enabled?
   - wrap-enabled"
@@ -51,6 +55,18 @@
       max-bytes
       0)))
 
+(defn workflows-enabled?
+  "Return true when workflow definitions and on-demand runs are enabled.
+
+  Inputs:
+  - config: BFF config map, may contain [:features :workflows-enabled?]
+
+  Returns: boolean. True outside CE mode, and in CE mode when
+  SAMURAIBFF_WORKFLOWS_ENABLED=true has been parsed into config."
+  [config]
+  (or (workflow-webhook-runtime-enabled? config)
+      (true? (get-in config [:features :workflows-enabled?]))))
+
 (defn enabled?
   "Return true when a named feature is enabled.
 
@@ -59,11 +75,15 @@
   - feature: keyword, currently :webhooks, :workflows, or
     :workflow-webhook-runtime
 
-  Returns: boolean."
+  Returns: boolean. :workflows follows `workflows-enabled?`; the others
+  follow `workflow-webhook-runtime-enabled?`."
   [config feature]
   (case feature
-    (:webhooks :workflows :workflow-webhook-runtime)
+    (:webhooks :workflow-webhook-runtime)
     (workflow-webhook-runtime-enabled? config)
+
+    :workflows
+    (workflows-enabled? config)
 
     true))
 
@@ -86,7 +106,7 @@
     {:ce_mode (ce-mode? config)
      :workflow_webhook_runtime_enabled runtime?
      :webhooks_enabled runtime?
-     :workflows_enabled runtime?
+     :workflows_enabled (workflows-enabled? config)
      :uploads_enabled (pos? upload-limit)
      :uploads_max_bytes upload-limit}))
 

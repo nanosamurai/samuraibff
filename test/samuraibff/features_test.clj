@@ -41,4 +41,35 @@
           app-cfg (:samuraibff/config cfg)]
       (is (= false (get-in app-cfg [:features :ce-mode?])))
       (is (false? (features/ce-mode? app-cfg)))
-      (is (true? (features/workflow-webhook-runtime-enabled? app-cfg))))))
+      (is (true? (features/workflow-webhook-runtime-enabled? app-cfg)))
+      (is (true? (features/workflows-enabled? app-cfg))))))
+
+(deftest samuraibff-workflows-enabled-env-enables-workflows-in-ce
+  (testing "SAMURAIBFF_WORKFLOWS_ENABLED=true enables workflows only, not the runtime"
+    (let [cfg (:samuraibff/config
+               (#'system/apply-env-overrides
+                {:samuraibff/config {}}
+                {"SAMURAIBFF_WORKFLOWS_ENABLED" "true"}))]
+      (is (true? (features/ce-mode? cfg)))
+      (is (true? (features/workflows-enabled? cfg)))
+      (is (true? (features/enabled? cfg :workflows)))
+      (is (false? (features/enabled? cfg :webhooks)))
+      (is (false? (features/enabled? cfg :workflow-webhook-runtime)))
+      (is (= {:ce_mode true
+              :workflow_webhook_runtime_enabled false
+              :webhooks_enabled false
+              :workflows_enabled true}
+             (features/feature-state cfg))))))
+
+(deftest workflow-provider-types-env-is-validated
+  (testing "SAMURAIBFF_WORKFLOW_PROVIDER_TYPES parses a comma list"
+    (is (= ["bedrock" "openai_compatible"]
+           (get-in (#'system/apply-env-overrides
+                    {:samuraibff/config {}}
+                    {"SAMURAIBFF_WORKFLOW_PROVIDER_TYPES" " bedrock, openai_compatible "})
+                   [:samuraibff/config :workflows :provider-types]))))
+  (testing "malformed or duplicate types fail at startup"
+    (doseq [raw ["Bedrock" "bedrock,bedrock" "bedrock,,x" "a b"]]
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (#'system/apply-env-overrides {:samuraibff/config {}}
+                                                 {"SAMURAIBFF_WORKFLOW_PROVIDER_TYPES" raw}))))))

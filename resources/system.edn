@@ -25,7 +25,16 @@
   ;; --- Edition / product feature flags ---
   ;; Community Edition mode hides/disables workflow and webhook runtime features.
   ;; Commercial deployments should set SAMURAIBFF_CE_MODE=false.
-  :features {:ce-mode? true}
+  ;; :workflows-enabled? (SAMURAIBFF_WORKFLOWS_ENABLED) enables workflow
+  ;; definitions and on-demand runs in Community Edition.
+  :features {:ce-mode? true
+             :workflows-enabled? false}
+
+  ;; --- Workflows ---
+  ;; provider-types: provider types the workflow editor offers and the API accepts.
+  ;; run-max-bytes: maximum encoded size of one on-demand workflow job.
+  :workflows {:provider-types ["bedrock"]
+              :run-max-bytes 524288}
 
   ;; --- Auth / Keycloak ---
   :auth {:required? true
@@ -93,6 +102,8 @@
           :topics {:audio-raw "audio.raw"
                    :refined "transcripts.refined"
                     :workflow-result "workflow.result"
+                   ;; On-demand workflow jobs for the external workflow runner.
+                   :workflow-dispatch "workflow.dispatch"
                    ;; Compacted session routing snapshot (webhook egress RFC).
                    :sessions-meta "sessions.meta"}}
 

@@ -227,4 +227,4 @@
 
   Returns: Ring handler fn."
   [{:keys [config] :as deps}]
-  (features/wrap-enabled config :workflows (workflow-result-callback-handler* deps)))
+  (features/wrap-enabled config :workflow-webhook-runtime (workflow-result-callback-handler* deps)))
