@@ -174,7 +174,9 @@ Default local bind: `127.0.0.1:8000`.
 
 Community Edition mode is enabled by default. It hides/disables workflow and
 webhook runtime features unless `SAMURAIBFF_CE_MODE=false` is set by a
-commercial/full deployment.
+commercial/full deployment. `SAMURAIBFF_WORKFLOWS_ENABLED=true` enables
+workflow definitions and on-demand runs in Community Edition (see
+[Workflows](#workflows)).
 
 ### UI (browser)
 
@@ -479,3 +481,20 @@ so OpenAI clients can transcribe a file with nanosamurai. `model` selects a
 configured final track (`whisper-1` = the default final track). The response
 waits for the final transcript and returns `json`, `text`, `srt`, `vtt` or
 `verbose_json`. See `docs/api.md#openai-compatible-transcription`.
+
+## Workflows
+
+An external workflow runner executes workflows. The recording page and
+`POST /api/recordings/{session_id}/workflows/{workflow_id}/runs` start a run
+on a stored transcript of a finished session; the BFF produces the job to
+Kafka and shows the stored result.
+
+| Environment variable | Default | Meaning |
+| --- | --- | --- |
+| `SAMURAIBFF_WORKFLOWS_ENABLED` | `false` | Enables workflow definitions and on-demand runs in Community Edition. Always on when `SAMURAIBFF_CE_MODE=false`. |
+| `SAMURAIBFF_WORKFLOW_PROVIDER_TYPES` | `bedrock` | Comma-separated provider types the workflow editor offers and the API accepts, for example `bedrock,openai_compatible`. |
+| `SAMURAIBFF_WORKFLOW_RUN_MAX_BYTES` | `524288` | Maximum encoded size of one on-demand job. Larger runs return `413`. |
+| `SAMURAIBFF_KAFKA_TOPIC_WORKFLOW_DISPATCH` | `workflow.dispatch` | Topic for on-demand workflow jobs. |
+
+See [Webhooks + workflows](docs/features-webhooks-workflows.md#run-on-demand)
+for source selection, access rules and error codes.

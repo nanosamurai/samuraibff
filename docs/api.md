@@ -107,7 +107,13 @@ for sessions owned by an organization key; `/api/me` adds
 ### Webhooks + workflows
 
 Definitions are `personal` or `published`; roles decide who can list, edit,
-publish and set defaults. See:
+publish and set defaults.
+
+* `POST /api/recordings/{session_id}/workflows/{workflow_id}/runs` – run a
+  workflow on a stored transcript of a finished session (`202` with
+  `workflow_run_id`)
+
+See:
 
 * `docs/features-webhooks-workflows.md`
 
