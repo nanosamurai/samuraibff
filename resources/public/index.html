@@ -606,6 +606,10 @@
     }
 
     .right-panel{display:flex;flex-direction:column;min-height:0;height:calc(100vh - 56px - 16px - 16px - 68px)}
+    /* The side panel takes the height of the main column (for example Playback
+       plus the transcript), so both columns end at the same line. */
+    .split-side.match-main{position:relative;min-height:340px}
+    .split-side.match-main>.right-panel{position:absolute;inset:0;height:auto}
 
     .tabs{display:flex;flex-wrap:wrap;gap:4px 22px;margin-bottom:12px;border-bottom:1px solid var(--line)}
     .tab{padding:9px 0;margin-bottom:-1px;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:var(--muted);font:inherit;font-size:13px;cursor:pointer}
@@ -725,6 +729,8 @@
       .split{flex-direction:column}
       .split-side{width:100%}
       .right-panel,.transcript{height:auto}
+      .split-side.match-main{min-height:0}
+      .split-side.match-main>.right-panel{position:static}
       input{min-width:0;width:100%}
       .grid-2{grid-template-columns:1fr}
       .dropdown{min-width:0;width:100%}

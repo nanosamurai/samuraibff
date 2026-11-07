@@ -422,7 +422,7 @@
                  :message-actions enroll-action}])]
             [:p {:class "muted"} (if detail "No transcripts available for this session." "Loading transcripts…")])]]
         (when (and runtime-enabled? show-workflows?)
-          [:div {:class "split-side"}
+          [:div {:class "split-side match-main"}
            [:div {:class "right-panel"}
             [:div {:class "tabs"}
              (for [[id label] [[:workflows "Workflows"] [:webhooks "Webhooks"]]]
