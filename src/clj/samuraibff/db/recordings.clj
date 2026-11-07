@@ -14,6 +14,7 @@
   - `list-sessions-for-principal`
   - `find-session-by-id`
   - `list-transcript-records`
+  - `list-transcript-sources`
   - `delete-session!`
 
   Query execution functions accept a next.jdbc datasource, typically provided by the
@@ -319,6 +320,26 @@
             (some? track-id) (h/where [:= [:coalesce :track_id "whisperx"] track-id]))
         sqlvec (sql/format q)]
     (vec (jdbc/execute! ds sqlvec {:builder-fn rs/as-unqualified-lower-maps}))))
+
+(defn list-transcript-sources
+  "List the stored transcript sources of a session, scoped to tenant.
+
+  Inputs: DataSource, tenant UUID, session UUID.
+  Returns: vector of [stage track-id] string pairs for stored `final` and
+  `refined` records, e.g. [[\"final\" \"whisperx\"]]. NULL track IDs mean
+  `whisperx`."
+  [^DataSource ds ^UUID tenant-id ^UUID session-id]
+  (when-not (and ds (instance? UUID tenant-id) (instance? UUID session-id))
+    (throw (ex-info "list-transcript-sources missing required params"
+                    {:tenant-id tenant-id :session-id session-id})))
+  (->> (jdbc/execute! ds
+                      (sql/format {:select-distinct [:type [[:coalesce :track_id "whisperx"] :track_id]]
+                                   :from [:session_transcripts]
+                                   :where [:and [:= :tenant_id tenant-id]
+                                           [:= :session_id session-id]
+                                           [:in :type ["final" "refined"]]]})
+                      {:builder-fn rs/as-unqualified-lower-maps})
+       (mapv (juxt :type :track_id))))
 
 (defn delete-session!
   "Delete a session (and cascaded recordings/transcripts), scoped to tenant.

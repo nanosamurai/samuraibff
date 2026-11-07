@@ -39,6 +39,7 @@
    [samuraibff.http.ui :as http.ui]
    [samuraibff.http.uploads :as http.uploads]
    [samuraibff.http.webhooks :as http.webhooks]
+   [samuraibff.http.workflow-runs :as http.workflow-runs]
    [samuraibff.http.workflows :as http.workflows]
    [samuraibff.http.middleware.observability :as http.obs]
    [samuraibff.observability.metrics :as metrics]
@@ -484,7 +485,23 @@
                                  409 {:body schemas/ApiErrorResponse}
                                  500 {:body schemas/ApiErrorResponse}
                                  503 {:body schemas/ApiErrorResponse}}
-                     :handler (http.retranscription/retranscribe-handler deps)}}]]
+                     :handler (http.retranscription/retranscribe-handler deps)}}]
+
+            ["/workflows/:workflow_id/runs"
+             {:parameters {:path [:map [:workflow_id :string]]}
+              :post {:summary "Run workflow"
+                     :description (str "Runs a usable workflow on a stored transcript of a finished session. "
+                                       "The optional body selects the source (stage, track_id); otherwise "
+                                       "the workflow's own source or the default final track is used.")
+                     :parameters {:body [:maybe schemas/RunWorkflowRequest]}
+                     :responses {202 {:body schemas/RunWorkflowResponse}
+                                 400 {:body schemas/ApiErrorResponse}
+                                 403 {:body schemas/ApiErrorResponse}
+                                 404 {:body schemas/ApiErrorResponse}
+                                 409 {:body schemas/ApiErrorResponse}
+                                 413 {:body schemas/ApiErrorResponse}
+                                 503 {:body schemas/ApiErrorResponse}}
+                     :handler (features/wrap-enabled config :workflows (http.workflow-runs/run-workflow-handler deps))}}]]
            ["/sessions" {:post {:summary "Create session"
                                 :description "Creates a new session identifier for WebSocket streaming."
                                 :parameters {:body schemas/CreateSessionRequest}

@@ -478,6 +478,28 @@
    [:tenant_id Uuid]
    [:workflow_ids [:sequential Uuid]]])
 
+(def RunWorkflowRequest
+  "Optional request body for POST /api/recordings/{session_id}/workflows/{workflow_id}/runs.
+
+  Selects the stored transcript source. Without it the workflow's own source
+  is used when stored, else the default final track. `track_id` requires
+  `stage`.
+
+  Shape:
+  - {:stage \"final\"|\"refined\"? :track_id <track-id>?}"
+  [:map {:closed true}
+   [:stage {:optional true} [:enum "final" "refined"]]
+   [:track_id {:optional true} [:re #"^\S{1,128}$"]]])
+
+(def RunWorkflowResponse
+  "Response body (202) for an accepted on-demand workflow run."
+  [:map
+   [:ok :boolean]
+   [:workflow_run_id Uuid]
+   [:workflow_id Uuid]
+   [:stage [:enum "final" "refined"]]
+   [:track_id NonEmptyString]])
+
 ;; ---------------------------------------------------------------------
 ;; Webhooks (tenant-configured outbound endpoints)
 ;; ---------------------------------------------------------------------
