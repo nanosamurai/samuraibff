@@ -71,6 +71,9 @@ on Final Transcript tabs and uses the selected final track's existing timing.
 Follow sits in the Playback header when word timing is available, using the same
 checkbox size and accent as the Record panel. Switching to a non-final tab removes
 the player and stops playback.
+When workflows and webhooks are enabled, an icon button at the right end of the
+tab row opens and closes the Workflows / Webhooks side panel. It is closed when
+the page opens.
 Text-only rows use `full_text` without invented timestamps or speakers. Detail
 feeds keep the latest final row within each track for legacy history and sort
 refined windows by their audio bounds, independent of arrival order. Detail

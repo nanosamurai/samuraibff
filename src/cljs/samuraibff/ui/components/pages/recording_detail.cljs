@@ -379,18 +379,25 @@
             (icons/icon :share) "Share"])
          [:button {:class "btn" :on-click refresh!} "Refresh"]]]
        (when error [:p {:role "alert" :class "badge bad"} error])
-       [:div {:class "tabs transcript-tabs" :role "tablist" :aria-label "Transcripts"}
-        (for [{:keys [id label]} tabs]
-          [:button {:key (pr-str id) :class (str "tab " (when (= id (:id selected)) "active"))
-                    :type "button" :role "tab" :aria-selected (= id (:id selected))
-                    :on-click #(do
-                                 (when (not= :final (first id))
-                                   (when-let [audio (.-current audio-ref)] (.pause audio))
-                                   (set-time! 0))
-                                 (set-tab! id))} label])
+       [:div {:class "tabs transcript-tabs"}
+        ;; The tablist holds only tabs; the panel toggle sits outside it.
+        [:div {:class "tabs-group" :role "tablist" :aria-label "Transcripts"}
+         (for [{:keys [id label]} tabs]
+           [:button {:key (pr-str id) :class (str "tab " (when (= id (:id selected)) "active"))
+                     :type "button" :role "tab" :aria-selected (= id (:id selected))
+                     :on-click #(do
+                                  (when (not= :final (first id))
+                                    (when-let [audio (.-current audio-ref)] (.pause audio))
+                                    (set-time! 0))
+                                  (set-tab! id))} label])]
         (when runtime-enabled?
-          [:button {:class "btn ghost" :on-click #(set-show-workflows! (not show-workflows?))}
-           "Workflows / Webhooks"])]
+          (let [label (if show-workflows? "Hide workflows and webhooks" "Show workflows and webhooks")]
+            [:<>
+             [:div {:class "spacer"}]
+             [:button {:class "btn ghost icon" :type "button"
+                       :aria-label label :title label :aria-expanded show-workflows?
+                       :on-click #(set-show-workflows! (not show-workflows?))}
+              (icons/icon (if show-workflows? :panel-right-close :panel-right-open))]]))]
        [:div {:class "split"}
         [:div {:class "split-main"}
          (when (= stage :final)
