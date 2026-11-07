@@ -39,6 +39,12 @@
   (is (false? (upload-form/too-large? 10 0)))
   (is (false? (upload-form/too-large? 10 nil))))
 
+(deftest media-type-accepted-test
+  (doseq [media-type ["" nil "audio/mpeg" "video/mp4" "Video/WebM" "application/ogg" "application/octet-stream"]]
+    (is (true? (upload-form/media-type-accepted? media-type)) (pr-str media-type)))
+  (doseq [media-type ["application/pdf" "image/png" "text/plain"]]
+    (is (false? (upload-form/media-type-accepted? media-type)) media-type)))
+
 (deftest form-fields-test
   (testing "untouched choices leave the default tracks to the server"
     (is (= [["title" "Interview"] ["store_recording" "true"]]

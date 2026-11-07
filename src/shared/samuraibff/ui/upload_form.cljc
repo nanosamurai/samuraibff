@@ -13,7 +13,7 @@
 
   Public API:
   - `initial-controls`, `format-bytes`, `title-from-file-name`, `too-large?`
-  - `selected-final-tracks`, `tracks-chosen?`, `form-fields`
+  - `media-type-accepted?`, `selected-final-tracks`, `tracks-chosen?`, `form-fields`
   - `progress-percent`, `error-message`"
   (:require
    [clojure.string :as str]
@@ -72,6 +72,23 @@
   Inputs: size in bytes, limit in bytes (0 or nil means no known limit)."
   [size limit]
   (and (number? limit) (pos? limit) (number? size) (> size limit)))
+
+(def ^:private other-media-types
+  "Declared types that browsers use for some audio or video containers."
+  #{"application/ogg" "application/mp4" "application/octet-stream"})
+
+(defn media-type-accepted?
+  "Return true when a file's declared type may be audio or video.
+
+  Inputs: the browser's `File.type` string; blank when the browser does not
+  know it. Returns: boolean. This only catches obvious mistakes, such as a
+  dropped PDF; the BFF checks the file content."
+  [media-type]
+  (let [media-type (str/lower-case (str/trim (str (or media-type ""))))]
+    (or (str/blank? media-type)
+        (str/starts-with? media-type "audio/")
+        (str/starts-with? media-type "video/")
+        (contains? other-media-types media-type))))
 
 (defn selected-final-tracks
   "Return the final track IDs the form will produce, in catalog order.
