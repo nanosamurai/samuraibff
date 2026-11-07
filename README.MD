@@ -458,6 +458,7 @@ name, keeping partial text aligned with diarized turns.
 ## Transcript export
 
 `GET /api/recordings/{session_id}/export?format=srt|vtt|txt|json|docx` downloads
-one saved Final or Refined track (`stage`, `track_id`). The recording detail page
-has the same Export control. Readers can export what they can open. See
+one saved Final or Refined track (`stage`, `track_id`). On the recording detail
+page, a download icon opens the same export choices. Readers can export what they
+can open. See
 `docs/features-transcripts.md#export`.

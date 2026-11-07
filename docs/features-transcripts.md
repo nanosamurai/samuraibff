@@ -70,8 +70,9 @@ The UI renders them under the “Final transcript” tab.
 ## Export
 
 `GET /api/recordings/{session_id}/export` downloads one saved transcript track
-as a file. The recording detail page offers the same formats for the selected
-Final or Refined tab.
+as a file. On the recording detail page, the download icon above the selected
+Final or Refined tab opens a small panel with the format picker and a Download
+button. Escape or a click outside closes it.
 
 Query parameters:
 
