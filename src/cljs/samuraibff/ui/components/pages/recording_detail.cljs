@@ -249,7 +249,11 @@
    ["json" "Data with timings (JSON)"]])
 
 (defn- export-control
-  "Render a format picker and download link for the selected saved transcript.
+  "Render a download icon button that opens an export panel below it.
+
+  The panel holds the format picker and the download link for the selected
+  saved transcript. It closes on Escape (focus returns to the button), on a
+  click outside, and after a download starts.
 
   Inputs:
   - session-id: string
@@ -259,16 +263,47 @@
   Returns: hiccup. The link downloads through the session-scoped export API,
   so it exports only what the reader can open."
   [{:keys [session-id stage track-id]}]
-  (let [[fmt set-fmt!] (react/useState "docx")]
-    [:div {:class "row" :style {:marginBottom "10px"}}
-     [:label {:class "muted" :for "transcript-export-format"} "Export this transcript as"]
-     [:select {:id "transcript-export-format" :value fmt
-               :on-change #(set-fmt! (.. % -target -value))}
-      (for [[value label] export-formats]
-        [:option {:key value :value value} label])]
-     [:a {:class "btn" :download ""
-          :href (api/recording-export-url session-id {:format fmt :stage (name stage) :track-id track-id})}
-      "Download"]]))
+  (let [[fmt set-fmt!] (react/useState "docx")
+        [open? set-open!] (react/useState false)
+        root-ref (react/useRef nil)
+        button-ref (react/useRef nil)
+        select-ref (react/useRef nil)
+        close! (fn []
+                 (set-open! false)
+                 (some-> (.-current button-ref) .focus))]
+    (react/useEffect
+     (fn []
+       (if open?
+         (let [on-mouse-down (fn [e]
+                               (when-let [root (.-current root-ref)]
+                                 (when-not (.contains root (.-target e))
+                                   (set-open! false))))]
+           (some-> (.-current select-ref) .focus)
+           (.addEventListener js/document "mousedown" on-mouse-down)
+           (fn [] (.removeEventListener js/document "mousedown" on-mouse-down)))
+         js/undefined))
+     #js [open?])
+    [:div {:class "export-menu" :ref root-ref
+           :on-key-down #(when (and open? (= "Escape" (.-key %)))
+                           (.stopPropagation %)
+                           (close!))}
+     [:button {:class (str "btn ghost icon-only" (when open? " active")) :type "button" :ref button-ref
+               :aria-label "Export transcript" :title "Export transcript"
+               :aria-haspopup "dialog" :aria-expanded open? :aria-controls "transcript-export-panel"
+               :on-click #(set-open! (not open?))}
+      (icons/icon :download)]
+     (when open?
+       [:div {:id "transcript-export-panel" :class "export-panel" :role "dialog" :aria-label "Export transcript"}
+        [:div {:class "field"}
+         [:label {:class "muted" :for "transcript-export-format"} "Export this transcript as"]
+         [:select {:id "transcript-export-format" :value fmt :ref select-ref
+                   :on-change #(set-fmt! (.. % -target -value))}
+          (for [[value label] export-formats]
+            [:option {:key value :value value} label])]]
+        [:a {:class "btn primary" :download ""
+             :href (api/recording-export-url session-id {:format fmt :stage (name stage) :track-id track-id})
+             :on-click close!}
+         (icons/icon :download) "Download"]])]))
 
 (defn- unavailable-page
   "Render the page shown when a session is not (or no longer) readable.
