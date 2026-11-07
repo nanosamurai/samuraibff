@@ -13,6 +13,7 @@
    [samuraibff.ui.components.pages.recording-detail :as pages.recording-detail]
    [samuraibff.ui.components.pages.recordings :as pages.recordings]
    [samuraibff.ui.components.pages.speakers :as pages.speakers]
+   [samuraibff.ui.components.pages.upload :as pages.upload]
     [samuraibff.ui.components.pages.webhooks :as pages.webhooks]
     [samuraibff.ui.components.pages.workflows :as pages.workflows]
    [samuraibff.ui.hooks :as hooks]
@@ -129,6 +130,7 @@
          (case (:page route)
            :recordings [pages.recordings/recordings-page]
            :live [pages.live/live-recording-page]
+           :upload [pages.upload/upload-page]
            :recording [pages.recording-detail/recording-detail-page
                        {:session-id (get-in route [:params :session_id])}]
            :webhooks (if (store/workflow-webhook-runtime-enabled?)
