@@ -4,6 +4,40 @@
 file. The session gets only the final output: no realtime or refined
 transcript. Results use the same endpoints and webhooks as a live session.
 
+## Upload page
+
+The browser UI has an **Upload** page (`/upload`) in the left navigation,
+after **Record**. Navigation shows it only when `GET /api/me` reports
+`features.uploads_enabled` and the user may record (`access.capabilities.record`).
+A direct link shows a short message instead of the form in the other cases.
+
+The page has one form:
+
+* **File**: drop a file on the drop area, or use **Choose file**. The page
+  shows the file name and size, and **Remove** clears it. The page rejects a
+  file over `features.uploads_max_bytes`, or a file that the browser declares as
+  neither audio nor video, before the upload starts. The BFF still checks the
+  file content.
+* **Session name**: the file name without its extension. You can change it.
+* **Language**: the same searchable picker as on Record. **Auto** detects the
+  language.
+* **Transcripts**: the Record page's final track cards and **Keep audio for
+  playback** field. The deployment's default tracks are preselected. The page
+  sends `final_tracks` only after you change the selection. More than one
+  track always keeps the audio.
+
+**Upload and transcribe** sends the file and shows a progress bar.
+**Cancel** stops the upload while the file is still being sent; then no
+session is created. The form is locked during the upload. Leaving the page
+cancels the upload, and closing the tab asks for confirmation. Errors are shown
+in plain language and get keyboard focus.
+
+After the upload, the page opens the new session. Its status is **Finished**
+until the final transcript arrives, as after a live recording stops. In the
+same browser tab, the session page also says that the file is being converted
+and transcribed, until a final transcript is available. The page updates
+automatically.
+
 ## Request
 
 `multipart/form-data`:
@@ -80,6 +114,9 @@ session is dropped.
 | --- | --- | --- |
 | `[:uploads :max-bytes]` | `SAMURAIBFF_UPLOAD_MAX_BYTES` | `134217728` (128 MiB; `0` disables uploads) |
 | `[:kafka :topics :recordings-uploaded]` | `SAMURAIBFF_KAFKA_TOPIC_RECORDINGS_UPLOADED` | `recordings.uploaded` |
+
+`GET /api/me` reports the result as `features.uploads_enabled` and
+`features.uploads_max_bytes` (`0` when uploads are disabled).
 
 Uploads also need `SAMURAIBFF_S3_RECORDINGS_BUCKET`, and the BFF needs
 `s3:PutObject`, `s3:AbortMultipartUpload` and `s3:DeleteObject` on the

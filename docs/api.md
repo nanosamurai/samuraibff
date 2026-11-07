@@ -16,7 +16,7 @@ The OpenAPI spec intentionally includes only:
 
 It intentionally excludes:
 
-* SPA routes (e.g. `/`, `/recordings`, `/live`, `/speakers`)
+* SPA routes (e.g. `/`, `/recordings`, `/live`, `/upload`, `/speakers`)
 * internal callbacks (e.g. `/internal/*`)
 * WebSockets (`/ws/*`)
 * operational probes (`/health`, `/ready`)

@@ -260,6 +260,7 @@ Open:
 
 * http://127.0.0.1:8000/recordings (Sessions)
 * http://127.0.0.1:8000/live (Record)
+* http://127.0.0.1:8000/upload (Upload, when file uploads are enabled)
 
 ### Tests
 
@@ -335,7 +336,7 @@ See:
 * Storage (Postgres + S3): `docs/storage.md`
 * Transcripts (realtime/refined/final): `docs/features-transcripts.md`
 * Recordings + playback + karaoke: `docs/features-recordings-playback-karaoke.md`
-* File uploads (`POST /api/sessions/upload`): `docs/features-file-uploads.md`
+* File uploads (Upload page, `POST /api/sessions/upload`): `docs/features-file-uploads.md`
 * Webhooks + workflows: `docs/features-webhooks-workflows.md`
 
 Workflow transcript triggers select one explicit `trigger.track_id` in addition
