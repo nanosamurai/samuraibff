@@ -28,6 +28,7 @@
    [ring.middleware.multipart-params :as multipart]
    [samuraibff.access.policy :as policy]
    [samuraibff.db.sessions :as db.sessions]
+   [samuraibff.features :as features]
    [samuraibff.http.ui :as http.ui]
    [samuraibff.kafka.producer :as kafka.producer]
    [samuraibff.s3.client :as s3.client]
@@ -177,13 +178,13 @@
   [{:keys [config db kafka-producer]}]
   (fn [req]
     (let [principal (:auth/principal req)
-          max-bytes (long (or (get-in config [:uploads :max-bytes]) 0))
+          max-bytes (features/uploads-max-bytes config)
           {:keys [bucket prefix]} (get-in config [:s3 :buckets :recordings])
           ds (:ds db)]
       (try
         (when-not (:record (policy/capabilities principal))
           (fail! 403 "forbidden"))
-        (when-not (and (pos? max-bytes) (not (str/blank? (str bucket))))
+        (when-not (pos? max-bytes)
           (fail! 503 "uploads-disabled"))
         (when-not ds
           (fail! 503 "db-unavailable"))

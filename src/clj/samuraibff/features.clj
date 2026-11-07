@@ -7,9 +7,12 @@
   Public API:
   - ce-mode?
   - workflow-webhook-runtime-enabled?
+  - uploads-max-bytes
   - feature-state
   - enabled?
-  - wrap-enabled")
+  - wrap-enabled"
+  (:require
+   [clojure.string :as str]))
 
 (defn ce-mode?
   "Return true when Community Edition mode is active.
@@ -31,6 +34,22 @@
   SAMURAIBFF_CE_MODE=false has been parsed into config."
   [config]
   (not (ce-mode? config)))
+
+(defn uploads-max-bytes
+  "Return the file upload limit in bytes, or 0 when file uploads are disabled.
+
+  Inputs:
+  - config: BFF config map with [:uploads :max-bytes] and
+    [:s3 :buckets :recordings :bucket]
+
+  Returns: long. Uploads need a positive limit and a recordings bucket; a
+  limit of 0 (or a missing bucket) disables them."
+  [config]
+  (let [max-bytes (long (or (get-in config [:uploads :max-bytes]) 0))
+        bucket (get-in config [:s3 :buckets :recordings :bucket])]
+    (if (and (pos? max-bytes) (not (str/blank? (str bucket))))
+      max-bytes
+      0)))
 
 (defn enabled?
   "Return true when a named feature is enabled.
@@ -58,13 +77,18 @@
   - {:ce_mode boolean
      :workflow_webhook_runtime_enabled boolean
      :webhooks_enabled boolean
-     :workflows_enabled boolean}"
+     :workflows_enabled boolean
+     :uploads_enabled boolean
+     :uploads_max_bytes int (0 when uploads are disabled)}"
   [config]
-  (let [runtime? (workflow-webhook-runtime-enabled? config)]
+  (let [runtime? (workflow-webhook-runtime-enabled? config)
+        upload-limit (uploads-max-bytes config)]
     {:ce_mode (ce-mode? config)
      :workflow_webhook_runtime_enabled runtime?
      :webhooks_enabled runtime?
-     :workflows_enabled runtime?}))
+     :workflows_enabled runtime?
+     :uploads_enabled (pos? upload-limit)
+     :uploads_max_bytes upload-limit}))
 
 (defn not-enabled-response
   "Return a clear Ring response for disabled commercial features.
