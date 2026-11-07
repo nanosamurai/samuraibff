@@ -73,7 +73,8 @@ checkbox size and accent as the Record panel. Switching to a non-final tab remov
 the player and stops playback.
 When workflows and webhooks are enabled, an icon button at the right end of the
 tab row opens and closes the Workflows / Webhooks side panel. It is closed when
-the page opens.
+the page opens. The panel is as tall as the Playback card and the transcript
+together, and its lists scroll inside it.
 Text-only rows use `full_text` without invented timestamps or speakers. Detail
 feeds keep the latest final row within each track for legacy history and sort
 refined windows by their audio bounds, independent of arrival order. Detail

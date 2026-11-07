@@ -82,7 +82,11 @@ the page font.
   showing `:panel-right-open` or `:panel-right-close`, with an `aria-label`
   and `aria-expanded`. Record and the session detail page use it. Keep the
   toggle outside the `role="tablist"` element; `.tabs-group` groups the tabs
-  without changing the `.tabs` layout.
+  without changing the `.tabs` layout. When the main column holds more than
+  the transcript (for example the Playback card), add `match-main` to
+  `.split-side`: the panel then takes the height of the main column, so both
+  columns end at the same line. On narrow screens the panel goes below the
+  main column.
 * **Focus:** one `:focus-visible` ring in the accent color for all controls.
   Do not add per-component focus rules. Animations stop under
   `prefers-reduced-motion`.
