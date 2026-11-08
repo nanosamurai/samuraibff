@@ -340,6 +340,8 @@ See:
 * Transcripts (realtime/refined/final): `docs/features-transcripts.md`
 * Recordings + playback + karaoke: `docs/features-recordings-playback-karaoke.md`
 * File uploads (Upload page, `POST /api/sessions/upload`): `docs/features-file-uploads.md`
+* Re-transcription (new session from saved audio,
+  `POST /api/recordings/{session_id}/retranscribe`): `docs/features-retranscription.md`
 * Webhooks + workflows: `docs/features-webhooks-workflows.md`
 
 Workflow transcript triggers select one explicit `trigger.track_id` in addition

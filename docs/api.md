@@ -50,6 +50,9 @@ See also:
 * `GET /api/recordings/{session_id}/audio` – audio stream (supports HTTP Range)
 * `GET /api/recordings/{session_id}/export?format=srt|vtt|txt|json|docx` – download one
   saved transcript track (see `docs/features-transcripts.md`)
+* `POST /api/recordings/{session_id}/retranscribe` – create a new session from the
+  saved audio of this session (needs file uploads enabled; see
+  `docs/features-retranscription.md`)
 * `DELETE /api/recordings/{session_id}` – delete a session (and cascaded recordings/transcripts)
 
   Notes:
