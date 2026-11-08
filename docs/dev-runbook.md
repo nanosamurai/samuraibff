@@ -83,7 +83,8 @@ the page font.
   (`role="dialog"`, an `aria-label`). The button has `aria-haspopup "dialog"`,
   `aria-expanded` and `aria-controls`; it gets `active` while open. Focus the
   first field on open; close on Escape (focus back to the button) and on a
-  click outside. Add `form-panel` for a wider form. Inside `.split-toolbar`
+  click outside. Add `form-panel` for a wider form. Selects and text fields
+  fill the panel width; checkboxes and radios keep their own size. Inside `.split-toolbar`
   the panels open from the left edge of the toolbar, so they fit at 375 px.
   The session page export and re-transcribe controls use this.
 * **Side panels:** a page opens its right-side panel with an icon-only

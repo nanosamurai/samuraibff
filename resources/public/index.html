@@ -464,7 +464,8 @@
       border-radius:12px;
       box-shadow:0 20px 60px rgba(0,0,0,.55);
     }
-    .popover-panel select,.popover-panel input{width:100%;min-width:0;box-sizing:border-box}
+    /* Full width for text fields only; checkboxes and radios keep their own size. */
+    .popover-panel select,.popover-panel input:not([type=checkbox]):not([type=radio]){width:100%;min-width:0;box-sizing:border-box}
     .popover-panel.form-panel{width:380px}
     .popover-panel .dropdown{min-width:0;width:100%}
     .split-toolbar{position:relative;display:flex;align-items:center;gap:8px;margin-bottom:10px}
