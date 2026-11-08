@@ -48,9 +48,19 @@ The response echoes `sort` and `order`.
 
 Each item has `duration_s`: the session duration in seconds, `ended_at -
 started_at`. If the session times are missing or out of order, the latest
-recording's `duration_s` is used. `duration_s` is `null` for drafts (`created`)
-and running sessions (`active`). `recording.duration_s` is unchanged and still
+recording's `duration_s` is used. An uploaded file (`source: "upload"`) always
+uses the latest recording's `duration_s`, because its session starts and ends
+at the upload; it is `null` until the recorder has converted the file.
+`duration_s` is `null` for drafts (`created`) and running sessions (`active`). `recording.duration_s` is unchanged and still
 holds the latest recording's own duration.
+
+### Source
+
+List items and the detail `session` have `source: "upload"` when the session
+was created from an uploaded file (`POST /api/sessions/upload`, see
+`docs/features-file-uploads.md`). Live sessions have no `source`. The BFF
+stores the marker in `sessions.session_settings`; `POST /api/sessions` ignores
+a `source` in its `session_settings`.
 
 Important:
 

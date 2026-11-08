@@ -55,6 +55,7 @@ Open:
 
 * http://127.0.0.1:8000/recordings
 * http://127.0.0.1:8000/live
+* http://127.0.0.1:8000/upload
 
 ### UI styling conventions
 

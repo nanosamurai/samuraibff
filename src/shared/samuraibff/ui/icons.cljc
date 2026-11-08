@@ -91,6 +91,10 @@
             :children [[:path {:d "M12 19v3"}]
                        [:path {:d "M19 10v2a7 7 0 0 1-14 0v-2"}]
                        [:rect {:x 9 :y 2 :width 6 :height 13 :rx 3}]]}
+   :upload {:attrs stroke-attrs
+            :children [[:path {:d "M12 3v12"}]
+                       [:path {:d "m17 8-5-5-5 5"}]
+                       [:path {:d "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"}]]}
    :webhooks {:attrs {:fill "currentColor"
                       :stroke "currentColor"
                       :stroke-width 0.5

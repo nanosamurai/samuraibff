@@ -7,6 +7,7 @@
   - /recordings
   - /recordings/:session_id
   - /live
+  - /upload
   - /speakers
   - /api-credentials
   - /webhooks
@@ -29,7 +30,7 @@
     [samuraibff.ui.store :as store]))
 
 (def ^:private known-pages
-  #{:recordings :recording :live :speakers :api-credentials
+  #{:recordings :recording :live :upload :speakers :api-credentials
     :webhooks
     :workflows
     :people})
@@ -42,7 +43,7 @@
 
   Returns:
   - {:page <keyword> :params <map>} where :page is one of:
-    :recordings | :recording | :live | :speakers | :api-credentials |
+    :recordings | :recording | :live | :upload | :speakers | :api-credentials |
     :webhooks | :workflows | :people
 
   Notes:
@@ -61,6 +62,9 @@
 
       (= ["live"] segs)
       {:page :live :params {}}
+
+      (= ["upload"] segs)
+      {:page :upload :params {}}
 
       (= ["speakers"] segs)
       {:page :speakers :params {}}
@@ -103,6 +107,7 @@
   (case page
     :recordings "/recordings"
     :live "/live"
+    :upload "/upload"
     :recording (str "/recordings/" (get params :session_id ""))
     :speakers "/speakers"
     :api-credentials "/api-credentials"

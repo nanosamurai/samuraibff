@@ -18,6 +18,7 @@
    [clojure.string :as str]
    [org.corfield.logging4j2 :as log]
    [samuraibff.db.recordings :as db.recordings]
+   [samuraibff.db.sessions :as db.sessions]
    [samuraibff.db.workflow-results :as db.workflow-results]
    [samuraibff.db.webhook-delivery-outcomes :as db.wh.outcomes]
    [samuraibff.access.watch :as watch]
@@ -335,6 +336,16 @@
   (let [x (jsonb->clj v)]
     (vec (or x []))))
 
+(defn- with-session-source
+  "Add `:source \"upload\"` to a session response map when the session row
+  comes from an uploaded file. Other source values are not exposed.
+
+  Inputs: response map, session row with optional :source string.
+  Returns: response map."
+  [m row]
+  (cond-> m
+    (= db.sessions/upload-source (:source row)) (assoc :source db.sessions/upload-source)))
+
 (defn- json-response
   "Return a Ring JSON response.
 
@@ -595,22 +606,24 @@
                                                                             :sort sort
                                                                             :order order})
               items (mapv (fn [r]
-                            {:session_id (str (:id r))
-                             :access (session-guard/access-summary
-                                      principal (assoc r :tenant_id tenant-uuid))
-                             :session_key (:session_key r)
-                             :title (:title r)
-                             :status (:status r)
-                             :started_at (some-> (:started_at r) str)
-                             :ended_at (some-> (:ended_at r) str)
-                             :created_at (some-> (:created_at r) str)
-                             :duration_s (some-> (:session_duration_s r) double)
-                             :has_recording (boolean (:has_recording r))
-                             :has_final_transcript (boolean (:has_final_transcript r))
-                             :recording {:created_at (some-> (:recording_created_at r) str)
-                                         :duration_s (:duration_s r)
-                                         :sample_rate (:sample_rate r)
-                                         :lang (:lang r)}})
+                            (with-session-source
+                              {:session_id (str (:id r))
+                               :access (session-guard/access-summary
+                                        principal (assoc r :tenant_id tenant-uuid))
+                               :session_key (:session_key r)
+                               :title (:title r)
+                               :status (:status r)
+                               :started_at (some-> (:started_at r) str)
+                               :ended_at (some-> (:ended_at r) str)
+                               :created_at (some-> (:created_at r) str)
+                               :duration_s (some-> (:session_duration_s r) double)
+                               :has_recording (boolean (:has_recording r))
+                               :has_final_transcript (boolean (:has_final_transcript r))
+                               :recording {:created_at (some-> (:recording_created_at r) str)
+                                           :duration_s (:duration_s r)
+                                           :sample_rate (:sample_rate r)
+                                           :lang (:lang r)}}
+                              r))
                           (:items page))
               body {:ok true
                     :tenant_id (str tenant-uuid)
@@ -747,17 +760,19 @@
                      :render_markdown (:render_markdown r)})
                   body {:ok true
                         :tenant_id (str tenant-uuid)
-                        :session {:id (str (:id session))
-                                  :session_key (:session_key session)
-                                  :title (:title session)
-                                  :status (:status session)
-                                  :started_at (some-> (:started_at session) str)
-                                  :ended_at (some-> (:ended_at session) str)
-                                  :created_at (some-> (:created_at session) str)
-                                  :stream_controls (stream-controls-jsonb->clj (:stream_controls session))
-                                  :has_recording has-recording?
-                                  :has_final_transcript has-final?
-                                  :access (session-guard/access-summary principal session)}
+                        :session (with-session-source
+                                   {:id (str (:id session))
+                                    :session_key (:session_key session)
+                                    :title (:title session)
+                                    :status (:status session)
+                                    :started_at (some-> (:started_at session) str)
+                                    :ended_at (some-> (:ended_at session) str)
+                                    :created_at (some-> (:created_at session) str)
+                                    :stream_controls (stream-controls-jsonb->clj (:stream_controls session))
+                                    :has_recording has-recording?
+                                    :has_final_transcript has-final?
+                                    :access (session-guard/access-summary principal session)}
+                                   session)
                         :webhook_delivery_outcomes (mapv normalize-outcome webhook-outcomes)
                         :workflow_results_latest (mapv normalize-workflow-result workflow-results)
                         :transcripts {:refined (mapv normalize-record refined)

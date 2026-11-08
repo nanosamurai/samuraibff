@@ -213,9 +213,14 @@
                :security-protocol kafka-security-protocol
                :consumer-group-id (s "SAMURAIBFF_KAFKA_CONSUMER_GROUP_ID")
                :consumer-group-id-workflow-results (s "SAMURAIBFF_KAFKA_CONSUMER_GROUP_ID_WORKFLOW_RESULTS")
+               :consumer-group-id-upload-failed (s "SAMURAIBFF_KAFKA_CONSUMER_GROUP_ID_UPLOAD_FAILED")
                :topics {:audio-raw (s "SAMURAIBFF_KAFKA_TOPIC_AUDIO_RAW")
                         :refined (s "SAMURAIBFF_KAFKA_TOPIC_REFINED")
-                        :workflow-result (s "SAMURAIBFF_KAFKA_TOPIC_WORKFLOW_RESULT")}}
+                        :workflow-result (s "SAMURAIBFF_KAFKA_TOPIC_WORKFLOW_RESULT")
+                        :recordings-uploaded (s "SAMURAIBFF_KAFKA_TOPIC_RECORDINGS_UPLOADED")
+                        :recordings-upload-failed (s "SAMURAIBFF_KAFKA_TOPIC_RECORDINGS_UPLOAD_FAILED")}}
+
+      :uploads {:max-bytes (some-> (getenv-fn "SAMURAIBFF_UPLOAD_MAX_BYTES") str str/trim not-empty parse-long)}
 
       :default-tracks {:realtime (s "SAMURAIBFF_DEFAULT_REALTIME_TRACK")
                        :refined (s "SAMURAIBFF_DEFAULT_REFINEMENT_TRACK")

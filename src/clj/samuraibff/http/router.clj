@@ -35,6 +35,7 @@
    [samuraibff.http.speaker-enrollment :as http.speaker-enrollment]
    [samuraibff.http.speakers :as http.speakers]
    [samuraibff.http.ui :as http.ui]
+   [samuraibff.http.uploads :as http.uploads]
    [samuraibff.http.webhooks :as http.webhooks]
    [samuraibff.http.workflows :as http.workflows]
    [samuraibff.http.middleware.observability :as http.obs]
@@ -291,6 +292,7 @@
           ["/recordings" {:get {:handler http.ui/index-handler}}]
           ["/recordings/:session_id" {:get {:handler http.ui/index-handler}}]
           ["/live" {:get {:handler http.ui/index-handler}}]
+          ["/upload" {:get {:handler http.ui/index-handler}}]
           ["/api-credentials" {:get {:handler http.ui/index-handler}}]
           ["/webhooks" {:get {:handler http.ui/index-handler}}]
           ["/webhooks-defaults" {:get {:handler http.ui/index-handler}}]
@@ -473,6 +475,20 @@
                                             403 {:body schemas/ApiErrorResponse}
                                             500 {:body schemas/ApiErrorResponse}}
                                 :handler (http.ui/create-session-handler deps)}}]
+           ["/sessions/upload" {:post {:summary "Create session from file"
+                                       :description (str "Creates a session from an uploaded audio or video file and "
+                                                         "queues it for final transcription. multipart/form-data fields: "
+                                                         "file (required), title, lang, final_tracks (CSV), store_recording. "
+                                                         "Poll GET /api/recordings/{session_id} or use the "
+                                                         "transcript.final.ready webhook for the result.")
+                                       :responses {200 {:body schemas/CreateSessionResponse}
+                                                   400 {:body schemas/ApiErrorResponse}
+                                                   403 {:body schemas/ApiErrorResponse}
+                                                   413 {:body schemas/ApiErrorResponse}
+                                                   415 {:body schemas/ApiErrorResponse}
+                                                   500 {:body schemas/ApiErrorResponse}
+                                                   503 {:body schemas/ApiErrorResponse}}
+                                       :handler (http.uploads/upload-session-handler deps)}}]
 
            ["/webhooks"
             {}

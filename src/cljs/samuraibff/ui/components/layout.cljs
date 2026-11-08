@@ -28,10 +28,12 @@
   Inputs:
   - active-page: keyword
   - guest?: boolean; local mode hides API Credentials (no request needs a key)
+  - upload?: boolean; shows Upload when the principal may record and the
+    BFF reports file uploads as turned on
 
   Returns:
   - vector of item maps {:label string :icon keyword :route route-map :active? boolean}."
-  [active-page guest?]
+  [active-page guest? upload?]
   (cond-> [{:label "Sessions"
             :icon :sessions
             :route {:page :recordings :params {}}
@@ -40,6 +42,12 @@
             :icon :record
             :route {:page :live :params {}}
             :active? (= active-page :live)}]
+    upload?
+    (conj {:label "Upload"
+           :icon :upload
+           :route {:page :upload :params {}}
+           :active? (= active-page :upload)})
+
     (store/workflow-webhook-runtime-enabled?)
     (conj {:label "Webhooks"
            :icon :webhooks
@@ -61,6 +69,12 @@
            :icon :api-credentials
            :route {:page :api-credentials :params {}}
            :active? (= active-page :api-credentials)})))
+
+(defn- use-upload-nav?
+  "React hook: true when the Upload page should appear in navigation."
+  []
+  (and (permissions/use-capability? :record)
+       (store/uploads-enabled?)))
 
 (defn- admin-nav-items
   "Return Administration navigation items for the current principal.
@@ -102,11 +116,12 @@
   - hiccup nodes (overlay + drawer) or nil when closed."
   [{:keys [route open? on-close]}]
   (let [manage-people? (permissions/use-capability? :manage_people)
-        guest? (permissions/use-guest?)]
+        guest? (permissions/use-guest?)
+        upload? (use-upload-nav?)]
     (when (true? open?)
       (let [on-close (or on-close (fn [] nil))
             page (:page route)
-            items (nav-items page guest?)
+            items (nav-items page guest? upload?)
             admin-items (admin-nav-items page manage-people?)]
         [:div
          [:div {:class "drawer-overlay"
@@ -152,7 +167,7 @@
   Returns: hiccup."
   [route]
   (let [page (:page route)
-        items (nav-items page (permissions/use-guest?))
+        items (nav-items page (permissions/use-guest?) (use-upload-nav?))
         admin-items (admin-nav-items page (permissions/use-capability? :manage_people))]
     [:aside {:class "sidebar"}
      [:div {:class "sidebar-section"}
@@ -180,6 +195,8 @@
                  :recordings [{:label "Sessions" :route {:page :recordings :params {}}}]
                  :live [{:label "Sessions" :route {:page :recordings :params {}}}
                         {:label "Record" :route {:page :live :params {}}}]
+                 :upload [{:label "Sessions" :route {:page :recordings :params {}}}
+                          {:label "Upload" :route {:page :upload :params {}}}]
                  :webhooks [{:label "Webhooks" :route {:page :webhooks :params {}}}]
                  :workflows [{:label "Workflows" :route {:page :workflows :params {}}}]
                  :speakers [{:label "Speakers" :route {:page :speakers :params {}}}]

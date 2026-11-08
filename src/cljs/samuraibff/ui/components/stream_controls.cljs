@@ -94,12 +94,22 @@
                        (when (seq (:supported_languages capability))
                          (str (count (:supported_languages capability)) " languages"))]))))
 
-(defn- track-choices
-  "Render all stage tracks as equal, selectable cards; clearing the last turns the stage off."
-  [stage]
-  (let [controls (:controls (hooks/use-atom store/session*))
-        detail (:detail (hooks/use-atom store/auth*))
-        catalog (settings/entries detail stage)
+(defn track-picker
+  "Render all tracks of a stage as equal, selectable cards.
+
+  Shared by the Record page settings and the Upload page.
+
+  Inputs (map):
+  - :stage      :realtime | :refined | :final
+  - :controls   stream controls map (see `samuraibff.ui.output-settings`)
+  - :detail     `/api/me` detail map (track catalog and capabilities)
+  - :on-update  (fn [f & args]) applying a pure `output-settings` transition,
+                such as `select-track`, to the controls
+  - :hint       optional hint below the cards; defaults to the Record hint
+
+  Returns: hiccup. Clearing the last card leaves the stage without tracks."
+  [{:keys [stage controls detail on-update hint]}]
+  (let [catalog (settings/entries detail stage)
         selected (if (settings/enabled? controls stage catalog) (set (settings/selected-ids controls stage catalog)) #{})
         capabilities (into {} (map (juxt :id identity) (:realtime_track_capabilities detail)))]
     [:div {:class "stage-track-choices" :data-testid (str (name stage) "-track-picker")}
@@ -110,7 +120,7 @@
            [:label {:class (str "track-choice " (when (contains? selected track_id) "selected"))}
             [:input {:type "checkbox" :checked (contains? selected track_id)
                      :aria-label (str (str/capitalize (name stage)) " track: " display_name)
-                     :on-change #(update-controls! settings/select-track stage catalog track_id (.. % -target -checked))}]
+                     :on-change #(on-update settings/select-track stage catalog track_id (.. % -target -checked))}]
             [:span {:class "track-choice-copy"}
              [:strong display_name]]]
            (when (= stage :realtime)
@@ -122,32 +132,55 @@
        [:p {:class "muted"}
         (if (= stage :realtime) "Loading transcript options…" "Your organization's default transcription service will be used.")])
      (when (seq catalog)
-       [:p {:class "hint"} "Choose the transcripts you want. Clear all choices to turn this option off."])]))
+       [:p {:class "hint"} (or hint "Choose the transcripts you want. Clear all choices to turn this option off.")])]))
 
-(defn- recording-controls
-  "Render recording retention, required only for multiple final tracks."
-  []
-  (let [session (hooks/use-atom store/session*)
-        detail (:detail (hooks/use-atom store/auth*))
-        controls (settings/effective-controls (:controls session) detail)
+(defn- track-choices
+  "Render the Record session's stage tracks from the session store."
+  [stage]
+  [track-picker {:stage stage
+                 :controls (:controls (hooks/use-atom store/session*))
+                 :detail (:detail (hooks/use-atom store/auth*))
+                 :on-update update-controls!}])
+
+(defn retention-field
+  "Render the keep-audio choice; more than one final transcript always keeps audio.
+
+  Shared by the Record page settings and the Upload page.
+
+  Inputs (map):
+  - :controls   stream controls map (see `samuraibff.ui.output-settings`)
+  - :detail     `/api/me` detail map
+  - :on-change  (fn [store-recording?]) with a boolean
+
+  Returns: hiccup (the field and its hint)."
+  [{:keys [controls detail on-change]}]
+  (let [controls (settings/effective-controls controls detail)
         multiple? (and (:final controls)
                        (> (count (settings/selected-ids controls :final (settings/entries detail :final))) 1))]
-    [:div {:class "stage-settings"}
-     [:div {:class "stage-heading"}
-      [:h3 "Recording"]
-      [:p {:class "muted"} "Choose whether to keep audio for playback."]]
+    [:<>
      [:label {:class "field retention-field"}
       [:span {:class "label"} "Keep audio for playback"]
       [:select {:aria-label "Keep audio for playback"
                 :value (if (:store_recording controls) "store" "delete")
                 :disabled (boolean (or multiple? (not (:final controls))))
-                :on-change #(store/set-session-control! :store_recording (= "store" (.. % -target -value)))}
+                :on-change #(on-change (= "store" (.. % -target -value)))}
        [:option {:value "store"} "Keep audio"]
        [:option {:value "delete"} "Do not keep audio"]]]
      [:p {:class "hint"}
       (cond multiple? "Audio is kept for playback when you choose more than one final transcript."
             (not (:final controls)) "Turn on Final transcription to keep audio for playback."
             :else "You can play back saved audio in session details.")]]))
+
+(defn- recording-controls
+  "Render the Record session's recording retention from the session store."
+  []
+  [:div {:class "stage-settings"}
+   [:div {:class "stage-heading"}
+    [:h3 "Recording"]
+    [:p {:class "muted"} "Choose whether to keep audio for playback."]]
+   [retention-field {:controls (:controls (hooks/use-atom store/session*))
+                     :detail (:detail (hooks/use-atom store/auth*))
+                     :on-change #(store/set-session-control! :store_recording %)}]])
 
 (defn panel
   "Render only the selected settings stage, locked after audio admission."

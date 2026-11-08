@@ -72,7 +72,9 @@ false when CE mode is true.
 
 - `SAMURAIBFF_CE_MODE` is parsed into `[:features :ce-mode?]` and defaults to
   true.
-- `/api/me` returns a JSON-friendly `features` map for UI gating.
+- `/api/me` returns a JSON-friendly `features` map for UI gating. It also
+  carries `uploads_enabled` and `uploads_max_bytes` for the Upload page; these
+  do not depend on CE mode (see `docs/features-file-uploads.md`).
 - In CE mode, `/api/webhooks`, `/api/workflows`, their defaults routes,
   workflow result callbacks/consumer behavior, and session
   workflow/webhook overrides return a clear `feature-not-enabled` response.

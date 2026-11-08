@@ -85,7 +85,19 @@
         (is (= (:id guest) (:user_id row)) "The creating principal owns the session")
         (is (= sid (str (:session_key row))))
         (is (= (:title body) (:title row)))
-        (is (= "created" (:status row)))))))
+        (is (= "created" (:status row)))
+        (testing "a client cannot mark a live session as an uploaded file"
+          (let [resp (handler (tp/request-for guest {:body-params {:session_settings
+                                                                   {:source "upload"
+                                                                    :refined_transcript {:consolidation {:enabled true}}}}}))
+                settings (:settings (jdbc/execute-one!
+                                     ds
+                                     ["SELECT session_settings::text AS settings FROM sessions WHERE id = ?"
+                                      (UUID/fromString (:session_id (parse-json-body resp)))]
+                                     {:builder-fn rs/as-unqualified-lower-maps}))]
+            (is (= 200 (:status resp)))
+            (is (= {:refined_transcript {:consolidation {:enabled true}}}
+                   (cheshire/parse-string settings true)))))))))
 
 (deftest create-session-handler-persists-webhook-overrides-integration-test
   (testing "POST /api/sessions persists webhook_overrides JSONB when provided"

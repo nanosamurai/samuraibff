@@ -444,6 +444,10 @@
             (icons/icon :share) "Share"])
          [:button {:class "btn" :on-click refresh!} "Refresh"]]]
        (when error [:p {:role "alert" :class "badge bad"} error])
+       (when-let [{:keys [kind text]} (session-status/upload-notice session)]
+         (if (= kind :failed)
+           [:p {:class "badge bad" :role "alert"} text]
+           [:p {:class "muted" :role "status"} text]))
        [:div {:class "tabs transcript-tabs"}
         ;; The tablist holds only tabs; the panel toggle sits outside it.
         [:div {:class "tabs-group" :role "tablist" :aria-label "Transcripts"}
@@ -485,7 +489,10 @@
                [components.transcript/transcript-view
                 {:key (pr-str (:id selected)) :messages messages :auto-scroll? false :initial-scroll :top
                  :empty-title (:label selected)
-                 :empty-hint (if (seq rows) "No speech was detected." "No transcript available yet.")
+                 :empty-hint (cond
+                               (seq rows) "No speech was detected."
+                               (= status "failed") "No transcript was created."
+                               :else "No transcript available yet.")
                  :message-actions enroll-action}])]
             [:p {:class "muted"} (if detail "No transcripts available for this session." "Loading transcripts…")])]]
         (when (and runtime-enabled? show-workflows?)

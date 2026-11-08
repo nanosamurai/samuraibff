@@ -524,7 +524,9 @@
       {:ce_mode true
        :workflow_webhook_runtime_enabled false
        :webhooks_enabled false
-       :workflows_enabled false}))
+       :workflows_enabled false
+       :uploads_enabled false
+       :uploads_max_bytes 0}))
 
 (defn workflow-webhook-runtime-enabled?
   "Return true when workflow/webhook runtime UI should be shown.
@@ -534,6 +536,17 @@
   Returns: boolean."
   []
   (true? (:workflow_webhook_runtime_enabled (feature-state))))
+
+(defn uploads-enabled?
+  "Return true when `/api/me` reports that file uploads are turned on."
+  []
+  (true? (:uploads_enabled (feature-state))))
+
+(defn uploads-max-bytes
+  "Return the file upload limit in bytes from `/api/me`, or 0 when unknown."
+  []
+  (let [limit (:uploads_max_bytes (feature-state))]
+    (if (and (number? limit) (pos? limit)) limit 0)))
 
 (def ^:private max-log-lines 200)
 (def ^:private max-segments 400)

@@ -138,3 +138,23 @@
           (is (= [{:id "faster" :available false}
                   {:id "qwen" :available false}]
                  (get-in response [:body :realtime_track_capabilities]))))))))
+
+(deftest me-handler-reports-file-upload-limit-test
+  (let [config {:auth {:required? true}
+                :default-tracks {:realtime "faster-whisper" :final "whisperx"}
+                :final-tracks ["whisperx"]
+                :grpc {:realtime-tracks [{:id "faster-whisper" :address "rtservice:50052"}]}
+                :s3 {:buckets {:recordings {:bucket "recordings"}}}}
+        me (fn [cfg]
+             (:body ((auth/me-handler cfg nil)
+                     {:auth/user {:sub "person"} :auth/tenant-id guest-tenant-id})))]
+    (testing "a configured limit and bucket enable uploads and report the limit"
+      (let [body (me (assoc config :uploads {:max-bytes 134217728}))]
+        (is (m/validate schemas/ApiMeResponse body))
+        (is (true? (get-in body [:features :uploads_enabled])))
+        (is (= 134217728 (get-in body [:features :uploads_max_bytes])))))
+    (testing "a zero limit disables uploads"
+      (let [body (me (assoc config :uploads {:max-bytes 0}))]
+        (is (m/validate schemas/ApiMeResponse body))
+        (is (false? (get-in body [:features :uploads_enabled])))
+        (is (zero? (get-in body [:features :uploads_max_bytes])))))))

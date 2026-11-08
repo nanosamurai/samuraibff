@@ -77,6 +77,7 @@
         (is (not (contains? paths "/")))
         (is (not (contains? paths "/recordings")))
         (is (not (contains? paths "/live")))
+        (is (not (contains? paths "/upload")))
         (is (not (contains? paths "/internal/refined")))
         (is (not (contains? paths "/health")))
         (is (not (contains? paths "/ready")))))))
@@ -106,3 +107,11 @@
                         index-html)))
       (is (not (re-find #"href\s*=\s*'img/nanosamurai_logo_finished_shoulders\.svg'"
                         index-html))))))
+
+(deftest ui-routes-serve-the-application
+  (testing "a direct load of a UI page returns the application shell"
+    (let [h (handler)]
+      (doseq [uri ["/live" "/upload"]]
+        (let [resp (h {:request-method :get :uri uri :headers {}})]
+          (is (= 200 (:status resp)) uri)
+          (is (re-find #"<title>nanosamur\.ai</title>" (slurp (:body resp))) uri))))))

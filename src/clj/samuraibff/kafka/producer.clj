@@ -10,6 +10,7 @@
   Public API:
   - `send-audio-chunk!`
   - `send-sessions-meta!`
+  - `send-recording-uploaded!` (topic `recordings.uploaded`, waits for ack)
 
   Security / safety:
   - values are sent as byte[] and keys must be strings
@@ -22,8 +23,9 @@
    [samuraibff.session-trace :as session-trace])
   (:import
    (java.util Properties)
+   (java.util.concurrent TimeUnit)
    (org.apache.kafka.clients.producer Callback KafkaProducer ProducerRecord)
-   (samuraibff.proto AudioChunk)))
+   (samuraibff.proto AudioChunk RecordingFinished)))
 
 (defn- props
   "Build Java Properties for KafkaProducer.
@@ -144,25 +146,65 @@
              (throw e))))))
    nil))
 
+(defn send-recording-uploaded!
+  "Publish that an uploaded source file is stored and wait for the broker ack.
+
+  The value is a `RecordingFinished` protobuf whose `recording_url` points at
+  the unchanged source object. The recorder worker converts it and publishes
+  the normal `recordings.finished` event.
+
+  Inputs:
+  - producer: component map returned by `:samuraibff/kafka-producer`
+  - event: {:session-id string :tenant-id string :recording-url string :lang string?}
+  - headers: map of {header-name string -> header-value bytes} (stream controls)
+
+  Returns: nil after the broker acknowledged the record.
+  Throws: ex-info {:type ::unavailable} without a producer; Kafka/timeout
+  exceptions when the record is not acknowledged within 10 seconds."
+  [{:keys [^KafkaProducer producer topic-recordings-uploaded]}
+   {:keys [session-id tenant-id recording-url lang]}
+   headers]
+  (when-not (and producer topic-recordings-uploaded)
+    (throw (ex-info "Kafka producer unavailable" {:type ::unavailable})))
+  (let [value (-> (RecordingFinished/newBuilder)
+                  (.setSessionId (str session-id))
+                  (.setTenantId (str tenant-id))
+                  (.setRecordingUrl (str recording-url))
+                  (.setLang (str (or lang "")))
+                  (.setCreatedAtNs (* 1000000 (System/currentTimeMillis)))
+                  (.build)
+                  (.toByteArray))
+        record (ProducerRecord. ^String topic-recordings-uploaded ^String session-id value)
+        hdrs (.headers record)
+        tp (session-trace/traceparent-for-session session-id)]
+    (.add hdrs "tenant_id" (.getBytes (str tenant-id) "UTF-8"))
+    (when tp
+      (.add hdrs "traceparent" (.getBytes ^String tp "UTF-8")))
+    (doseq [[k v] headers]
+      (when (and (string? k) (bytes? v))
+        (.add hdrs ^String k ^bytes v)))
+    (.get (.send producer record) 10 TimeUnit/SECONDS)
+    nil))
+
 (defmethod ig/init-key :samuraibff/kafka-producer
   [_ {:keys [config]}]
   (let [kafka-cfg (:kafka config)
         topic-audio-raw (get-in kafka-cfg [:topics :audio-raw] "audio.raw")
-        topic-sessions-meta (get-in kafka-cfg [:topics :sessions-meta] "sessions.meta")]
-    (log/info "Starting Kafka producer" {:bootstrap-servers (:bootstrap-servers kafka-cfg)
-                                         :topic-audio-raw topic-audio-raw
-                                         :topic-sessions-meta topic-sessions-meta})
+        topic-sessions-meta (get-in kafka-cfg [:topics :sessions-meta] "sessions.meta")
+        topic-recordings-uploaded (get-in kafka-cfg [:topics :recordings-uploaded] "recordings.uploaded")
+        topics {:topic-audio-raw topic-audio-raw
+                :topic-sessions-meta topic-sessions-meta
+                :topic-recordings-uploaded topic-recordings-uploaded}]
+    (log/info "Starting Kafka producer" (assoc topics :bootstrap-servers (:bootstrap-servers kafka-cfg)))
     (try
-      {:producer (KafkaProducer. (props kafka-cfg))
-       :topic-audio-raw topic-audio-raw
-       :topic-sessions-meta topic-sessions-meta
-       :config config}
+      (assoc topics
+             :producer (KafkaProducer. (props kafka-cfg))
+             :config config)
       (catch Exception e
         (log/error e "Kafka producer failed to start; continuing without Kafka" {:bootstrap-servers (:bootstrap-servers kafka-cfg)})
-        {:producer nil
-         :topic-audio-raw topic-audio-raw
-         :topic-sessions-meta topic-sessions-meta
-         :config config}))))
+        (assoc topics
+               :producer nil
+               :config config)))))
 
 (defmethod ig/halt-key! :samuraibff/kafka-producer
   [_ {:keys [^KafkaProducer producer]}]

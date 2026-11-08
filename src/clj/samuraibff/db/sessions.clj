@@ -15,6 +15,7 @@
   - `activate-session-on-audio-start!`
   - `update-session-stream-controls!`
   - `activate-session-on-audio-start-with-controls!`
+  - `fail-upload-session!`
 
   All functions accept a next.jdbc datasource, typically provided by the
   Integrant `:samuraibff/db` component as `(:ds db)`.
@@ -44,6 +45,20 @@
   (doto (PGobject.)
     (.setType "jsonb")
     (.setValue (cheshire/generate-string x))))
+
+(def upload-source
+  "Value of `sessions.session_settings.source` for a session created from an
+  uploaded file (`POST /api/sessions/upload`). Live sessions have no source."
+  "upload")
+
+(defn session-source-expr
+  "Return a HoneySQL expression for the `source` key of a session_settings
+  jsonb column.
+
+  Inputs: column keyword, e.g. `:s.session_settings` or `:session_settings`.
+  Returns: expression that yields the source text or SQL NULL."
+  [settings-column]
+  [:jsonb_extract_path_text settings-column [:inline "source"]])
 
 (defn find-user-id-by-external-id
   "Find app_users.id for a given tenant + external id.
@@ -170,6 +185,43 @@
                        [:= :id session-id]))
         sqlvec (sql/format q)
         res (jdbc/execute-one! ds sqlvec)]
+    {:updated? (pos? (long (or (:next.jdbc/update-count res) 0)))}))
+
+(defn fail-upload-session!
+  "Set an uploaded session to `failed` after its file could not be converted.
+
+  Inputs:
+  - ds: DataSource
+  - tenant-id: UUID
+  - session-id: UUID
+
+  Only a session of the tenant that is an upload (`upload-source`), has
+  status `finished` and has no final transcript changes. One conditional
+  UPDATE does the check, so a late failure never hides a final transcript and
+  a repeated call changes nothing.
+
+  Returns:
+  - {:updated? boolean}
+
+  Throws ex-info for missing params; database errors propagate."
+  [^DataSource ds ^UUID tenant-id ^UUID session-id]
+  (when-not (and ds (instance? UUID tenant-id) (instance? UUID session-id))
+    (throw (ex-info "fail-upload-session! missing required params"
+                    {:tenant-id tenant-id :session-id session-id})))
+  (let [has-final [:exists {:select [1]
+                            :from [[:session_transcripts :st]]
+                            :where [:and [:= :st.session_id :sessions.id]
+                                    [:= :st.tenant_id tenant-id]
+                                    [:= :st.type "final"]]}]
+        q {:update :sessions
+           :set {:status "failed"}
+           :where [:and
+                   [:= :tenant_id tenant-id]
+                   [:= :id session-id]
+                   [:= :status "finished"]
+                   [:= (session-source-expr :session_settings) upload-source]
+                   [:not has-final]]}
+        res (jdbc/execute-one! ds (sql/format q))]
     {:updated? (pos? (long (or (:next.jdbc/update-count res) 0)))}))
 
 (defn activate-session-on-audio-start!

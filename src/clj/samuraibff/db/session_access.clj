@@ -27,7 +27,8 @@
    [next.jdbc.result-set :as rs]
    [samuraibff.access.policy :as policy]
    [samuraibff.db.audit :as db.audit]
-   [samuraibff.db.principals :as db.principals])
+   [samuraibff.db.principals :as db.principals]
+   [samuraibff.db.sessions :as db.sessions])
   (:import
    (java.util UUID)))
 
@@ -130,7 +131,7 @@
   Inputs: connectable, principal map, session UUID.
   Returns: session row with :visibility :access_revision :owner_name
   :owner_email :owner_type :created_via_credential_id :created_via_name
-  :key_manager, or nil."
+  :key_manager and :source (`db.sessions/upload-source` or nil), or nil."
   [connectable principal ^UUID session-id]
   (jdbc/execute-one!
    connectable
@@ -139,7 +140,8 @@
                          :s.visibility :s.access_revision :s.created_via_credential_id
                          [:o.name :owner_name] [:o.email :owner_email]
                          [:o.principal_type :owner_type] [:cv.name :created_via_name]
-                         [(key-manager-expr principal) :key_manager]]
+                         [(key-manager-expr principal) :key_manager]
+                         [(db.sessions/session-source-expr :s.session_settings) :source]]
                 :from [[:sessions :s]]
                 :left-join [[:app_users :o] [:= :o.id :s.user_id]
                             [:api_credentials :cv] [:and [:= :cv.id :s.created_via_credential_id]

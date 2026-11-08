@@ -87,6 +87,22 @@
     (or (contains? body k)
         (contains? body k-str))))
 
+(defn session-ownership
+  "Return the ownership columns for a new session created by `principal`.
+
+  Every way of creating a session (live or uploaded) uses this so ownership
+  and the initial audience are identical.
+
+  Input: active request principal (see `samuraibff.access.principal`).
+  Output: map with :tenant-id, :user-id, :created-via-credential-id and
+  :visibility, ready to merge into `db.sessions/insert-session!` params."
+  [principal]
+  {:tenant-id (:tenant-id principal)
+   :user-id (:id principal)
+   :created-via-credential-id (get-in principal [:credential :id])
+   :visibility (when (= :organization (get-in principal [:credential :kind]))
+                 (get-in principal [:credential :default-visibility]))})
+
 (defn create-session-handler
   "Create a new session id, persist it to Postgres, and bind it to the ws registry.
 
@@ -151,18 +167,15 @@
              ds principal webhook_overrides workflow_overrides))
           (db.sessions/insert-session!
            ds
-           {:id session-uuid
-            :tenant-id tenant-id-uuid
-            :user-id (:id principal)
-            :created-via-credential-id (get-in principal [:credential :id])
-            :visibility (when (= :organization (get-in principal [:credential :kind]))
-                          (get-in principal [:credential :default-visibility]))
-            :session-key session-key
-            :title title'
-            :status "created"
-            :webhook-overrides webhook_overrides
-            :session-settings session_settings
-            :workflow-overrides workflow_overrides})
+           (merge (session-ownership principal)
+                  {:id session-uuid
+                   :session-key session-key
+                   :title title'
+                   :status "created"
+                   :webhook-overrides webhook_overrides
+                   :session-settings (cond-> session_settings
+                                       (map? session_settings) (dissoc :source))
+                   :workflow-overrides workflow_overrides}))
 
           ;; Create/bind session in registry immediately so WS endpoints can be
           ;; strict and disallow session creation via WS when auth is required.
