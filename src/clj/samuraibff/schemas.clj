@@ -763,6 +763,8 @@
     `POST /api/recordings/{session_id}/retranscribe` now.
   - `retranscribe_unavailable`: `recording-not-available` when only the kept
     audio is missing; absent otherwise.
+  - `recording_lang`: language code of the stored recording, or null; the
+    default language of a re-transcription.
   - `retranscribed_from`: {id, title} of the source session when the caller
     may read it; absent otherwise.
   - `retranscriptions`: re-transcriptions the caller may read, newest first
@@ -772,6 +774,7 @@
    [:source {:optional true} [:enum "upload" "retranscription"]]
    [:can_retranscribe {:optional true} :boolean]
    [:retranscribe_unavailable {:optional true} [:enum "recording-not-available"]]
+   [:recording_lang {:optional true} [:maybe :string]]
    [:retranscribed_from {:optional true} [:map [:id Uuid] [:title [:maybe :string]]]]
    [:retranscriptions {:optional true} [:sequential RetranscriptionLink]]
    [:session_key [:maybe :string]]

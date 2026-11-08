@@ -189,6 +189,8 @@
   - :can_retranscribe boolean, same rules as the endpoint
   - :retranscribe_unavailable \"recording-not-available\" only when the caller
     could re-transcribe but no usable audio was kept
+  - :recording_lang language code of the latest recording, or nil; the
+    default language of a re-transcription
   - :retranscribed_from {:id :title} when the session is a re-transcription
     and the caller may read its source session; else absent
   - :retranscriptions [{:id :title :status :created_at :source
@@ -199,6 +201,7 @@
                  (db.retranscriptions/find-readable-parent ds principal (:parent_session_id session)))
         children (db.retranscriptions/list-readable-children ds principal (:id session))]
     (cond-> {:can_retranscribe (nil? reason)
+             :recording_lang (some-> (:lang recording) str str/trim not-empty)
              :retranscriptions (mapv (fn [c]
                                        {:id (str (:id c))
                                         :title (:title c)

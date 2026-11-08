@@ -246,6 +246,7 @@
           (is (= {:id (str source) :title "Interview"} (:retranscribed_from child-detail)))
           (is (false? (:can_retranscribe child-detail)) "the child has no recording yet")
           (is (true? (:can_retranscribe source-detail)))
+          (is (= "pt-BR" (:recording_lang source-detail)) "the default language of a re-transcription")
           (is (nil? (:retranscribe_unavailable source-detail)))
           (is (= (str shared-child) (:id (first (:retranscriptions source-detail)))) "newest first")
           (is (some #(= child (:id %)) (:retranscriptions source-detail)))
