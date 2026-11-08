@@ -15,9 +15,9 @@
    [org.httpkit.server :as httpkit]
    [samuraibff.http.openai :as http.openai]
    [samuraibff.http.router :as router]
-   [samuraibff.http.uploads :as uploads]
    [samuraibff.kafka.producer :as kafka.producer]
    [samuraibff.s3.client :as s3.client]
+   [samuraibff.sessions.file-source :as file-source]
    [samuraibff.test-support.fake-s3 :as fake-s3]
    [samuraibff.test-support.principal-store :as store]
    [samuraibff.test-support.principals :as tp]
@@ -89,7 +89,7 @@
   (let [{:keys [client state]} (fake-s3/fake-s3)
         published (atom [])]
     (with-redefs [s3.client/build-s3-client (constantly client)
-                  uploads/start-session! (constantly nil)
+                  file-source/start-session! (constantly nil)
                   kafka.producer/send-recording-uploaded! (fn [_ event _] (swap! published conj event))
                   http.openai/fetch-final-transcript fetch
                   http.openai/upload-failed? (constantly false)]
