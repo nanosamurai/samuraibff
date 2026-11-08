@@ -48,3 +48,20 @@
                     ["Failed" "Finalized" "Processing" "Created" "Finished" "Recording"]))))
   (testing "an unknown label has no rank"
     (is (thrown? clojure.lang.ExceptionInfo (session-status/label-sort-rank "Unknown")))))
+
+(deftest upload-notice-test
+  (testing "an upload in progress explains that the file is converted and transcribed"
+    (let [{:keys [kind text]} (session-status/upload-notice {:status "finished" :source "upload"
+                                                             :has_final_transcript false})]
+      (is (= :processing kind))
+      (is (re-find #"converted and transcribed" text))))
+  (testing "a failed upload says that the file could not be converted"
+    (let [{:keys [kind text]} (session-status/upload-notice {:status "failed" :source "upload"})]
+      (is (= :failed kind))
+      (is (re-find #"could not be converted" text))
+      (is (re-find #"readable audio or video file with sound" text))))
+  (testing "no note once the transcript exists, or for live sessions"
+    (is (nil? (session-status/upload-notice {:status "finished" :source "upload" :has_final_transcript true})))
+    (is (nil? (session-status/upload-notice {:status "finished" :has_final_transcript false})))
+    (is (nil? (session-status/upload-notice {:status "failed"})))
+    (is (nil? (session-status/upload-notice nil)))))

@@ -74,6 +74,27 @@
        :icon :circle-dashed
        :tooltip "Session created"})))
 
+(defn upload-notice
+  "Return the note that the session detail page shows for an uploaded file.
+
+  Inputs: session map from /api/recordings/{session_id} :session with
+  :status, :has_final_transcript and :source.
+  Returns: {:kind :processing|:failed :text string} while an upload is
+  converted and transcribed or after its conversion failed; nil for a live
+  session and for an upload with a final transcript."
+  [{:keys [status has_final_transcript source]}]
+  (when (= "upload" source)
+    (cond
+      (= "failed" status)
+      {:kind :failed
+       :text (str "The file could not be converted. Check that it is a readable audio "
+                  "or video file with sound, then upload it again.")}
+
+      (and (= "finished" status) (not (true? has_final_transcript)))
+      {:kind :processing
+       :text (str "The uploaded file is being converted and transcribed. This can take "
+                  "a few minutes. This page updates automatically.")})))
+
 (def labels-in-sort-order
   "Status labels in the order that a Sessions status sort uses (ascending).
 

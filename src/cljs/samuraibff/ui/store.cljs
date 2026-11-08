@@ -548,18 +548,6 @@
   (let [limit (:uploads_max_bytes (feature-state))]
     (if (and (number? limit) (pos? limit)) limit 0)))
 
-(defonce uploaded-session-ids*
-  (atom #{}))
-
-(defn note-uploaded-session!
-  "Remember that this browser uploaded the file of a session, so its detail
-  page can explain that conversion and transcription are still running.
-
-  Inputs: session id string. Returns: nil."
-  [session-id]
-  (swap! uploaded-session-ids* conj (str session-id))
-  nil)
-
 (def ^:private max-log-lines 200)
 (def ^:private max-segments 400)
 

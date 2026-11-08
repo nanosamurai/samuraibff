@@ -349,7 +349,6 @@
         can-manage? (not (false? (:can_manage session-access)))
         owner? (or (nil? session-access) (true? (:is_owner session-access)))
         cached-asr (get (hooks/use-atom store/asr-by-session*) session-id [])
-        uploaded-here? (contains? (hooks/use-atom store/uploaded-session-ids*) (str session-id))
         tabs (cond-> (recording-detail/track-tabs detail)
                (and owner? (seq cached-asr)) (into [{:id [:realtime] :label "Real-time Transcript"}]))
         selected (or (some #(when (= tab (:id %)) %) tabs)
@@ -445,11 +444,10 @@
             (icons/icon :share) "Share"])
          [:button {:class "btn" :on-click refresh!} "Refresh"]]]
        (when error [:p {:role "alert" :class "badge bad"} error])
-       (when (and uploaded-here? session (not (true? (:has_final_transcript session))) (not= "failed" status))
-         [:p {:class "muted" :role "status"}
-          (str "Your file was uploaded. It is now converted and transcribed, which can take a few minutes. "
-               "This page updates automatically. If no transcript appears, the file may have no speech "
-               "or may not be readable.")])
+       (when-let [{:keys [kind text]} (session-status/upload-notice session)]
+         (if (= kind :failed)
+           [:p {:class "badge bad" :role "alert"} text]
+           [:p {:class "muted" :role "status"} text]))
        [:div {:class "tabs transcript-tabs"}
         ;; The tablist holds only tabs; the panel toggle sits outside it.
         [:div {:class "tabs-group" :role "tablist" :aria-label "Transcripts"}

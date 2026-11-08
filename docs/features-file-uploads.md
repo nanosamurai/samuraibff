@@ -35,9 +35,10 @@ in plain language and get keyboard focus.
 After the upload, the page opens the new session. Its status is
 **Processing** while the file is converted and transcribed, and **Finalized**
 when a final transcript exists. The Sessions list shows the same status and
-sorts it with the other Processing sessions. In the
-same browser tab, the session page also says that the file is being converted
-and transcribed, until a final transcript is available. The page updates
+sorts it with the other Processing sessions. The session page also says that
+the file is being converted and transcribed, until a final transcript is
+available. The note comes from the stored session (`source: "upload"`), so it
+is the same after a reload and on other devices. The page updates
 automatically.
 
 ## Request

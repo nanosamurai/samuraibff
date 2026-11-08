@@ -176,7 +176,6 @@
                       (-> promise
                           (.then (fn [{:keys [session_id]}]
                                    (set! (.-current abort-ref) nil)
-                                   (store/note-uploaded-session! session_id)
                                    (store/append-log! (str "[ui] uploaded file as session " session_id))
                                    (router/navigate! {:page :recording :params {:session_id session_id}})))
                           (.catch (fn [e]
