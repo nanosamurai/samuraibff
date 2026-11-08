@@ -88,6 +88,11 @@ until `recorder_worker` converts and deletes them. The BFF needs
 `s3:PutObject`, `s3:AbortMultipartUpload` and `s3:DeleteObject` on these keys.
 See `docs/features-file-uploads.md`.
 
+A re-transcription (`POST /api/recordings/{session_id}/retranscribe`) copies the
+saved recording inside S3 (CopyObject) to the same `uploads/<session_id>/source`
+key of the new session. Each session then keeps its own recording. See
+`docs/features-retranscription.md`.
+
 ### Tests (LocalStack)
 
 Integration tests use LocalStack S3 via Testcontainers. Run:

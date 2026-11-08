@@ -1,6 +1,7 @@
 (ns samuraibff.ui.session-status-test
   (:require
    [clojure.test :refer [deftest is testing]]
+   [samuraibff.db.sessions :as db.sessions]
    [samuraibff.ui.icons :as icons]
    [samuraibff.ui.session-status :as session-status]))
 
@@ -19,7 +20,14 @@
                                 {:status "finished" :source "upload" :has_final_transcript true}))))
     (is (= "Failed" (:label (session-status/display-status {:status "failed" :source "upload"}))))
     (is (= "Finished" (:label (session-status/display-status {:status "finished" :source "other"})))
-        "only the upload source changes the label"))
+        "only the file sources change the label"))
+  (testing "a re-transcription shows the same labels as an upload"
+    (is (= ["Processing" "Transcribing the saved audio again"]
+           ((juxt :label :tooltip)
+            (session-status/display-status {:status "finished" :source "retranscription"}))))
+    (is (= "Finalized" (:label (session-status/display-status
+                                {:status "finished" :source "retranscription" :has_final_transcript true}))))
+    (is (= "Failed" (:label (session-status/display-status {:status "failed" :source "retranscription"})))))
   (testing "other states"
     (is (= "Recording" (:label (session-status/display-status {:status "active"}))))
     (is (= "Failed" (:label (session-status/display-status {:status "failed" :has_final_transcript true}))))
@@ -36,7 +44,7 @@
     (doseq [status ["created" "active" "finished" "failed" "stopping" nil]
             has-recording [true false]
             has-final [true false]
-            source [nil "upload"]]
+            source [nil "upload" "retranscription"]]
       (let [label (:label (session-status/display-status {:status status
                                                           :has_recording has-recording
                                                           :has_final_transcript has-final
@@ -60,8 +68,20 @@
       (is (= :failed kind))
       (is (re-find #"could not be converted" text))
       (is (re-find #"readable audio or video file with sound" text))))
+  (testing "a re-transcription has its own note"
+    (is (re-find #"transcribed again" (:text (session-status/upload-notice
+                                              {:status "finished" :source "retranscription"}))))
+    (let [{:keys [kind text]} (session-status/upload-notice {:status "failed" :source "retranscription"})]
+      (is (= :failed kind))
+      (is (re-find #"could not be transcribed again" text))))
   (testing "no note once the transcript exists, or for live sessions"
     (is (nil? (session-status/upload-notice {:status "finished" :source "upload" :has_final_transcript true})))
     (is (nil? (session-status/upload-notice {:status "finished" :has_final_transcript false})))
     (is (nil? (session-status/upload-notice {:status "failed"})))
     (is (nil? (session-status/upload-notice nil)))))
+
+(deftest file-sources-test
+  (testing "the UI and the database know the same file sources"
+    (is (= db.sessions/file-sources session-status/file-sources))
+    (is (session-status/file-source? {:source "retranscription"}))
+    (is (not (session-status/file-source? {:source nil})))))

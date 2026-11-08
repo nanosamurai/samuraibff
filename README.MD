@@ -191,8 +191,8 @@ column header to sort by it; click it again to reverse the order. On mobile,
 use the **Sort** list. The BFF sorts all sessions, not only the current page,
 and a new sort returns to page one. Sessions without a value in the sorted
 column come last. **Duration** shows how long the session recorded (for
-example `12:05`) or, for an uploaded file, the length of its audio, `—` when
-there is none (also while an upload is converted), and nothing while it is recording. Refresh keeps the current page, and deleting the last row on a
+example `12:05`) or, for an uploaded file or a re-transcription, the length
+of its audio, `—` when there is none (also while the file is converted), and nothing while it is recording. Refresh keeps the current page, and deleting the last row on a
 page moves back to the last available page. Failed requests show a retry message.
 
 Access control in the UI (the BFF authorizes every request again; the UI only
@@ -340,6 +340,8 @@ See:
 * Transcripts (realtime/refined/final): `docs/features-transcripts.md`
 * Recordings + playback + karaoke: `docs/features-recordings-playback-karaoke.md`
 * File uploads (Upload page, `POST /api/sessions/upload`): `docs/features-file-uploads.md`
+* Re-transcription (new session from saved audio,
+  `POST /api/recordings/{session_id}/retranscribe`): `docs/features-retranscription.md`
 * Webhooks + workflows: `docs/features-webhooks-workflows.md`
 
 Workflow transcript triggers select one explicit `trigger.track_id` in addition

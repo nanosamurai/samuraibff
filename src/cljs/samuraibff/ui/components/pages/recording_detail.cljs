@@ -9,11 +9,13 @@
    [samuraibff.ui.api :as api]
    [samuraibff.ui.hooks :as hooks]
    [samuraibff.ui.icons :as icons]
+   [samuraibff.ui.components.retranscribe :as retranscribe]
    [samuraibff.ui.components.share-dialog :as share-dialog]
    [samuraibff.ui.components.shared :as shared]
    [samuraibff.ui.permissions :as permissions]
    [samuraibff.ui.components.transcript :as components.transcript]
    [samuraibff.ui.recording-detail :as recording-detail]
+   [samuraibff.ui.retranscribe-form :as retranscribe-form]
    [samuraibff.ui.router :as router]
    [samuraibff.ui.session-status :as session-status]
    [samuraibff.ui.store :as store]
@@ -283,7 +285,7 @@
            (fn [] (.removeEventListener js/document "mousedown" on-mouse-down)))
          js/undefined))
      #js [open?])
-    [:div {:class "export-menu" :ref root-ref
+    [:div {:class "popover-menu" :ref root-ref
            :on-key-down #(when (and open? (= "Escape" (.-key %)))
                            (.stopPropagation %)
                            (close!))}
@@ -293,7 +295,7 @@
                :on-click #(set-open! (not open?))}
       (icons/icon :download)]
      (when open?
-       [:div {:id "transcript-export-panel" :class "export-panel" :role "dialog" :aria-label "Export transcript"}
+       [:div {:id "transcript-export-panel" :class "popover-panel" :role "dialog" :aria-label "Export transcript"}
         [:div {:class "field"}
          [:label {:class "muted" :for "transcript-export-format"} "Export this transcript as"]
          [:select {:id "transcript-export-format" :value fmt :ref select-ref
@@ -326,7 +328,8 @@
 (defn recording-detail-page
   "Render flat per-track Postgres results and shared recording playback for a session ID.
 
-  Owners can rename, share, record into a draft and enroll speakers. Readers
+  Owners can rename, share, record into a draft, enroll speakers and
+  re-transcribe the saved audio into a new session. Readers
   see the owner and audience and get read-only content. The device-local
   real-time preview is shown only to the owner. A 403/404 clears the page and
   says the session is no longer available."
@@ -424,6 +427,7 @@
              [shared/status-pill {:label "Loading" :kind :muted}])]]
          (when access-label
            [:div {:class "muted"} access-label])
+         (retranscribe/retranscribed-from-line session)
          [:details {:class "muted"}
           [:summary "Technical details"]
           [:div {:class "mono"} (str "Session ID: " session-id)]]]
@@ -448,6 +452,7 @@
          (if (= kind :failed)
            [:p {:class "badge bad" :role "alert"} text]
            [:p {:class "muted" :role "status"} text]))
+       (retranscribe/retranscriptions-list session)
        [:div {:class "tabs transcript-tabs"}
         ;; The tablist holds only tabs; the panel toggle sits outside it.
         [:div {:class "tabs-group" :role "tablist" :aria-label "Transcripts"}
@@ -469,8 +474,15 @@
               (icons/icon (if show-workflows? :panel-right-close :panel-right-open))]]))]
        [:div {:class "split"}
         [:div {:class "split-main"}
-         (when (and (#{:final :refined} stage) (seq rows))
-           [export-control {:session-id session-id :stage stage :track-id (second (:id selected))}])
+         (let [export? (and (#{:final :refined} stage) (seq rows))
+               retranscribe? (some? (retranscribe-form/availability session))]
+           (when (or export? retranscribe?)
+             [:div {:class "split-toolbar"}
+              (when export?
+                [export-control {:session-id session-id :stage stage :track-id (second (:id selected))}])
+              (when retranscribe?
+                [retranscribe/retranscribe-control {:key session-id :session-id session-id
+                                                    :session session :shown-title title}])]))
          (when (= stage :final)
            [final-audio-player {:session-id session-id :enabled? playback? :audio-ref audio-ref
                                 :on-time #(set-time! (on-time->current-time-s %))

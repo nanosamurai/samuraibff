@@ -36,6 +36,7 @@
     samuraibff.http.error-security-test
     samuraibff.http.readiness-integration-test
     samuraibff.http.recordings-sort-test
+    samuraibff.http.retranscription-test
     samuraibff.http.server-integration-test
     samuraibff.http.server-test
     samuraibff.keycloak.admin-privacy-test

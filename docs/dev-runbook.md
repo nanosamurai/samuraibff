@@ -78,6 +78,15 @@ the page font.
 * **Chevrons:** native `select` elements get a chevron from CSS
   (`--chevron-down`); `details > summary` gets a turning chevron. Do not add
   arrow characters.
+* **Popover panels:** an icon-only `btn ghost icon-only` opens a panel below
+  it. Wrap both in `.popover-menu` and give the panel `.popover-panel`
+  (`role="dialog"`, an `aria-label`). The button has `aria-haspopup "dialog"`,
+  `aria-expanded` and `aria-controls`; it gets `active` while open. Focus the
+  first field on open; close on Escape (focus back to the button) and on a
+  click outside. Add `form-panel` for a wider form. Selects and text fields
+  fill the panel width; checkboxes and radios keep their own size. Inside `.split-toolbar`
+  the panels open from the left edge of the toolbar, so they fit at 375 px.
+  The session page export and re-transcribe controls use this.
 * **Side panels:** a page opens its right-side panel with an icon-only
   `btn ghost icon` at the right end of the tab row (a `spacer` before it),
   showing `:panel-right-open` or `:panel-right-close`, with an `aria-label`

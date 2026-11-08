@@ -48,9 +48,10 @@ The response echoes `sort` and `order`.
 
 Each item has `duration_s`: the session duration in seconds, `ended_at -
 started_at`. If the session times are missing or out of order, the latest
-recording's `duration_s` is used. An uploaded file (`source: "upload"`) always
-uses the latest recording's `duration_s`, because its session starts and ends
-at the upload; it is `null` until the recorder has converted the file.
+recording's `duration_s` is used. An uploaded file (`source: "upload"`) or a
+re-transcription (`source: "retranscription"`) always uses the latest
+recording's `duration_s`, because its session starts and ends when it is
+created; it is `null` until the recorder has converted the file.
 `duration_s` is `null` for drafts (`created`) and running sessions (`active`). `recording.duration_s` is unchanged and still
 holds the latest recording's own duration.
 
@@ -58,9 +59,23 @@ holds the latest recording's own duration.
 
 List items and the detail `session` have `source: "upload"` when the session
 was created from an uploaded file (`POST /api/sessions/upload`, see
-`docs/features-file-uploads.md`). Live sessions have no `source`. The BFF
+`docs/features-file-uploads.md`), and `source: "retranscription"` when it was
+created from the saved audio of another session
+(`POST /api/recordings/{session_id}/retranscribe`, see
+`docs/features-retranscription.md`). Live sessions have no `source`. The BFF
 stores the marker in `sessions.session_settings`; `POST /api/sessions` ignores
-a `source` in its `session_settings`.
+`source` and `parent_session_id` in its `session_settings`.
+
+### Re-transcription fields
+
+The detail `session` also has `can_retranscribe`, `retranscribe_unavailable`,
+`recording_lang`, `retranscribed_from` and `retranscriptions`. Linked sessions
+appear only when the caller may read them. See
+`docs/features-retranscription.md`.
+
+The session page shows the **Re-transcribe** icon button next to **Export
+transcript**, a **Re-transcribed from** link in the header, and a
+**Re-transcriptions** list with status labels.
 
 Important:
 

@@ -241,6 +241,31 @@
    [:session_id Uuid]
    [:title {:optional true} [:maybe :string]]])
 
+(def RetranscribeSessionRequest
+  "Request body for POST /api/recordings/{session_id}/retranscribe.
+
+  All fields are optional; a missing body uses every default.
+  - title: at most 200 characters; default `<source title> (re-transcribed)`
+  - lang: \"\" (detect) or a code such as `en` or `pt-BR`; default the
+    language of the source recording
+  - final_tracks: configured final track IDs; default the source session's
+    tracks when they are still configured, else the configured defaults
+  - store_recording: keep the audio for playback; default true. More than one
+    final track needs true."
+  [:maybe
+   [:map
+    [:title {:optional true} [:maybe :string]]
+    [:lang {:optional true} [:maybe :string]]
+    [:final_tracks {:optional true} [:maybe [:sequential :string]]]
+    [:store_recording {:optional true} [:maybe :boolean]]]])
+
+(def RetranscribeSessionResponse
+  "Response body (202) for POST /api/recordings/{session_id}/retranscribe."
+  [:map
+   [:session_id Uuid]
+   [:title :string]
+   [:retranscribed_from Uuid]])
+
 (def CreateSessionRequest
   "Request body for POST /api/sessions.
 
@@ -677,12 +702,13 @@
   - `duration_s` is the session duration in seconds: `ended_at - started_at`,
     or the latest recording's duration when the session times are missing.
     It is null for drafts and running sessions.
-  - `source` is `upload` for a session created from an uploaded file and
-    absent for a live session.
+  - `source` is `upload` for a session created from an uploaded file,
+    `retranscription` for a session created from the stored recording of
+    another session, and absent for a live session.
   - The API intentionally does NOT expose internal recording URLs (file://, s3://...)."
   [:map
    [:session_id Uuid]
-   [:source {:optional true} [:enum "upload"]]
+   [:source {:optional true} [:enum "upload" "retranscription"]]
    [:session_key [:maybe :string]]
    [:title {:optional true} [:maybe :string]]
    [:status [:maybe :string]]
@@ -712,14 +738,45 @@
    [:drafts_count NonNegInt]
    [:items [:sequential RecordingItem]]])
 
+(def RetranscriptionLink
+  "A re-transcription of a session, as listed in the session detail.
+
+  `source` is always `retranscription`; with `status` and
+  `has_final_transcript` it gives the same status label as the Sessions list."
+  [:map
+   [:id Uuid]
+   [:title [:maybe :string]]
+   [:status [:maybe :string]]
+   [:created_at [:maybe :string]]
+   [:source [:maybe :string]]
+   [:has_final_transcript :boolean]])
+
 (def RecordingDetailSession
   "Session metadata returned by `GET /api/recordings/{session_id}`.
 
-  `source` is `upload` for a session created from an uploaded file and absent
-  for a live session."
+  `source` is `upload` for a session created from an uploaded file,
+  `retranscription` for a session created from the stored recording of
+  another session, and absent for a live session.
+
+  Re-transcription fields:
+  - `can_retranscribe`: the caller may call
+    `POST /api/recordings/{session_id}/retranscribe` now.
+  - `retranscribe_unavailable`: `recording-not-available` when only the kept
+    audio is missing; absent otherwise.
+  - `recording_lang`: language code of the stored recording, or null; the
+    default language of a re-transcription.
+  - `retranscribed_from`: {id, title} of the source session when the caller
+    may read it; absent otherwise.
+  - `retranscriptions`: re-transcriptions the caller may read, newest first
+    (at most 20)."
   [:map
    [:id Uuid]
-   [:source {:optional true} [:enum "upload"]]
+   [:source {:optional true} [:enum "upload" "retranscription"]]
+   [:can_retranscribe {:optional true} :boolean]
+   [:retranscribe_unavailable {:optional true} [:enum "recording-not-available"]]
+   [:recording_lang {:optional true} [:maybe :string]]
+   [:retranscribed_from {:optional true} [:map [:id Uuid] [:title [:maybe :string]]]]
+   [:retranscriptions {:optional true} [:sequential RetranscriptionLink]]
    [:session_key [:maybe :string]]
    [:title [:maybe :string]]
    [:status [:maybe :string]]

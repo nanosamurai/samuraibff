@@ -22,6 +22,7 @@
    [samuraibff.db.workflow-results :as db.workflow-results]
    [samuraibff.db.webhook-delivery-outcomes :as db.wh.outcomes]
    [samuraibff.access.watch :as watch]
+   [samuraibff.http.retranscription :as http.retranscription]
    [samuraibff.http.revocable-stream :as revocable-stream]
    [samuraibff.http.session-guard :as session-guard]
    [samuraibff.s3.client :as s3.client]
@@ -337,14 +338,15 @@
     (vec (or x []))))
 
 (defn- with-session-source
-  "Add `:source \"upload\"` to a session response map when the session row
-  comes from an uploaded file. Other source values are not exposed.
+  "Add `:source` to a session response map when the session row comes from a
+  stored file (`db.sessions/file-sources`: `upload` or `retranscription`).
+  Other source values are not exposed.
 
   Inputs: response map, session row with optional :source string.
   Returns: response map."
   [m row]
   (cond-> m
-    (= db.sessions/upload-source (:source row)) (assoc :source db.sessions/upload-source)))
+    (contains? db.sessions/file-sources (:source row)) (assoc :source (:source row))))
 
 (defn- json-response
   "Return a Ring JSON response.
@@ -666,6 +668,8 @@
 
    Also includes:
    - :workflow_results_latest [...]
+   - re-transcription fields in :session (see
+     `samuraibff.http.retranscription/detail-fields`)
 
   Notes:
   - refined is append-only; we return all refined records ordered by created_at.
@@ -760,19 +764,21 @@
                      :render_markdown (:render_markdown r)})
                   body {:ok true
                         :tenant_id (str tenant-uuid)
-                        :session (with-session-source
-                                   {:id (str (:id session))
-                                    :session_key (:session_key session)
-                                    :title (:title session)
-                                    :status (:status session)
-                                    :started_at (some-> (:started_at session) str)
-                                    :ended_at (some-> (:ended_at session) str)
-                                    :created_at (some-> (:created_at session) str)
-                                    :stream_controls (stream-controls-jsonb->clj (:stream_controls session))
-                                    :has_recording has-recording?
-                                    :has_final_transcript has-final?
-                                    :access (session-guard/access-summary principal session)}
-                                   session)
+                        :session (merge
+                                  (with-session-source
+                                    {:id (str (:id session))
+                                     :session_key (:session_key session)
+                                     :title (:title session)
+                                     :status (:status session)
+                                     :started_at (some-> (:started_at session) str)
+                                     :ended_at (some-> (:ended_at session) str)
+                                     :created_at (some-> (:created_at session) str)
+                                     :stream_controls (stream-controls-jsonb->clj (:stream_controls session))
+                                     :has_recording has-recording?
+                                     :has_final_transcript has-final?
+                                     :access (session-guard/access-summary principal session)}
+                                    session)
+                                  (http.retranscription/detail-fields config ds principal session recording))
                         :webhook_delivery_outcomes (mapv normalize-outcome webhook-outcomes)
                         :workflow_results_latest (mapv normalize-workflow-result workflow-results)
                         :transcripts {:refined (mapv normalize-record refined)

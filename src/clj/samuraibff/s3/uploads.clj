@@ -1,5 +1,6 @@
 (ns samuraibff.s3.uploads
-  "Store an uploaded media file unchanged in the recordings bucket.
+  "Store an uploaded media file unchanged in the recordings bucket, or copy a
+  stored session recording there as the source of a new session.
 
   The BFF never decodes uploaded media. It checks the leading bytes against a
   short list of audio/video container signatures, enforces a byte limit while
@@ -10,6 +11,9 @@
   - `sniff-container`  leading bytes -> container keyword or nil
   - `source-key`       S3 key for a session's uploaded source
   - `put-source!`      copy a stream to S3 with limits
+  - `tenant-recording-object` check that a stored recording URL is in the
+                       tenant's part of the recordings bucket
+  - `copy-source!`     copy a stored recording to a source key inside S3
   - `delete-source!`   best-effort removal
 
   Security:
@@ -29,6 +33,7 @@
                                              CompleteMultipartUploadRequest
                                              CompletedMultipartUpload
                                              CompletedPart
+                                             CopyObjectRequest
                                              CreateMultipartUploadRequest
                                              DeleteObjectRequest
                                              PutObjectRequest
@@ -88,6 +93,56 @@
   (->> [(some-> prefix str (str/replace #"^/+|/+$" "")) (str tenant-id) "uploads" (str session-id) "source"]
        (remove str/blank?)
        (str/join "/")))
+
+(defn- trim-prefix
+  "Return the recordings prefix without leading or trailing slashes, or nil."
+  [prefix]
+  (some-> prefix str (str/replace #"^/+|/+$" "") not-empty))
+
+(defn tenant-recording-object
+  "Return the bucket and key of a stored recording when the URL is in the
+  tenant's part of the recordings bucket, else nil.
+
+  Inputs:
+  - recording-url: string from `recordings.recording_url`
+  - bucket: configured recordings bucket (string)
+  - prefix: configured recordings prefix (string or nil)
+  - tenant-id: UUID or string of the caller's tenant
+
+  Returns: {:bucket string :key string} only when the URL is
+  `s3://<bucket>/<prefix>/<tenant_id>/...` with the configured bucket, and
+  the key has no empty, `.` or `..` path segment. Returns nil for `file://`
+  and other URLs, another bucket, another tenant or a malformed key."
+  [recording-url bucket prefix tenant-id]
+  (let [url (some-> recording-url str str/trim)
+        [_ url-bucket key] (when url (re-matches #"s3://([^/]+)/(.+)" url))
+        tenant-prefix (str (some-> (trim-prefix prefix) (str "/")) tenant-id "/")]
+    (when (and key
+               (not (str/blank? (str bucket)))
+               (= (str bucket) url-bucket)
+               (some? tenant-id)
+               (str/starts-with? key tenant-prefix)
+               (> (count key) (count tenant-prefix))
+               (not-any? #(contains? #{"" "." ".."} %) (str/split key #"/" -1)))
+      {:bucket url-bucket :key key})))
+
+(defn copy-source!
+  "Copy a stored object to a source key in the same bucket, inside S3.
+
+  The bytes never pass through the BFF. The new object is independent of the
+  original: deleting one does not change the other.
+
+  Inputs: S3Client, bucket, source key, destination key (strings).
+  Returns: nil. Storage errors (for example a missing source object)
+  propagate; nothing is stored when an exception is thrown."
+  [^S3Client s3 bucket source-key dest-key]
+  (.copyObject s3 ^CopyObjectRequest (-> (CopyObjectRequest/builder)
+                                         (.sourceBucket bucket)
+                                         (.sourceKey source-key)
+                                         (.destinationBucket bucket)
+                                         (.destinationKey dest-key)
+                                         (.build)))
+  nil)
 
 (defn- read-part
   "Read up to `n` bytes from `in`. Returns a byte array (empty at end of stream)."

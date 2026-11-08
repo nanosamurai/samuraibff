@@ -103,7 +103,9 @@ An uploaded session has the same owner and audience as a session created with
 
 The session has `source: "upload"` in `GET /api/recordings` and
 `GET /api/recordings/{session_id}`. The UI shows it as **Processing** while
-the status is `finished` and no final transcript exists.
+the status is `finished` and no final transcript exists. A re-transcription
+(`docs/features-retranscription.md`) uses the same pipeline with
+`source: "retranscription"`.
 
 Poll `GET /api/recordings/{session_id}` until the transcript of each selected
 final track is present, or subscribe to the `transcript.final.ready` webhook.
@@ -119,9 +121,9 @@ duration or time limit), it deletes the source and publishes a
 
 The BFF consumes the event and sets the session status to `failed`. The UI
 shows **Failed** and says that the file could not be converted. Clients that
-poll stop at status `failed`. The BFF changes only a `finished` upload session
-of the event's tenant that has no final transcript, so a late or repeated event
-never hides a transcript. All BFF replicas share one consumer group
+poll stop at status `failed`. The BFF changes only a `finished` session of the
+event's tenant whose source is an upload or a re-transcription and that has no
+final transcript, so a late or repeated event never hides a transcript. All BFF replicas share one consumer group
 (`samuraibff-upload-failed`), so one replica handles each event. A database
 error retries the event. The BFF logs the IDs and the reason code at INFO.
 

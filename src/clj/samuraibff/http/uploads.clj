@@ -11,7 +11,8 @@
      with a byte limit. The BFF never decodes the file; it only checks the
      leading bytes against known container signatures.
   3. Create the session with the same ownership and audience as a live session,
-     save its stream controls (final output only) and publish `sessions.meta`.
+     save its stream controls (final output only) and publish `sessions.meta`
+     (`samuraibff.sessions.file-source/start-session!`).
   4. Publish `recordings.uploaded` and wait for the broker ack. The recorder
      worker decodes the file and publishes the normal `recordings.finished`.
 
@@ -24,23 +25,17 @@
   - On any failure after the file was stored, the stored object is deleted
     best-effort and no session event is published."
   (:require
-   [clojure.string :as str]
    [org.corfield.logging4j2 :as log]
    [ring.middleware.multipart-params :as multipart]
    [samuraibff.access.policy :as policy]
    [samuraibff.db.sessions :as db.sessions]
    [samuraibff.features :as features]
-   [samuraibff.http.ui :as http.ui]
-   [samuraibff.kafka.producer :as kafka.producer]
    [samuraibff.s3.client :as s3.client]
    [samuraibff.s3.uploads :as s3.uploads]
-   [samuraibff.sessions.meta :as sessions.meta]
-   [samuraibff.stream-controls :as stream-controls]
+   [samuraibff.sessions.file-source :as file-source]
    [samuraibff.util.uuid :as uuid])
   (:import
    (org.apache.commons.fileupload2.core FileUploadException FileUploadSizeException)))
-
-(def ^:private max-title-length 200)
 
 (def ^:private max-form-items
   "File part plus the optional text fields, with room for clients that send extras."
@@ -54,45 +49,20 @@
 (defn- fail!
   "Throw an upload failure that maps to an HTTP status and message."
   [status message]
-  (throw (ex-info message {:type ::rejected :status status :message message})))
-
-(defn- field
-  "Return a trimmed, non-blank multipart text field or nil."
-  [params k]
-  (let [v (get params k)]
-    (when (string? v)
-      (not-empty (str/trim v)))))
+  (file-source/reject! status message))
 
 (defn- parse-fields
   "Validate the optional text fields of an upload.
 
   Inputs: config map, multipart params map (string keys).
-  Returns: {:title string? :lang string :controls map} where controls come from
-  `stream-controls/parse-and-validate` with only the final output enabled.
-  Throws an upload failure (400) for invalid values."
+  Returns: see `file-source/validate-fields`. Throws an upload failure (400)
+  for invalid values."
   [config params]
-  (let [title (field params "title")
-        lang (or (field params "lang") "")
-        final-tracks (field params "final_tracks")
-        store-recording (field params "store_recording")]
-    (when (and title (> (count title) max-title-length))
-      (fail! 400 "invalid-title"))
-    (when-not (re-matches #"|[a-z]{2,3}(-[A-Za-z0-9]{2,8})?" lang)
-      (fail! 400 "invalid-lang"))
-    (let [controls (try
-                     (stream-controls/parse-and-validate
-                      (cond-> {"realtime" "false" "refined" "false" "final" "true"}
-                        final-tracks (assoc "final_tracks" final-tracks)
-                        store-recording (assoc "store_recording" store-recording))
-                      nil
-                      (or (:final-tracks config) ["whisperx"])
-                      (or (:refinement-tracks config) ["whisperx"])
-                      (dissoc (:default-tracks config) :realtime))
-                     (catch clojure.lang.ExceptionInfo _
-                       (fail! 400 "invalid-stream-controls")))]
-      {:title title
-       :lang lang
-       :controls (stream-controls/with-track-labels controls config)})))
+  (let [field #(let [v (get params %)] (when (string? v) v))]
+    (file-source/validate-fields config {:title (field "title")
+                                         :lang (field "lang")
+                                         :final-tracks (field "final_tracks")
+                                         :store-recording (field "store_recording")})))
 
 (defn- size-limit-failure?
   "True when `t` or one of its causes is a multipart size-limit failure."
@@ -125,7 +95,7 @@
           (s3.uploads/delete-source! s3 bucket key))
         (let [type (:type (ex-data t))]
           (cond
-            (= type ::rejected) (throw t)
+            (= type ::file-source/rejected) (throw t)
             (= type ::s3.uploads/too-large) (fail! 413 "file-too-large")
             (= type ::s3.uploads/unsupported-media) (fail! 415 "unsupported-media-type")
             (= type ::s3.uploads/empty) (fail! 400 "empty-file")
@@ -133,33 +103,6 @@
             (or (instance? FileUploadException t)
                 (some? (:max-file-count (ex-data t)))) (fail! 400 "invalid-multipart")
             :else (throw t)))))))
-
-(defn- start-session!
-  "Create the session row, save its controls and publish sessions.meta.
-
-  Uses the same ownership columns as `POST /api/sessions`. The audio input is
-  complete, so the session is `finished` at once, like a live session after
-  the user stops recording; the final transcript arrives later. The session
-  settings mark the session as an upload (`{\"source\": \"upload\"}`), so the
-  UI can show Processing and a conversion failure can mark it failed.
-  Returns nil."
-  [config ds kafka-producer principal session-uuid title controls]
-  (let [tenant-uuid (:tenant-id principal)]
-    (db.sessions/insert-session!
-     ds (merge (http.ui/session-ownership principal)
-               {:id session-uuid
-                :session-key (str session-uuid)
-                :title title
-                :status "created"
-                :session-settings {:source db.sessions/upload-source}}))
-    (db.sessions/activate-session-on-audio-start-with-controls! ds tenant-uuid session-uuid controls)
-    (db.sessions/finish-session! ds tenant-uuid session-uuid)
-    (kafka.producer/send-sessions-meta!
-     kafka-producer (str session-uuid)
-     (assoc (sessions.meta/resolve-admission-meta! config ds tenant-uuid session-uuid)
-            :stream_controls controls)
-     {:tenant-id (str tenant-uuid)})
-    nil))
 
 (defn upload-session-handler
   "Return a Ring handler for `POST /api/sessions/upload`.
@@ -208,19 +151,10 @@
           (try
             (let [{:keys [title lang controls]} (parse-fields config params)
                   title (or title (format "Upload %1$tF %1$tR" (java.time.ZonedDateTime/now)))]
-              (start-session! config ds kafka-producer principal session-uuid title controls)
-              (try
-                (kafka.producer/send-recording-uploaded!
-                 kafka-producer
-                 {:session-id session-id
-                  :tenant-id (str tenant-uuid)
-                  :recording-url (str "s3://" bucket "/" key)
-                  :lang lang}
-                 (stream-controls/kafka-headers controls))
-                (catch Exception e
-                  (log/error e "Failed publishing recordings.uploaded" log-ctx)
-                  (db.sessions/update-session-status! ds tenant-uuid session-uuid "failed")
-                  (fail! 503 "kafka-unavailable")))
+              (file-source/start-session! config ds kafka-producer principal session-uuid title controls
+                                          {:source db.sessions/upload-source})
+              (file-source/publish-source! kafka-producer ds tenant-uuid session-uuid bucket key lang
+                                           controls log-ctx)
               (log/info "Uploaded file accepted" (assoc log-ctx
                                                         :bytes (:bytes stored)
                                                         :container (name (:container stored))
@@ -230,11 +164,9 @@
               (s3.uploads/delete-source! s3 bucket key)
               (throw t))))
         (catch clojure.lang.ExceptionInfo e
-          (let [{:keys [type status message]} (ex-data e)]
-            (if (= type ::rejected)
-              (error status message)
+          (or (file-source/rejection-response e)
               (do (log/error e "Failed to create upload session" {:uri (:uri req)})
-                  (error 500 "upload-failed")))))
+                  (error 500 "upload-failed"))))
         (catch Exception e
           (log/error e "Failed to create upload session" {:uri (:uri req)})
           (error 500 "upload-failed"))))))
