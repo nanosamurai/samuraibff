@@ -91,7 +91,8 @@
     (with-redefs [s3.client/build-s3-client (constantly client)
                   uploads/start-session! (constantly nil)
                   kafka.producer/send-recording-uploaded! (fn [_ event _] (swap! published conj event))
-                  http.openai/fetch-final-transcript fetch]
+                  http.openai/fetch-final-transcript fetch
+                  http.openai/upload-failed? (constantly false)]
       {:result (f) :s3 @state :published @published})))
 
 (defn- error-of
@@ -150,6 +151,18 @@
     (is (= "transcription_timeout" (:code error)))
     (is (= (:session-id (first published)) (:session_id error)))
     (is (str/includes? (:message error) (str "/api/recordings/" (:session_id error))))))
+
+(deftest unconvertible-upload-stops-waiting-test
+  (let [{:keys [result published]}
+        (with-stubs (constantly nil)
+          #(with-redefs [http.openai/upload-failed? (constantly true)]
+             ((http.openai/transcriptions-handler deps)
+              (request guest [["file" wav] ["model" "whisper-1"]]))))
+        error (:error (cheshire/parse-string (:body result) true))]
+    (is (= 400 (:status result)))
+    (is (= "unreadable_file" (:code error)))
+    (is (= "file" (:param error)))
+    (is (= (:session-id (first published)) (:session_id error)))))
 
 (deftest concurrent-waits-are-capped-test
   (let [release (promise)

@@ -74,6 +74,23 @@
        :lang (:lang row)
        :duration-s (:duration_s row)})))
 
+(defn upload-failed?
+  "Return true when the recorder could not convert the uploaded file.
+
+  Inputs: DataSource, tenant UUID and session UUID.
+  Returns true when the session status is `failed`."
+  [ds ^UUID tenant-id ^UUID session-id]
+  (= "failed" (:status (db.recordings/find-session-by-id ds tenant-id session-id))))
+
+(defn- poll-transcript
+  "Return {:transcript map} once the final transcript of the track exists,
+  {:failed true} when the upload could not be converted, else nil."
+  [ds ^UUID tenant-id ^UUID session-id track-id]
+  (if-let [transcript (fetch-final-transcript ds tenant-id session-id track-id)]
+    {:transcript transcript}
+    (when (upload-failed? ds tenant-id session-id)
+      {:failed true})))
+
 (defn- upload-error
   "Map an upload rejection {:status :message :param?} to an OpenAI error response."
   [{:keys [status message param]}]
@@ -108,10 +125,11 @@
   "Poll for a transcript without blocking a thread, then call `respond!` once.
 
   Inputs:
-  - fetch!: (fn [] transcript-or-nil); runs on a core.async thread and may
-    throw (a failure is logged and polling continues).
+  - fetch!: (fn [] result-or-nil) returning {:transcript map} or
+    {:failed true}; runs on a core.async thread and may throw (a failure is
+    logged and polling continues).
   - opts: {:timeout-ms :poll-interval-ms :cancelled? (fn [] bool)}
-  - respond!: (fn [result]) with {:transcript map} or {:timeout true}; not
+  - respond!: (fn [result]) with the fetch! result or {:timeout true}; not
     called when `cancelled?` turns true.
   Returns the go-loop channel (closes when done)."
   [fetch! {:keys [timeout-ms poll-interval-ms cancelled?] :or {cancelled? (constantly false)}} respond!]
@@ -122,13 +140,13 @@
       (when-not (cancelled?)
         (let [result (a/<! (a/thread
                              (try
-                               {:transcript (fetch!)}
+                               (fetch!)
                                (catch Throwable t
                                  (log/warn t "Polling the final transcript failed")
                                  {}))))]
           (cond
             (cancelled?) nil
-            (:transcript result) (respond! result)
+            (or (:transcript result) (:failed result)) (respond! result)
             (>= (System/currentTimeMillis) deadline) (respond! {:timeout true})
             :else (recur)))))))
 
@@ -139,6 +157,15 @@
                          (str "The transcript was not ready within " timeout-s " seconds. "
                               "It is still processing: read it later with GET /api/recordings/" session-id)
                          nil
+                         {:session_id session-id}))
+
+(defn- failed-response
+  "Return the error response for an upload the recorder could not convert."
+  [session-id]
+  (openai/error-response 400 "unreadable_file"
+                         (str "The file could not be converted. Check that it is a readable "
+                              "audio or video file with sound.")
+                         "file"
                          {:session_id session-id}))
 
 (defn- respond-async
@@ -176,8 +203,9 @@
   are accepted and ignored.
 
   Returns 200 in the requested format, or an OpenAI error: 400 invalid
-  request, 403 forbidden, 413, 415, 429 too many waiting requests, 500, 503,
-  504 transcript not ready (error.session_id)."
+  request or unreadable_file (the recorder could not convert the file;
+  error.session_id), 403 forbidden, 413, 415, 429 too many waiting requests,
+  500, 503, 504 transcript not ready (error.session_id)."
   [{:keys [config] :as deps}]
   (let [{:keys [wait-timeout-s max-concurrent-waits poll-interval-ms]} (settings config)
         waits (Semaphore. (int max-concurrent-waits))]
@@ -200,18 +228,20 @@
                req
                (fn [respond! cancelled?]
                  (wait-for-transcript!
-                  #(fetch-final-transcript (get-in deps [:db :ds]) tenant-id session-uuid track-id)
+                  #(poll-transcript (get-in deps [:db :ds]) tenant-id session-uuid track-id)
                   {:timeout-ms (* 1000 (long wait-timeout-s))
                    :poll-interval-ms poll-interval-ms
                    :cancelled? cancelled?}
-                  (fn [{:keys [transcript]}]
-                    (if transcript
-                      (log/info "OpenAI transcription completed" log-ctx)
-                      (log/info "OpenAI transcription wait timed out" log-ctx))
+                  (fn [{:keys [transcript failed]}]
+                    (cond
+                      transcript (log/info "OpenAI transcription completed" log-ctx)
+                      failed (log/info "OpenAI transcription failed: file could not be converted" log-ctx)
+                      :else (log/info "OpenAI transcription wait timed out" log-ctx))
                     (respond! (try
-                                (if transcript
-                                  (openai/render options transcript)
-                                  (timeout-response session-id wait-timeout-s))
+                                (cond
+                                  transcript (openai/render options transcript)
+                                  failed (failed-response session-id)
+                                  :else (timeout-response session-id wait-timeout-s))
                                 (catch Throwable t
                                   (log/error t "Rendering the OpenAI transcription failed" log-ctx)
                                   (openai/error-response 500 "internal_error" "The transcription request failed"

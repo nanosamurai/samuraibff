@@ -164,7 +164,10 @@ Waiting and limits:
 * After `[:openai :wait-timeout-s]` the response is 504
   `transcription_timeout`. `error.session_id` names the session; the
   transcription continues and the result appears in
-  `GET /api/recordings/{session_id}`. A failed conversion also ends as 504.
+  `GET /api/recordings/{session_id}`.
+* When the recorder cannot convert the file, the session becomes `failed`
+  and the response is 400 `unreadable_file` (`param: file`, with
+  `error.session_id`) as soon as the next poll sees it.
 * When `[:openai :max-concurrent-waits]` requests already wait, a new request
   gets 429 `too_many_pending_transcriptions` before the file is stored.
 * A load balancer or proxy in front of the BFF must allow idle requests at
