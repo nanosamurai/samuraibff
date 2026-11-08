@@ -27,6 +27,7 @@
     [samuraibff.keycloak.admin]
     [samuraibff.kafka.producer]
     [samuraibff.kafka.refined-consumer]
+    [samuraibff.kafka.upload-failed-consumer]
      [samuraibff.kafka.workflow-results-consumer]
     [samuraibff.secrets.component]
     [samuraibff.ws.auth]

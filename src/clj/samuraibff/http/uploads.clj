@@ -16,7 +16,8 @@
      worker decodes the file and publishes the normal `recordings.finished`.
 
   Status and results use the existing recording endpoints and the
-  `transcript.final.ready` webhook.
+  `transcript.final.ready` webhook. When the recorder cannot convert the file,
+  `samuraibff.kafka.upload-failed-consumer` sets the session to `failed`.
 
   Security:
   - Client file names and part content types are ignored and never stored.

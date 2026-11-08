@@ -52,12 +52,14 @@ flowchart LR
     SamuraiBFF -->|"uploaded file stored in S3\ntopic: recordings.uploaded"| KafkaBroker
 
     KafkaBroker -->|"consume protobuf RefinedEvent\ntopic: transcripts.refined"| SamuraiBFF
+    KafkaBroker -->|"consume JSON (file not converted)\ntopic: recordings.upload_failed"| SamuraiBFF
     KafkaBroker -->|"consume\ntopic: audio.raw"| WhisperXWorker
     WhisperXWorker -->|"produce protobuf RefinedEvent\ntopic: transcripts.refined"| KafkaBroker
 
     KafkaBroker -->|"consume\ntopic: audio.raw"| RecorderWorker
     KafkaBroker -->|"consume (FFmpeg conversion)\ntopic: recordings.uploaded"| RecorderWorker
     RecorderWorker -->|"produce protobuf RecordingFinished\ntopic: recordings.finished"| KafkaBroker
+    RecorderWorker -->|"produce JSON\ntopic: recordings.upload_failed"| KafkaBroker
 
     KafkaBroker -->|"consume\ntopic: recordings.finished"| FinalizerWorker
     FinalizerWorker -->|"produce protobuf SessionTranscript\ntopic: transcripts.final"| KafkaBroker

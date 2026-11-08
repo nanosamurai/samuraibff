@@ -202,6 +202,10 @@
   {:config #ig/ref :samuraibff/config
    :ws-registry #ig/ref :samuraibff/ws-registry}
 
+ :samuraibff/upload-failed-consumer
+ {:config #ig/ref :samuraibff/config
+  :db     #ig/ref :samuraibff/db}
+
  :samuraibff/access-watch
  {:config #ig/ref :samuraibff/config
   :db     #ig/ref :samuraibff/db}

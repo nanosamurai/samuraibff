@@ -39,7 +39,9 @@ sorts it with the other Processing sessions. The session page also says that
 the file is being converted and transcribed, until a final transcript is
 available. The note comes from the stored session (`source: "upload"`), so it
 is the same after a reload and on other devices. The page updates
-automatically.
+automatically. If the recorder cannot convert the file, the status becomes
+**Failed** and the session page says that the file could not be converted and
+asks for a readable audio or video file with sound.
 
 ## Request
 
@@ -99,12 +101,29 @@ An uploaded session has the same owner and audience as a session created with
    session recording, deletes the source and publishes `recordings.finished`.
 4. Final tracks transcribe the recording. Persistor stores the transcript.
 
+The session has `source: "upload"` in `GET /api/recordings` and
+`GET /api/recordings/{session_id}`. The UI shows it as **Processing** while
+the status is `finished` and no final transcript exists.
+
 Poll `GET /api/recordings/{session_id}` until the transcript of each selected
 final track is present, or subscribe to the `transcript.final.ready` webhook.
 
-If the worker cannot decode the file (corrupt file, no audio, over the duration
-or time limit), it logs the reason and deletes the source. No transcript
-arrives, so clients should use a timeout.
+If the worker cannot convert the file (corrupt file, no audio, over the size,
+duration or time limit), it deletes the source and publishes a
+`recordings.upload_failed` event (key: session ID):
+
+```json
+{"schema_version": 1, "session_id": "<uuid>", "tenant_id": "<uuid>",
+ "reason": "decode-failed", "created_at": "2026-11-08T10:00:00.000Z"}
+```
+
+The BFF consumes the event and sets the session status to `failed`. The UI
+shows **Failed** and says that the file could not be converted. Clients that
+poll stop at status `failed`. The BFF changes only a `finished` upload session
+of the event's tenant that has no final transcript, so a late or repeated event
+never hides a transcript. All BFF replicas share one consumer group
+(`samuraibff-upload-failed`), so one replica handles each event. A database
+error retries the event. The BFF logs the IDs and the reason code at INFO.
 
 To cancel, abort the HTTP request before the response (this creates no session
 and stores nothing), or delete the session with
@@ -117,9 +136,15 @@ session is dropped.
 | --- | --- | --- |
 | `[:uploads :max-bytes]` | `SAMURAIBFF_UPLOAD_MAX_BYTES` | `134217728` (128 MiB; `0` disables uploads) |
 | `[:kafka :topics :recordings-uploaded]` | `SAMURAIBFF_KAFKA_TOPIC_RECORDINGS_UPLOADED` | `recordings.uploaded` |
+| `[:kafka :topics :recordings-upload-failed]` | `SAMURAIBFF_KAFKA_TOPIC_RECORDINGS_UPLOAD_FAILED` | `recordings.upload_failed` |
+| `[:kafka :consumer-group-id-upload-failed]` | `SAMURAIBFF_KAFKA_CONSUMER_GROUP_ID_UPLOAD_FAILED` | `samuraibff-upload-failed` |
 
 `GET /api/me` reports the result as `features.uploads_enabled` and
 `features.uploads_max_bytes` (`0` when uploads are disabled).
+
+The `recordings.upload_failed` consumer runs only when uploads are enabled. A
+new consumer group starts at the earliest retained event. Create the topic
+next to `recordings.uploaded`.
 
 Uploads also need `SAMURAIBFF_S3_RECORDINGS_BUCKET`, and the BFF needs
 `s3:PutObject`, `s3:AbortMultipartUpload` and `s3:DeleteObject` on the

@@ -22,6 +22,8 @@ It provides:
 * Kafka consumers:
   * `transcripts.refined` (protobuf `RefinedEvent`)
   * `workflow.result` (JSON)
+  * `recordings.upload_failed` (JSON) – marks an uploaded session failed
+    (see `docs/features-file-uploads.md`)
 * Internal callbacks (BFF→BFF cross-instance routing):
   * `POST /internal/refined` (`application/x-protobuf`)
   * `POST /internal/workflow-result` (`application/json`)
@@ -32,6 +34,7 @@ It provides:
 * Kafka producer:
   * `audio.raw` (protobuf `AudioChunk`)
   * `sessions.meta` (compacted, JSON) – routing/config snapshot for downstream services
+  * `recordings.uploaded` (protobuf `RecordingFinished`) – uploaded file to convert
 * Postgres:
   * session metadata + selected read models needed directly by the BFF/UI
 * S3/object storage:
