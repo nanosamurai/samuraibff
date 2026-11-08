@@ -96,3 +96,40 @@
                                                     (* 4 s3.uploads/part-size))))
       (is (empty? (:objects @state)))
       (is (= 1 (count (:aborted @state)))))))
+
+(deftest tenant-recording-object-test
+  (let [tenant "11111111-1111-1111-1111-111111111111"
+        ok-key (str "recordings/" tenant "/2026/11/08/session/audio.wav")]
+    (testing "a recording in the tenant's part of the recordings bucket is accepted"
+      (is (= {:bucket "rec" :key ok-key}
+             (s3.uploads/tenant-recording-object (str "s3://rec/" ok-key) "rec" "/recordings/" tenant)))
+      (is (= {:bucket "rec" :key (str tenant "/x.wav")}
+             (s3.uploads/tenant-recording-object (str "s3://rec/" tenant "/x.wav") "rec" nil tenant))
+          "no prefix"))
+    (testing "other locations are refused"
+      (doseq [[url why] [[(str "file:///data/" tenant "/a.wav") "local file"]
+                         [(str "s3://other/" ok-key) "another bucket"]
+                         ["s3://rec/recordings/22222222-2222-2222-2222-222222222222/a.wav" "another tenant"]
+                         [(str "s3://rec/other/" tenant "/a.wav") "another prefix"]
+                         [(str "s3://rec/recordings/" tenant "/") "the tenant folder itself"]
+                         [(str "s3://rec/recordings/" tenant "x/a.wav") "a tenant id with a suffix"]
+                         [(str "s3://rec/recordings/" tenant "/../2222/a.wav") "a dot-dot segment"]
+                         [(str "s3://rec/recordings/" tenant "//a.wav") "an empty segment"]
+                         ["s3://rec" "no key"]
+                         [nil "no URL"]]]
+        (is (nil? (s3.uploads/tenant-recording-object url "rec" "recordings" tenant)) why))
+      (is (nil? (s3.uploads/tenant-recording-object (str "s3://rec/" ok-key) "" "recordings" tenant))
+          "no configured bucket"))))
+
+(deftest copy-source-test
+  (testing "the stored object is copied inside S3 to the new key"
+    (let [{:keys [client state]} (fake-s3/fake-s3 {:objects {"a/old.wav" (ascii "RIFF")}})]
+      (is (nil? (s3.uploads/copy-source! client "rec" "a/old.wav" "a/uploads/new/source")))
+      (is (= [{:source-bucket "rec" :source-key "a/old.wav" :bucket "rec" :key "a/uploads/new/source"}]
+             (:copies @state)))
+      (is (Arrays/equals (ascii "RIFF") ^bytes (get-in @state [:objects "a/uploads/new/source"])))
+      (is (contains? (:objects @state) "a/old.wav") "the original stays")))
+  (testing "a missing source object fails and stores nothing"
+    (let [{:keys [client state]} (fake-s3/fake-s3)]
+      (is (thrown? Exception (s3.uploads/copy-source! client "rec" "missing" "dest")))
+      (is (empty? (:objects @state))))))
