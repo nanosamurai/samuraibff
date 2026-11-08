@@ -1,8 +1,10 @@
 (ns samuraibff.sessions.file-source
   "Shared rules for sessions whose audio is a stored file.
 
-  Two endpoints create such sessions:
+  These endpoints create such sessions:
   - `POST /api/sessions/upload` (`samuraibff.http.uploads`): an uploaded file
+  - `POST /v1/audio/transcriptions` (`samuraibff.http.openai`): an uploaded
+    file, through `samuraibff.http.uploads/create-upload-session!`
   - `POST /api/recordings/{session_id}/retranscribe`
     (`samuraibff.http.retranscription`): a copy of another session's recording
 
