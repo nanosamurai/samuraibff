@@ -427,7 +427,7 @@
              [shared/status-pill {:label "Loading" :kind :muted}])]]
          (when access-label
            [:div {:class "muted"} access-label])
-         [retranscribe/retranscribed-from-line session]
+         (retranscribe/retranscribed-from-line session)
          [:details {:class "muted"}
           [:summary "Technical details"]
           [:div {:class "mono"} (str "Session ID: " session-id)]]]
@@ -452,7 +452,7 @@
          (if (= kind :failed)
            [:p {:class "badge bad" :role "alert"} text]
            [:p {:class "muted" :role "status"} text]))
-       [retranscribe/retranscriptions-list session]
+       (retranscribe/retranscriptions-list session)
        [:div {:class "tabs transcript-tabs"}
         ;; The tablist holds only tabs; the panel toggle sits outside it.
         [:div {:class "tabs-group" :role "tablist" :aria-label "Transcripts"}
