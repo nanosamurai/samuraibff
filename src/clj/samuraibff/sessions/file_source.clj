@@ -1,8 +1,10 @@
 (ns samuraibff.sessions.file-source
   "Shared rules for sessions whose audio is a stored file.
 
-  Two endpoints create such sessions:
+  These endpoints create such sessions:
   - `POST /api/sessions/upload` (`samuraibff.http.uploads`): an uploaded file
+  - `POST /v1/audio/transcriptions` (`samuraibff.http.openai`): an uploaded
+    file, through `samuraibff.http.uploads/create-upload-session!`
   - `POST /api/recordings/{session_id}/retranscribe`
     (`samuraibff.http.retranscription`): a copy of another session's recording
 
@@ -13,7 +15,7 @@
 
   Public API:
   - `max-title-length`
-  - `reject!`, `rejection-response`
+  - `reject!`, `rejection`, `rejection-response`
   - `validate-fields`
   - `start-session!`
   - `publish-source!`"
@@ -33,10 +35,24 @@
 (defn reject!
   "Throw a request rejection that maps to an HTTP status and error message.
 
-  Inputs: status integer, stable error message string.
-  Throws: ex-info {:type ::rejected :status int :message string}."
-  [status message]
-  (throw (ex-info message {:type ::rejected :status status :message message})))
+  Inputs: status integer, stable error message string, optional map of extra
+  data for the caller (for example {:param \"model\"}).
+  Throws: ex-info {:type ::rejected :status int :message string} merged with
+  the extra data."
+  ([status message]
+   (reject! status message nil))
+  ([status message extra]
+   (throw (ex-info message (merge extra {:type ::rejected :status status :message message})))))
+
+(defn rejection
+  "Return the data of a rejection thrown by `reject!` without :type, or nil.
+
+  Inputs: Throwable. Returns: {:status int :message string ...extra} or nil
+  for any other exception."
+  [^Throwable t]
+  (let [data (ex-data t)]
+    (when (= ::rejected (:type data))
+      (dissoc data :type))))
 
 (defn rejection-response
   "Return the JSON error response for a rejection thrown by `reject!`, or nil.

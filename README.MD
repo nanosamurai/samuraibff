@@ -471,3 +471,11 @@ one saved Final or Refined track (`stage`, `track_id`). On the recording detail
 page, a download icon opens the same export choices. Readers can export what they
 can open. See
 `docs/features-transcripts.md#export`.
+
+## OpenAI-compatible transcription
+
+`POST /v1/audio/transcriptions` accepts the OpenAI audio transcription request,
+so OpenAI clients can transcribe a file with nanosamurai. `model` selects a
+configured final track (`whisper-1` = the default final track). The response
+waits for the final transcript and returns `json`, `text`, `srt`, `vtt` or
+`verbose_json`. See `docs/api.md#openai-compatible-transcription`.

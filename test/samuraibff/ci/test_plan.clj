@@ -34,6 +34,7 @@
     samuraibff.http.auth-privacy-test
     samuraibff.http.auth-refresh-test
     samuraibff.http.error-security-test
+    samuraibff.http.openai-test
     samuraibff.http.readiness-integration-test
     samuraibff.http.recordings-sort-test
     samuraibff.http.retranscription-test
@@ -44,6 +45,7 @@
     samuraibff.s3.uploads-test
     samuraibff.secrets.aws-transport-test
     samuraibff.transcripts.export-test
+    samuraibff.transcripts.openai-test
     samuraibff.ui.transcript-test
     samuraibff.ui.urls-test
     samuraibff.ui.pagination-test
