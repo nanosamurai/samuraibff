@@ -7,6 +7,7 @@
   - GET /api/recordings/:session_id
   - GET /api/recordings/:session_id/audio
   - DELETE /api/recordings/:session_id
+  - POST /api/recordings/:session_id/retranscribe
   - GET /api/speakers
   - POST /api/speakers (multipart)
   - POST /api/speaker-enrollment/from-recording
@@ -386,6 +387,20 @@
   Returns: string URL resolved through the common BFF API URL builder."
   [session-id opts]
   (urls/recording-export-url (env/backend-base-url) session-id opts))
+
+(defn retranscribe-session!
+  "Create a new session from the stored recording of a session.
+
+  Inputs:
+  - session-id: string UUID of the source session
+  - body: map from `samuraibff.ui.retranscribe-form/request-body`
+
+  Returns:
+  - Promise resolving to {:session_id string :title string
+    :retranscribed_from string}. Rejects like `ensure-ok!`."
+  [session-id body]
+  (fetch-json! (str "/api/recordings/" (js/encodeURIComponent (or session-id "")) "/retranscribe")
+               {:method "POST" :body body}))
 
 (defn delete-recording!
   "Delete a session/recording (tenant-scoped).
