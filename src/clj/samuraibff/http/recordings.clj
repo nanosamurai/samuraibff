@@ -337,14 +337,15 @@
     (vec (or x []))))
 
 (defn- with-session-source
-  "Add `:source \"upload\"` to a session response map when the session row
-  comes from an uploaded file. Other source values are not exposed.
+  "Add `:source` to a session response map when the session row comes from a
+  stored file (`db.sessions/file-sources`: `upload` or `retranscription`).
+  Other source values are not exposed.
 
   Inputs: response map, session row with optional :source string.
   Returns: response map."
   [m row]
   (cond-> m
-    (= db.sessions/upload-source (:source row)) (assoc :source db.sessions/upload-source)))
+    (contains? db.sessions/file-sources (:source row)) (assoc :source (:source row))))
 
 (defn- json-response
   "Return a Ring JSON response.

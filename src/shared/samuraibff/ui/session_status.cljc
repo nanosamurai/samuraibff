@@ -2,6 +2,18 @@
   "Display status of a session, shared by the Sessions list and the session
   detail page so both show the same label for the same session.")
 
+(def file-sources
+  "Session `source` values for sessions whose audio is a stored file that the
+  recorder converts: an uploaded file (`upload`) or the stored recording of
+  another session (`retranscription`). Same values as
+  `samuraibff.db.sessions/file-sources`."
+  #{"upload" "retranscription"})
+
+(defn file-source?
+  "Return true when a session map has a `source` from `file-sources`."
+  [session]
+  (contains? file-sources (:source session)))
+
 (defn display-status
   "Derive a compact UI status descriptor for a session.
 
@@ -10,12 +22,13 @@
       :status (string)
       :has_recording (boolean)
       :has_final_transcript (boolean)
-      :source (string, optional; \"upload\" for a session from an uploaded file)
+      :source (string, optional; one of `file-sources` for a session from a
+               stored file)
 
-  A finished upload without a final transcript is Processing: the recorder
-  converts the file and the final tracks transcribe it. When conversion fails,
-  the BFF sets the status to `failed`. A finished live session without a final
-  transcript stays Finished.
+  A finished session from a stored file without a final transcript is
+  Processing: the recorder converts the file and the final tracks transcribe
+  it. When conversion fails, the BFF sets the status to `failed`. A finished
+  live session without a final transcript stays Finished.
 
   Returns:
   - {:label string :badge-class string :icon keyword :tooltip string}
@@ -24,7 +37,8 @@
   (let [status (some-> status str)
         has-recording? (true? has_recording)
         has-final? (true? has_final_transcript)
-        upload? (= "upload" source)]
+        retranscription? (= "retranscription" source)
+        file? (contains? file-sources source)]
     (cond
       (= status "failed")
       {:label "Failed"
@@ -50,11 +64,13 @@
        :icon :circle-check
        :tooltip "Final transcript is available"}
 
-      (and (= status "finished") upload?)
+      (and (= status "finished") file?)
       {:label "Processing"
        :badge-class "muted"
        :icon :loader-circle
-       :tooltip "Converting and transcribing the uploaded file"}
+       :tooltip (if retranscription?
+                  "Transcribing the saved audio again"
+                  "Converting and transcribing the uploaded file")}
 
       (= status "finished")
       {:label "Finished"
@@ -75,25 +91,33 @@
        :tooltip "Session created"})))
 
 (defn upload-notice
-  "Return the note that the session detail page shows for an uploaded file.
+  "Return the note that the session detail page shows for a session from a
+  stored file: an uploaded file or a re-transcription.
 
   Inputs: session map from /api/recordings/{session_id} :session with
   :status, :has_final_transcript and :source.
-  Returns: {:kind :processing|:failed :text string} while an upload is
+  Returns: {:kind :processing|:failed :text string} while the file is
   converted and transcribed or after its conversion failed; nil for a live
-  session and for an upload with a final transcript."
+  session and once a final transcript exists."
   [{:keys [status has_final_transcript source]}]
-  (when (= "upload" source)
-    (cond
-      (= "failed" status)
-      {:kind :failed
-       :text (str "The file could not be converted. Check that it is a readable audio "
-                  "or video file with sound, then upload it again.")}
+  (let [retranscription? (= "retranscription" source)]
+    (when (contains? file-sources source)
+      (cond
+        (= "failed" status)
+        {:kind :failed
+         :text (if retranscription?
+                 (str "The saved audio could not be transcribed again. Open the original "
+                      "session and try again.")
+                 (str "The file could not be converted. Check that it is a readable audio "
+                      "or video file with sound, then upload it again."))}
 
-      (and (= "finished" status) (not (true? has_final_transcript)))
-      {:kind :processing
-       :text (str "The uploaded file is being converted and transcribed. This can take "
-                  "a few minutes. This page updates automatically.")})))
+        (and (= "finished" status) (not (true? has_final_transcript)))
+        {:kind :processing
+         :text (if retranscription?
+                 (str "The saved audio is being transcribed again. This can take a few "
+                      "minutes. This page updates automatically.")
+                 (str "The uploaded file is being converted and transcribed. This can take "
+                      "a few minutes. This page updates automatically."))}))))
 
 (def labels-in-sort-order
   "Status labels in the order that a Sessions status sort uses (ascending).

@@ -90,13 +90,14 @@
         has-recording [:exists {:select [1]
                                 :from [[:recordings :r]]
                                 :where [:= :r.session_id :s.id]}]
-        upload [:= (db.sessions/session-source-expr :s.session_settings) db.sessions/upload-source]]
+        file-source [:in (db.sessions/session-source-expr :s.session_settings)
+                     (sort db.sessions/file-sources)]]
     [:case
      [:= :s.status "failed"] (rank-of {:status "failed"})
      [:= :s.status "active"] (rank-of {:status "active"})
      [:= :s.status "created"] (rank-of {:status "created"})
      [:and [:= :s.status "finished"] has-final] (rank-of {:status "finished" :has_final_transcript true})
-     [:and [:= :s.status "finished"] upload] (rank-of {:status "finished" :source db.sessions/upload-source})
+     [:and [:= :s.status "finished"] file-source] (rank-of {:status "finished" :source db.sessions/upload-source})
      [:= :s.status "finished"] (rank-of {:status "finished"})
      has-recording (rank-of {:status "other" :has_recording true})
      :else (rank-of {:status "other"})]))
@@ -138,7 +139,8 @@
   default :desc). Returns a HoneySQL map. The access policy and scope apply
   before counts and pagination; the sort changes only the row order. Rows
   include :session_duration_s (see `session-duration-expr`) and :source
-  (`db.sessions/upload-source` for an uploaded file, else nil). Throws ex-info for
+  (the `session_settings.source` text, such as `db.sessions/upload-source`,
+  else nil). Throws ex-info for
   an unknown sort key or order. Counts and rows share one statement snapshot.
   A counts-only row survives an empty page; recording and transcript lookups
   run only for sessions on the selected page."

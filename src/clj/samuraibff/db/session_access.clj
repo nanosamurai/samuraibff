@@ -131,7 +131,7 @@
   Inputs: connectable, principal map, session UUID.
   Returns: session row with :visibility :access_revision :owner_name
   :owner_email :owner_type :created_via_credential_id :created_via_name
-  :key_manager and :source (`db.sessions/upload-source` or nil), or nil."
+  :key_manager and :source (the `session_settings.source` text or nil), or nil."
   [connectable principal ^UUID session-id]
   (jdbc/execute-one!
    connectable

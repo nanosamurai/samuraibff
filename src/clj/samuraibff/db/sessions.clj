@@ -16,6 +16,8 @@
   - `update-session-stream-controls!`
   - `activate-session-on-audio-start-with-controls!`
   - `fail-upload-session!`
+  - `upload-source`, `retranscription-source`, `file-sources`,
+    `session-source-expr`
 
   All functions accept a next.jdbc datasource, typically provided by the
   Integrant `:samuraibff/db` component as `(:ds db)`.
@@ -50,6 +52,19 @@
   "Value of `sessions.session_settings.source` for a session created from an
   uploaded file (`POST /api/sessions/upload`). Live sessions have no source."
   "upload")
+
+(def retranscription-source
+  "Value of `sessions.session_settings.source` for a session created from the
+  stored recording of another session
+  (`POST /api/recordings/{session_id}/retranscribe`). Its settings also hold
+  `parent_session_id`."
+  "retranscription")
+
+(def file-sources
+  "Sources of sessions whose audio is a stored file that the recorder converts.
+  These sessions are `finished` at once and show Processing until the final
+  transcript exists; a conversion failure sets them to `failed`."
+  #{upload-source retranscription-source})
 
 (defn session-source-expr
   "Return a HoneySQL expression for the `source` key of a session_settings
@@ -188,15 +203,17 @@
     {:updated? (pos? (long (or (:next.jdbc/update-count res) 0)))}))
 
 (defn fail-upload-session!
-  "Set an uploaded session to `failed` after its file could not be converted.
+  "Set a session from a stored file to `failed` after the file could not be
+  converted.
 
   Inputs:
   - ds: DataSource
   - tenant-id: UUID
   - session-id: UUID
 
-  Only a session of the tenant that is an upload (`upload-source`), has
-  status `finished` and has no final transcript changes. One conditional
+  Only a session of the tenant whose source is one of `file-sources` (an
+  upload or a re-transcription), has status `finished` and has no final
+  transcript changes. One conditional
   UPDATE does the check, so a late failure never hides a final transcript and
   a repeated call changes nothing.
 
@@ -219,7 +236,7 @@
                    [:= :tenant_id tenant-id]
                    [:= :id session-id]
                    [:= :status "finished"]
-                   [:= (session-source-expr :session_settings) upload-source]
+                   [:in (session-source-expr :session_settings) (sort file-sources)]
                    [:not has-final]]}
         res (jdbc/execute-one! ds (sql/format q))]
     {:updated? (pos? (long (or (:next.jdbc/update-count res) 0)))}))

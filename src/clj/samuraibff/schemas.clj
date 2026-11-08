@@ -677,12 +677,13 @@
   - `duration_s` is the session duration in seconds: `ended_at - started_at`,
     or the latest recording's duration when the session times are missing.
     It is null for drafts and running sessions.
-  - `source` is `upload` for a session created from an uploaded file and
-    absent for a live session.
+  - `source` is `upload` for a session created from an uploaded file,
+    `retranscription` for a session created from the stored recording of
+    another session, and absent for a live session.
   - The API intentionally does NOT expose internal recording URLs (file://, s3://...)."
   [:map
    [:session_id Uuid]
-   [:source {:optional true} [:enum "upload"]]
+   [:source {:optional true} [:enum "upload" "retranscription"]]
    [:session_key [:maybe :string]]
    [:title {:optional true} [:maybe :string]]
    [:status [:maybe :string]]
@@ -715,11 +716,12 @@
 (def RecordingDetailSession
   "Session metadata returned by `GET /api/recordings/{session_id}`.
 
-  `source` is `upload` for a session created from an uploaded file and absent
-  for a live session."
+  `source` is `upload` for a session created from an uploaded file,
+  `retranscription` for a session created from the stored recording of
+  another session, and absent for a live session."
   [:map
    [:id Uuid]
-   [:source {:optional true} [:enum "upload"]]
+   [:source {:optional true} [:enum "upload" "retranscription"]]
    [:session_key [:maybe :string]]
    [:title [:maybe :string]]
    [:status [:maybe :string]]

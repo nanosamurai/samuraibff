@@ -30,8 +30,8 @@
 (def ^:private fixtures
   "Sessions of the test. :created, :started and :ended are seconds after the
   base instant; :recording is the latest recording's duration_s (nil: no
-  recording); :final? adds a final transcript; :upload? marks a session from an
-  uploaded file. The session of the other tenant stays last."
+  recording); :final? adds a final transcript; :source marks a session from a stored
+  file (an upload or a re-transcription). The session of the other tenant stays last."
   [{:n 1 :owner :alice :visibility "private" :status "finished" :title "alpha"
     :created 600 :started 600 :ended 690 :recording 88.0 :final? true}
    {:n 2 :owner :alice :visibility "private" :status "finished" :title "Bravo"
@@ -55,12 +55,14 @@
    {:n 12 :owner :bob :visibility "tenant" :status "finished" :title "india"
     :created 1500 :started 1500 :ended 1520 :recording 20.0 :final? true}
    {:n 13 :owner :bob :visibility "private" :status "created" :title nil :created 2100}
-   {:n 15 :owner :alice :visibility "private" :status "finished" :title "juliett" :upload? true
+   {:n 15 :owner :alice :visibility "private" :status "finished" :title "juliett" :source "upload"
     :created 6000 :started 6000 :ended 6000}
-   {:n 16 :owner :alice :visibility "tenant" :status "finished" :title "kilo" :upload? true
+   {:n 16 :owner :alice :visibility "tenant" :status "finished" :title "kilo" :source "upload"
     :created 6600 :started 6600 :ended 6600 :recording 12.0 :final? true}
-   {:n 17 :owner :bob :visibility "tenant" :status "failed" :title "lima" :upload? true
+   {:n 17 :owner :bob :visibility "tenant" :status "failed" :title "lima" :source "upload"
     :created 7200 :started 7200 :ended 7200}
+   {:n 18 :owner :bob :visibility "tenant" :status "finished" :title "mike" :source "retranscription"
+    :created 7800 :started 7800 :ended 7800 :recording 15.0}
    {:n 14 :owner :carol :visibility "tenant" :status "finished" :title "alpha"
     :created 300 :started 300 :ended 400}])
 
@@ -83,12 +85,12 @@
    "created_at" :created
    "started_at" :started
    "duration" expected-duration
-   "status" (fn [{:keys [status recording final? upload?]}]
+   "status" (fn [{:keys [status recording final? source]}]
               (session-status/label-sort-rank
                (:label (session-status/display-status {:status status
                                                        :has_recording (some? recording)
                                                        :has_final_transcript (boolean final?)
-                                                       :source (when upload? "upload")}))))})
+                                                       :source source}))))})
 
 (defn- expected-order
   "Return fixture ids in the expected order: values by direction with the id
@@ -133,13 +135,13 @@
                           (is (= 200 (:status response)) (pr-str reader params))
                           (:body response)))]
         (insert! :sessions
-                 (mapv (fn [{:keys [owner visibility status title created started ended upload?] :as row}]
+                 (mapv (fn [{:keys [owner visibility status title created started ended source] :as row}]
                          {:id (session-id row)
                           :tenant_id (:tenant-id (get principals owner))
                           :user_id (:id (get principals owner))
                           :session_key (str (session-id row))
                           :title title :status status :visibility visibility
-                          :session_settings (when upload? [:cast "{\"source\":\"upload\"}" :jsonb])
+                          :session_settings (when source [:cast (str "{\"source\":\"" source "\"}") :jsonb])
                           :created_at (at created) :started_at (at started) :ended_at (at ended)})
                        fixtures))
         (insert! :recordings
@@ -172,11 +174,11 @@
                      (mapv :session_id (:items default-body))))
               (is (= (count listed) (:total default-body)))
               (is (= (count (filter #(= "created" (:status %)) readable)) (:drafts_count default-body))))
-            (testing (str "each row carries the session duration and upload source " context)
+            (testing (str "each row carries the session duration and file source " context)
               (let [by-id (into {} (map (juxt (comp str session-id) identity)) listed)]
                 (doseq [{:keys [session_id duration_s source]} (:items default-body)]
                   (is (= (expected-duration (by-id session_id)) duration_s) session_id)
-                  (is (= (when (:upload? (by-id session_id)) "upload") source) session_id))))
+                  (is (= (:source (by-id session_id)) source) session_id))))
             (doseq [sort-key ["title" "created_at" "started_at" "duration" "status"]
                     order ["asc" "desc"]]
               (let [params (assoc base :sort sort-key :order order)
