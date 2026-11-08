@@ -58,14 +58,15 @@
 (def ^:private session-duration-expr
   "HoneySQL expression: duration of session `s` in seconds (double), or NULL.
 
-  Drafts (`created`) and running sessions (`active`) have no duration. An
-  uploaded file starts and ends at the upload, so it uses the latest
+  Drafts (`created`) and running sessions (`active`) have no duration. A
+  session from a stored file (`db.sessions/file-sources`: an upload or a
+  re-transcription) starts and ends when it is created, so it uses the latest
   recording's `duration_s`: NULL until the recorder has converted the file.
   Other sessions use `ended_at - started_at`. When the session times are
   missing or out of order, the latest recording's `duration_s` is used."
   [:case
    [:in :s.status ["created" "active"]] nil
-   [:= (db.sessions/session-source-expr :s.session_settings) db.sessions/upload-source]
+   [:in (db.sessions/session-source-expr :s.session_settings) (sort db.sessions/file-sources)]
    latest-recording-duration
    [:>= :s.ended_at :s.started_at] [:date_part [:inline "epoch"] [:- :s.ended_at :s.started_at]]
    :else latest-recording-duration])

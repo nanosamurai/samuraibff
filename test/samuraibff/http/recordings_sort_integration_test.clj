@@ -70,12 +70,12 @@
 
 (defn- expected-duration
   "Duration rule of the API: none for drafts and running sessions, the latest
-  recording's duration for an uploaded file, else ended - started, else the
-  latest recording's duration."
-  [{:keys [status started ended recording upload?]}]
+  recording's duration for a session from a stored file, else ended - started,
+  else the latest recording's duration."
+  [{:keys [status started ended recording source]}]
   (cond
     (#{"created" "active"} status) nil
-    upload? recording
+    source recording
     (and started ended (>= ended started)) (double (- ended started))
     :else recording))
 
