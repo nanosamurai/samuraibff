@@ -31,6 +31,7 @@
    [next.jdbc.result-set :as rs]
    [org.corfield.logging4j2 :as log]
    [samuraibff.db.session-access :as session-access]
+   [samuraibff.db.sessions :as db.sessions]
    [samuraibff.ui.session-status :as session-status])
   (:import
    (java.util UUID)
@@ -130,7 +131,8 @@
   :sort (a `sort-keys` keyword, default :created_at) and :order (:asc | :desc,
   default :desc). Returns a HoneySQL map. The access policy and scope apply
   before counts and pagination; the sort changes only the row order. Rows
-  include :session_duration_s (see `session-duration-expr`). Throws ex-info for
+  include :session_duration_s (see `session-duration-expr`) and :source
+  (`db.sessions/upload-source` for an uploaded file, else nil). Throws ex-info for
   an unknown sort key or order. Counts and rows share one statement snapshot.
   A counts-only row survives an empty page; recording and transcript lookups
   run only for sessions on the selected page."
@@ -158,6 +160,7 @@
                                [:o.name :owner_name] [:o.email :owner_email]
                                [:o.principal_type :owner_type] [:cv.name :created_via_name]
                                [(session-access/key-manager-expr principal) :key_manager]
+                               [(db.sessions/session-source-expr :s.session_settings) :source]
                                [session-duration-expr :session_duration_s]]
                         sort-value (conj [sort-value :sort_value]))
               :from [[:sessions :s]]
@@ -184,7 +187,7 @@
               :p.id :p.user_id :p.session_key :p.title :p.status :p.started_at :p.ended_at :p.created_at
               :p.visibility :p.owner_name :p.owner_email
               :p.created_via_credential_id :p.owner_type :p.created_via_name :p.key_manager
-              :p.session_duration_s
+              :p.session_duration_s :p.source
               :lr.recording_created_at :lr.duration_s :lr.sample_rate :lr.lang
               [[:is-not :lr.session_id nil] :has_recording]
               [[:is-not :ft.session_id nil] :has_final_transcript]]

@@ -45,6 +45,20 @@
     (.setType "jsonb")
     (.setValue (cheshire/generate-string x))))
 
+(def upload-source
+  "Value of `sessions.session_settings.source` for a session created from an
+  uploaded file (`POST /api/sessions/upload`). Live sessions have no source."
+  "upload")
+
+(defn session-source-expr
+  "Return a HoneySQL expression for the `source` key of a session_settings
+  jsonb column.
+
+  Inputs: column keyword, e.g. `:s.session_settings` or `:session_settings`.
+  Returns: expression that yields the source text or SQL NULL."
+  [settings-column]
+  [:jsonb_extract_path_text settings-column [:inline "source"]])
+
 (defn find-user-id-by-external-id
   "Find app_users.id for a given tenant + external id.
 

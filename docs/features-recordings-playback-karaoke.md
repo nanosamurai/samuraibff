@@ -52,6 +52,14 @@ recording's `duration_s` is used. `duration_s` is `null` for drafts (`created`)
 and running sessions (`active`). `recording.duration_s` is unchanged and still
 holds the latest recording's own duration.
 
+### Source
+
+List items and the detail `session` have `source: "upload"` when the session
+was created from an uploaded file (`POST /api/sessions/upload`, see
+`docs/features-file-uploads.md`). Live sessions have no `source`. The BFF
+stores the marker in `sessions.session_settings`; `POST /api/sessions` ignores
+a `source` in its `session_settings`.
+
 Important:
 
 * The backend **must not** expose internal `recording_url` values (`file://`,

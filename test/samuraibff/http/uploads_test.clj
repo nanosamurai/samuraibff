@@ -156,7 +156,7 @@
 (defn- session-row
   [ds session-id]
   (jdbc/execute-one! ds ["SELECT tenant_id, user_id, status, title, visibility, created_via_credential_id,
-                                 stream_controls::text AS controls
+                                 stream_controls::text AS controls, session_settings::text AS settings
                             FROM sessions WHERE id = ?" (UUID/fromString session-id)]
                      {:builder-fn rs/as-unqualified-lower-maps}))
 
@@ -192,6 +192,11 @@
           (is (= "private" (:visibility row)))
           (is (nil? (:created_via_credential_id row)))
           (is (= "finished" (:status row)) "the input is complete; the transcript follows, and the owner can delete it")
+          (is (= {:source "upload"} (cheshire/parse-string (:settings row) true)) "the session is marked as an upload")
+          (let [detail ((http.recordings/get-recording-handler {:db {:ds ds} :config {:env :test}})
+                        (tp/request-for carol {:path-params {:session_id sid}}))]
+            (is (= 200 (:status detail)))
+            (is (= "upload" (get-in detail [:body :session :source])) "the detail page can tell an upload"))
           (is (= {:final true :realtime false :refined false :final_tracks ["whisperx"] :store_recording true}
                  (select-keys (cheshire/parse-string (:controls row) true)
                               [:final :realtime :refined :final_tracks :store_recording])))

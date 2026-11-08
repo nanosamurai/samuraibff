@@ -138,7 +138,10 @@
 
   Uses the same ownership columns as `POST /api/sessions`. The audio input is
   complete, so the session is `finished` at once, like a live session after
-  the user stops recording; the final transcript arrives later. Returns nil."
+  the user stops recording; the final transcript arrives later. The session
+  settings mark the session as an upload (`{\"source\": \"upload\"}`), so the
+  UI can show Processing and a conversion failure can mark it failed.
+  Returns nil."
   [config ds kafka-producer principal session-uuid title controls]
   (let [tenant-uuid (:tenant-id principal)]
     (db.sessions/insert-session!
@@ -146,7 +149,8 @@
                {:id session-uuid
                 :session-key (str session-uuid)
                 :title title
-                :status "created"}))
+                :status "created"
+                :session-settings {:source db.sessions/upload-source}}))
     (db.sessions/activate-session-on-audio-start-with-controls! ds tenant-uuid session-uuid controls)
     (db.sessions/finish-session! ds tenant-uuid session-uuid)
     (kafka.producer/send-sessions-meta!

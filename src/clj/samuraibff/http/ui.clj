@@ -173,7 +173,8 @@
                    :title title'
                    :status "created"
                    :webhook-overrides webhook_overrides
-                   :session-settings session_settings
+                   :session-settings (cond-> session_settings
+                                       (map? session_settings) (dissoc :source))
                    :workflow-overrides workflow_overrides}))
 
           ;; Create/bind session in registry immediately so WS endpoints can be
