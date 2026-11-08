@@ -489,7 +489,10 @@
                [components.transcript/transcript-view
                 {:key (pr-str (:id selected)) :messages messages :auto-scroll? false :initial-scroll :top
                  :empty-title (:label selected)
-                 :empty-hint (if (seq rows) "No speech was detected." "No transcript available yet.")
+                 :empty-hint (cond
+                               (seq rows) "No speech was detected."
+                               (= status "failed") "No transcript was created."
+                               :else "No transcript available yet.")
                  :message-actions enroll-action}])]
             [:p {:class "muted"} (if detail "No transcripts available for this session." "Loading transcripts…")])]]
         (when (and runtime-enabled? show-workflows?)
