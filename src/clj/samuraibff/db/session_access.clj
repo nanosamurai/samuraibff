@@ -131,7 +131,8 @@
   Inputs: connectable, principal map, session UUID.
   Returns: session row with :visibility :access_revision :owner_name
   :owner_email :owner_type :created_via_credential_id :created_via_name
-  :key_manager and :source (the `session_settings.source` text or nil), or nil."
+  :key_manager, :source (the `session_settings.source` text or nil) and
+  :parent_session_id (text or nil, set for a re-transcription), or nil."
   [connectable principal ^UUID session-id]
   (jdbc/execute-one!
    connectable
@@ -141,7 +142,8 @@
                          [:o.name :owner_name] [:o.email :owner_email]
                          [:o.principal_type :owner_type] [:cv.name :created_via_name]
                          [(key-manager-expr principal) :key_manager]
-                         [(db.sessions/session-source-expr :s.session_settings) :source]]
+                         [(db.sessions/session-source-expr :s.session_settings) :source]
+                         [(db.sessions/parent-session-id-expr :s.session_settings) :parent_session_id]]
                 :from [[:sessions :s]]
                 :left-join [[:app_users :o] [:= :o.id :s.user_id]
                             [:api_credentials :cv] [:and [:= :cv.id :s.created_via_credential_id]

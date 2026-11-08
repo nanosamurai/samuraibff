@@ -28,6 +28,7 @@
    [samuraibff.http.auth :as http.auth]
    [samuraibff.http.origin :as http.origin]
    [samuraibff.http.recordings :as http.recordings]
+   [samuraibff.http.retranscription :as http.retranscription]
    [samuraibff.http.transcript-export :as http.transcript-export]
    [samuraibff.http.webhook-delivery-outcomes :as http.wh.outcomes]
    [samuraibff.http.api-credentials :as http.api-creds]
@@ -467,7 +468,22 @@
                                 403 {:body schemas/ApiErrorResponse}
                                 404 {:body schemas/ApiErrorResponse}
                                 503 {:body schemas/ApiErrorResponse}}
-                    :handler (http.transcript-export/export-transcript-handler deps)}}]]
+                    :handler (http.transcript-export/export-transcript-handler deps)}}]
+            ["/retranscribe"
+             {:post {:summary "Re-transcribe session"
+                     :description (str "Creates a new session from the stored recording of this session and "
+                                       "queues it for final transcription. The caller must manage this session. "
+                                       "JSON fields (all optional): title, lang, final_tracks, store_recording. "
+                                       "Needs file uploads enabled. This session does not change.")
+                     :parameters {:body schemas/RetranscribeSessionRequest}
+                     :responses {202 {:body schemas/RetranscribeSessionResponse}
+                                 400 {:body schemas/ApiErrorResponse}
+                                 403 {:body schemas/ApiErrorResponse}
+                                 404 {:body schemas/ApiErrorResponse}
+                                 409 {:body schemas/ApiErrorResponse}
+                                 500 {:body schemas/ApiErrorResponse}
+                                 503 {:body schemas/ApiErrorResponse}}
+                     :handler (http.retranscription/retranscribe-handler deps)}}]]
            ["/sessions" {:post {:summary "Create session"
                                 :description "Creates a new session identifier for WebSocket streaming."
                                 :parameters {:body schemas/CreateSessionRequest}

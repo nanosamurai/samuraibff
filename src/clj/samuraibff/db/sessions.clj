@@ -17,7 +17,7 @@
   - `activate-session-on-audio-start-with-controls!`
   - `fail-upload-session!`
   - `upload-source`, `retranscription-source`, `file-sources`,
-    `session-source-expr`
+    `session-source-expr`, `parent-session-id-expr`
 
   All functions accept a next.jdbc datasource, typically provided by the
   Integrant `:samuraibff/db` component as `(:ds db)`.
@@ -74,6 +74,16 @@
   Returns: expression that yields the source text or SQL NULL."
   [settings-column]
   [:jsonb_extract_path_text settings-column [:inline "source"]])
+
+(defn parent-session-id-expr
+  "Return a HoneySQL expression for the `parent_session_id` key of a
+  session_settings jsonb column: the session that a re-transcription was
+  created from.
+
+  Inputs: column keyword, e.g. `:s.session_settings`.
+  Returns: expression that yields the parent session UUID as text or SQL NULL."
+  [settings-column]
+  [:jsonb_extract_path_text settings-column [:inline "parent_session_id"]])
 
 (defn find-user-id-by-external-id
   "Find app_users.id for a given tenant + external id.
