@@ -10,14 +10,21 @@
       :status (string)
       :has_recording (boolean)
       :has_final_transcript (boolean)
+      :source (string, optional; \"upload\" for a session from an uploaded file)
+
+  A finished upload without a final transcript is Processing: the recorder
+  converts the file and the final tracks transcribe it. When conversion fails,
+  the BFF sets the status to `failed`. A finished live session without a final
+  transcript stays Finished.
 
   Returns:
   - {:label string :badge-class string :icon keyword :tooltip string}
     (:icon is an icon name, or :rec-dot for the recording indicator)"
-  [{:keys [status has_recording has_final_transcript]}]
+  [{:keys [status has_recording has_final_transcript source]}]
   (let [status (some-> status str)
         has-recording? (true? has_recording)
-        has-final? (true? has_final_transcript)]
+        has-final? (true? has_final_transcript)
+        upload? (= "upload" source)]
     (cond
       (= status "failed")
       {:label "Failed"
@@ -42,6 +49,12 @@
        :badge-class "ok"
        :icon :circle-check
        :tooltip "Final transcript is available"}
+
+      (and (= status "finished") upload?)
+      {:label "Processing"
+       :badge-class "muted"
+       :icon :loader-circle
+       :tooltip "Converting and transcribing the uploaded file"}
 
       (= status "finished")
       {:label "Finished"

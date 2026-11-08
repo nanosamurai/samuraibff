@@ -85,12 +85,14 @@
                                     [:= :st.type "final"]]}]
         has-recording [:exists {:select [1]
                                 :from [[:recordings :r]]
-                                :where [:= :r.session_id :s.id]}]]
+                                :where [:= :r.session_id :s.id]}]
+        upload [:= (db.sessions/session-source-expr :s.session_settings) db.sessions/upload-source]]
     [:case
      [:= :s.status "failed"] (rank-of {:status "failed"})
      [:= :s.status "active"] (rank-of {:status "active"})
      [:= :s.status "created"] (rank-of {:status "created"})
      [:and [:= :s.status "finished"] has-final] (rank-of {:status "finished" :has_final_transcript true})
+     [:and [:= :s.status "finished"] upload] (rank-of {:status "finished" :source db.sessions/upload-source})
      [:= :s.status "finished"] (rank-of {:status "finished"})
      has-recording (rank-of {:status "other" :has_recording true})
      :else (rank-of {:status "other"})]))

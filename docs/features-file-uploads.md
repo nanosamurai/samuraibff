@@ -32,8 +32,10 @@ session is created. The form is locked during the upload. Leaving the page
 cancels the upload, and closing the tab asks for confirmation. Errors are shown
 in plain language and get keyboard focus.
 
-After the upload, the page opens the new session. Its status is **Finished**
-until the final transcript arrives, as after a live recording stops. In the
+After the upload, the page opens the new session. Its status is
+**Processing** while the file is converted and transcribed, and **Finalized**
+when a final transcript exists. The Sessions list shows the same status and
+sorts it with the other Processing sessions. In the
 same browser tab, the session page also says that the file is being converted
 and transcribed, until a final transcript is available. The page updates
 automatically.
