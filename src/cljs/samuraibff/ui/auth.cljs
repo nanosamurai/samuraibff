@@ -7,6 +7,7 @@
   kept fresh through `samuraibff.ui.session-refresh`.
 
   Public API:
+  - me-detail
   - fetch-me!
   - login!
   - logout!"
@@ -14,6 +15,27 @@
    [samuraibff.ui.env :as env]
    [samuraibff.ui.session-refresh :as session-refresh]
    [samuraibff.ui.store :as store]))
+
+(defn me-detail
+  "Return the auth detail map that the UI keeps from a GET /api/me body.
+
+  Inputs: body (JS object from /api/me).
+  Returns: map with :access, :realtime_tracks, :default_tracks, :async_tracks,
+  :realtime_track_capabilities, :workflow_provider_types and :features; for a
+  signed-in user also :user, :tenant_id and :tenant_name."
+  [body]
+  (let [clj #(js->clj (aget body %) :keywordize-keys true)]
+    (cond-> {:access (clj "access")
+             :realtime_tracks (vec (js->clj (aget body "realtime_tracks")))
+             :default_tracks (clj "default_tracks")
+             :async_tracks (vec (clj "async_tracks"))
+             :realtime_track_capabilities (vec (clj "realtime_track_capabilities"))
+             :workflow_provider_types (vec (js->clj (aget body "workflow_provider_types")))
+             :features (clj "features")}
+      (boolean (aget body "authenticated"))
+      (assoc :user (clj "user")
+             :tenant_id (aget body "tenant_id")
+             :tenant_name (aget body "tenant_name")))))
 
 (defn fetch-me!
   "Fetch current user info from GET /api/me.
@@ -29,26 +51,10 @@
                  ;; everything into a generic error.
                  (js/Promise.reject (js/Error. (str "HTTP " (.-status res)))))))
       (.then (fn [body]
-               (let [authed? (boolean (aget body "authenticated"))
-                     access (js->clj (aget body "access") :keywordize-keys true)]
-                 (session-refresh/schedule! (aget body "access_expires_at"))
-                 (if authed?
-                   (store/set-auth-status! :authenticated {:user (js->clj (aget body "user") :keywordize-keys true)
-                                                           :tenant_id (aget body "tenant_id")
-                                                           :tenant_name (aget body "tenant_name")
-                                                           :access access
-                                                           :realtime_tracks (vec (js->clj (aget body "realtime_tracks")))
-                                                           :default_tracks (js->clj (aget body "default_tracks") :keywordize-keys true)
-                                                           :async_tracks (vec (js->clj (aget body "async_tracks") :keywordize-keys true))
-                                                           :realtime_track_capabilities (vec (js->clj (aget body "realtime_track_capabilities") :keywordize-keys true))
-                                                           :features (js->clj (aget body "features") :keywordize-keys true)})
-                   (store/set-auth-status! :anonymous {:access access
-                                                       :realtime_tracks (vec (js->clj (aget body "realtime_tracks")))
-                                                       :default_tracks (js->clj (aget body "default_tracks") :keywordize-keys true)
-                                                       :async_tracks (vec (js->clj (aget body "async_tracks") :keywordize-keys true))
-                                                       :realtime_track_capabilities (vec (js->clj (aget body "realtime_track_capabilities") :keywordize-keys true))
-                                                       :features (js->clj (aget body "features") :keywordize-keys true)}))
-                 body)))
+               (session-refresh/schedule! (aget body "access_expires_at"))
+               (store/set-auth-status! (if (aget body "authenticated") :authenticated :anonymous)
+                                       (me-detail body))
+               body))
       (.catch (fn [e]
                 ;; If /api/me is protected and returns 401/403, treat as anonymous,
                 ;; but flag that auth is required so UI can auto-redirect.
