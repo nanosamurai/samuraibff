@@ -97,6 +97,18 @@ usable and editable while its type does not change.
 endpoints and model allowlists are runner settings; a definition holds only
 the type, model ID and parameters.
 
+The workflow editor offers exactly that list, with readable names; the API
+keeps the type IDs:
+
+| Type ID | Shown as |
+| --- | --- |
+| `bedrock` | AWS Bedrock |
+| `openai_compatible` | Self-hosted LLM (OpenAI-compatible API) |
+
+An unknown type ID is shown as is. A saved type that is not in the list is
+shown with "(not enabled on this server)" and stays selected, so saving the
+workflow keeps it.
+
 ### Source track
 
 Each workflow definition selects one transcript source:
