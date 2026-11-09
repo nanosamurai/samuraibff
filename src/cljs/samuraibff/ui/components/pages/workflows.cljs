@@ -8,6 +8,7 @@
    [samuraibff.ui.hooks :as hooks]
    [samuraibff.ui.permissions :as permissions]
    [samuraibff.ui.store :as store]
+   [samuraibff.ui.workflow-providers :as workflow-providers]
    ["react" :as react]))
 
 (def ^:private trigger-types
@@ -259,11 +260,9 @@
           [:select {:value provider-type
                     :aria-label "Provider type"
                     :on-change (fn [e] (set-provider-type! (.. e -target -value)))}
-           (when (and (seq stored-provider-type) (not (some #{stored-provider-type} provider-types)))
-             [:option {:value stored-provider-type} (str stored-provider-type " (current)")])
-           (for [t provider-types]
-             ^{:key (str "pt-" t)}
-             [:option {:value t} t])]
+           (for [{:keys [value label]} (workflow-providers/select-options provider-types stored-provider-type)]
+             ^{:key (str "pt-" value)}
+             [:option {:value value} label])]
           [:input {:placeholder "Model ID"
                    :value model-id
                    :on-change (fn [e] (set-model-id! (.. e -target -value)))}]]
