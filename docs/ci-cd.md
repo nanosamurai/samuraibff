@@ -83,6 +83,22 @@ then checks that all four roots named by the guidance are absent. TLS peers
 chaining only to these removed roots will be rejected. Application-provided
 truststores, including `javax.net.ssl.trustStore` overrides, need separate review.
 
+The builder stage is pinned to `clojure:temurin-21-tools-deps-<tools version>-noble`
+by its multi-arch index digest, because its JDK downloads dependencies over TLS.
+The pinned image carries Temurin 21.0.13+9, and the build fails if its default
+truststore still contains emSign ECC Root CA - G3, emSign Root CA - G2 or AAA
+Certificate Services. To bump it, pick a current `-noble` tag and keep tag and
+digest together in the `FROM` line:
+
+```bash
+docker buildx imagetools inspect clojure:temurin-21-tools-deps-<version>-noble
+docker run --rm clojure:temurin-21-tools-deps-<version>-noble@sha256:<index digest> \
+  sh -c 'java -version; keytool -list -v -cacerts -storepass changeit | grep -E "Owner: CN=(emSign|AAA)"'
+```
+
+Use the index `Digest`, not a per-platform manifest digest. Confirm the JDK is
+at least 21.0.13 before updating, then build the image.
+
 Jackson 2.x modules in `deps.edn` follow one BOM version; annotations use the
 BOM's minor-only version. Keep the gRPC runtime and Buf gRPC generator aligned.
 The gRPC client uses `grpc-netty` with its three Netty dependency roots pinned
