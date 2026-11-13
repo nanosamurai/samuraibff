@@ -85,12 +85,25 @@
           str/trim
           bound-markdown))))
 
+(def ^:private markdown-renderers
+  "Default markdown renderers, except that images render as their alt text and
+  only http(s)/mailto links stay links (opened without referrer). Model output
+  therefore cannot make the browser load a remote URL or run a script URL."
+  (assoc md/default-hiccup-renderers
+         :image (fn [_ node] [:span (md/node->text node)])
+         :link (fn [ctx node]
+                 (let [href (str (get-in node [:attrs :href]))]
+                   (if (re-find #"(?i)^(https?:|mailto:)" href)
+                     (md/into-hiccup [:a {:href href :rel "noopener noreferrer nofollow" :target "_blank"}] ctx node)
+                     (md/into-hiccup [:span] ctx node))))))
+
 (defn- render-markdown
   "Render markdown string as hiccup using nextjournal/markdown.
 
   Security:
   - we do NOT render arbitrary HTML via `dangerouslySetInnerHTML`
   - output is hiccup data and React will treat strings as text nodes
+  - images are shown as alt text, never loaded (see `markdown-renderers`)
 
   Inputs:
   - md-string: string?
@@ -98,7 +111,7 @@
   Returns: hiccup."
   [md-string]
   (try
-    (md/->hiccup (md/parse (str (or md-string ""))))
+    (md/->hiccup markdown-renderers (md/parse (str (or md-string ""))))
     (catch :default _
       [:div {:class "muted" :style {:fontSize "12px" :whiteSpace "pre-wrap"}}
        "(markdown render failed)"])))

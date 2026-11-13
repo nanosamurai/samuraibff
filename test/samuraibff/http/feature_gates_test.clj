@@ -57,6 +57,25 @@
               (is (= false (:ok body)) uri)
               (is (= "feature-not-enabled" (:message body)) uri))))))))
 
+(deftest ce-workflows-flag-enables-workflows-only
+  (with-guest-db
+    (fn [ds]
+      (let [run-uri (str "/api/recordings/" (random-uuid) "/workflows/" (random-uuid) "/runs")
+            ce (http.router/create-router {:config {:auth {:required? false}} :db {:ds ds}})
+            enabled (http.router/create-router {:config {:auth {:required? false}
+                                                         :features {:workflows-enabled? true}}
+                                                :db {:ds ds}})]
+        (testing "default CE mode gates on-demand runs"
+          (is (= "feature-not-enabled" (:message (parse-json-body (request ce :post run-uri))))))
+        (testing "SAMURAIBFF_WORKFLOWS_ENABLED opens workflow routes, not webhook routes"
+          (doseq [uri ["/api/workflows" "/api/workflows/defaults"]]
+            (is (= 200 (:status (request enabled :get uri))) uri))
+          (doseq [uri ["/api/webhooks" "/api/webhooks/defaults"]]
+            (is (= "feature-not-enabled" (:message (parse-json-body (request enabled :get uri)))) uri))
+          (let [resp (request enabled :post run-uri)]
+            (is (= 404 (:status resp)))
+            (is (= "not-found" (:message (parse-json-body resp))))))))))
+
 (deftest commercial-mode-leaves-routes-enabled
   (with-guest-db
     (fn [ds]

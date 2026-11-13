@@ -325,6 +325,105 @@
   [e]
   (contains? #{403 404} (api/error-status e)))
 
+(def ^:private run-error-messages
+  "Business-language messages for on-demand workflow run errors."
+  {"transcript-not-available" "No saved transcript is available for this source."
+   "session-not-finished" "Workflows can run after the recording has finished."
+   "workflow-disabled" "This workflow is turned off."
+   "workflow-not-runnable" "This workflow has no prompt or model."
+   "transcript-too-large" "This transcript is too long to run a workflow on."
+   "dispatch-unavailable" "Workflows are unavailable right now. Please try again later."
+   "not-found" "This workflow is not available to you."})
+
+(defn- usable-workflow?
+  "True for an enabled workflow the caller may run: published, or their own."
+  [wf]
+  (and (true? (:enabled wf))
+       (or (= "published" (:availability wf))
+           (true? (get-in wf [:owner :is_me])))))
+
+(defn- run-workflow-form
+  "Run a workflow on a stored transcript of a finished session.
+
+  Inputs:
+  - session-id: string
+  - detail: recording detail response (session status, transcripts, results)
+
+  Lists usable workflows from `/api/workflows`, lets the caller choose a stored
+  transcript source (default: the workflow's own source), and starts a run.
+  The run counts as finished when `workflow_results_latest` holds its
+  `workflow_run_id`; the page polling refreshes the results.
+
+  Returns: hiccup."
+  [{:keys [session-id detail]}]
+  (let [[workflows set-workflows!] (react/useState nil)
+        [load-error set-load-error!] (react/useState nil)
+        [workflow-id set-workflow-id!] (react/useState "")
+        [source set-source!] (react/useState "")
+        [submitting? set-submitting!] (react/useState false)
+        [run-error set-run-error!] (react/useState nil)
+        [pending set-pending!] (react/useState nil)
+        finished? (= "finished" (get-in detail [:session :status]))
+        sources (->> (recording-detail/track-tabs detail)
+                     (filter #(and (#{:final :refined} (first (:id %))) (seq (:rows %))))
+                     (mapv (fn [{:keys [id label]}]
+                             {:value (str (name (first id)) ":" (second id)) :label label})))
+        done? (and pending (some #(= (:workflow_run_id pending) (str (:workflow_run_id %)))
+                                 (:workflow_results_latest detail)))
+        submit! (fn []
+                  (let [[stage track-id] (when (seq source) (str/split source #":" 2))]
+                    (set-submitting! true)
+                    (set-run-error! nil)
+                    (-> (api/run-workflow! session-id workflow-id
+                                           (when stage {:stage stage :track_id track-id}))
+                        (.then (fn [resp]
+                                 (set-pending! {:workflow_run_id (:workflow_run_id resp)
+                                                :name (:name (some #(when (= workflow-id (:id %)) %) workflows))})))
+                        (.catch (fn [e]
+                                  (store/append-log! (str "[ui] failed starting workflow: " (shared/safe-http-error e)))
+                                  (set-run-error! (get run-error-messages (api/error-code e)
+                                                       "Could not start the workflow. Please try again."))))
+                        (.finally #(set-submitting! false)))))]
+    (react/useEffect
+     (fn []
+       (let [active? (atom true)]
+         (-> (api/list-workflows!)
+             (.then #(when @active? (set-workflows! (filterv usable-workflow? (:items %)))))
+             (.catch #(when @active? (set-load-error! "Could not load workflows."))))
+         (fn [] (reset! active? false))))
+     #js [])
+    [:div {:class "card"}
+     [:div {:class "card-title"} "Run workflow"]
+     (cond
+       load-error [:div {:class "badge bad"} load-error]
+       (nil? workflows) [:div {:class "muted"} "Loading…"]
+       (empty? workflows) [:div {:class "muted"} "No workflows are available to you."]
+       (not finished?) [:div {:class "muted"} "Workflows can run after the recording has finished."]
+       :else
+       [:div {:style {:display "flex" :flexDirection "column" :gap "8px"}}
+        [:select {:value workflow-id :aria-label "Workflow"
+                  :on-change #(set-workflow-id! (.. % -target -value))}
+         [:option {:value ""} "Choose a workflow"]
+         (for [{:keys [id name]} workflows]
+           ^{:key id}
+           [:option {:value id} name])]
+        [:select {:value source :aria-label "Transcript"
+                  :on-change #(set-source! (.. % -target -value))}
+         [:option {:value ""} "Workflow's own transcript"]
+         (for [{:keys [value label]} sources]
+           ^{:key value}
+           [:option {:value value} label])]
+        [:div {:class "row"}
+         [:button {:class "btn primary" :type "button"
+                   :disabled (or submitting? (str/blank? workflow-id))
+                   :on-click (fn [_] (submit!))}
+          (if submitting? "Starting…" "Run")]]])
+     (when run-error
+       [:div {:class "badge bad" :role "alert"} run-error])
+     (when (and pending (not done?))
+       [:div {:class "muted" :role "status"}
+        (str "Running " (or (:name pending) "workflow") "… The result appears below when it is ready.")])]))
+
 (defn recording-detail-page
   "Render flat per-track Postgres results and shared recording playback for a session ID.
 
@@ -346,6 +445,8 @@
         [right-tab set-right-tab!] (react/useState :workflows)
         audio-ref (react/useRef nil)
         runtime-enabled? (store/workflow-webhook-runtime-enabled?)
+        workflows-enabled? (store/workflows-enabled?)
+        side-panel? (or runtime-enabled? workflows-enabled?)
         can-share? (permissions/use-capability? :share_sessions)
         session (:session detail)
         session-access (:access session)
@@ -464,8 +565,9 @@
                                     (when-let [audio (.-current audio-ref)] (.pause audio))
                                     (set-time! 0))
                                   (set-tab! id))} label])]
-        (when runtime-enabled?
-          (let [label (if show-workflows? "Hide workflows and webhooks" "Show workflows and webhooks")]
+        (when side-panel?
+          (let [panel (if runtime-enabled? "workflows and webhooks" "workflows")
+                label (str (if show-workflows? "Hide " "Show ") panel)]
             [:<>
              [:div {:class "spacer"}]
              [:button {:class "btn ghost icon" :type "button"
@@ -507,14 +609,18 @@
                                :else "No transcript available yet.")
                  :message-actions enroll-action}])]
             [:p {:class "muted"} (if detail "No transcripts available for this session." "Loading transcripts…")])]]
-        (when (and runtime-enabled? show-workflows?)
+        (when (and side-panel? show-workflows?)
           [:div {:class "split-side match-main"}
            [:div {:class "right-panel"}
-            [:div {:class "tabs"}
-             (for [[id label] [[:workflows "Workflows"] [:webhooks "Webhooks"]]]
-               [:button {:key id :class (str "tab " (when (= id right-tab) "active"))
-                         :on-click #(set-right-tab! id)} label])]
+            (when runtime-enabled?
+              [:div {:class "tabs"}
+               (for [[id label] [[:workflows "Workflows"] [:webhooks "Webhooks"]]]
+                 [:button {:key id :class (str "tab " (when (= id right-tab) "active"))
+                           :on-click #(set-right-tab! id)} label])])
             [:div {:class "right-panel-body"}
-             (if (= right-tab :workflows)
-               [ui.wf.results/workflow-results-card {:items (:workflow_results_latest detail) :title "Workflow results" :fill? true}]
+             (if (or (not runtime-enabled?) (= right-tab :workflows))
+               [:div {:style {:display "flex" :flexDirection "column" :gap "10px" :flex 1 :minHeight 0}}
+                (when workflows-enabled?
+                  [run-workflow-form {:session-id session-id :detail detail}])
+                [ui.wf.results/workflow-results-card {:items (:workflow_results_latest detail) :title "Workflow results" :fill? true}]]
                [ui.wh.outcomes/webhook-dispatches-card {:items (:webhook_delivery_outcomes detail) :title "Webhook dispatches" :fill? true}])]]])]])))

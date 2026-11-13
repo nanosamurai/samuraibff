@@ -325,8 +325,9 @@
   (let [x (jsonb->clj v)]
     (when (map? x) x)))
 
-(defn- segments-jsonb->segments
+(defn segments-jsonb->segments
   "Decode the `segments` jsonb column into a vector of segment maps.
+  Also used by on-demand workflow runs to read stored transcripts.
 
   Inputs:
   - v: jsonb value

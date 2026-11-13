@@ -52,14 +52,16 @@
     {:use-defaults? use-defaults?
      :workflow-ids workflow-ids}))
 
-(defn- workflow->target
+(defn workflow->target
   "Convert a workflow DB row into a sessions.meta workflow target.
 
   Inputs:
   - row map from db.workflows/list-workflows
 
   Returns:
-  - JSON-friendly target map matching webhook-router's SessionsMeta.Workflows.Target." 
+  - JSON-friendly target map matching webhook-router's SessionsMeta.Workflows.Target,
+    or nil when the row has an unsupported trigger, a blank prompt or a blank
+    model ID. On-demand runs reuse its prompt and provider."
   [w]
   (let [trigger-type (some-> (:trigger_type w) str)
         trigger-type (when (contains? supported-trigger-types trigger-type) trigger-type)

@@ -2,7 +2,7 @@
 
 Status: implemented in samuraibff
 
-Last updated: 2026-07-10
+Last updated: 2026-11-07
 
 ## Decision
 
@@ -10,19 +10,17 @@ Community Edition should keep workflow/webhook contracts visible in the public
 repo, but should not present workflow/webhook runtime features as part of the
 default OSS experience.
 
-Use a single edition flag first:
-
 | Environment variable | Default | Meaning |
 | --- | --- | --- |
 | `SAMURAIBFF_CE_MODE` | `true` | When true, hide/disable workflow and webhook runtime features. |
+| `SAMURAIBFF_WORKFLOWS_ENABLED` | `false` | In CE mode, enable workflow definitions, on-demand runs and saved workflow results. Always on when `SAMURAIBFF_CE_MODE=false`. |
 
 This keeps OSS easy to run: the `nanosamurai` Compose stack can omit the flag
 and get CE behavior. A deployment that intentionally enables the non-CE
-integration contracts must set `SAMURAIBFF_CE_MODE=false`.
-
-If we later need finer control, add positive enablement flags such as
-`SAMURAIBFF_WORKFLOWS_ENABLED` and `SAMURAIBFF_WEBHOOKS_ENABLED`, defaulting to
-false when CE mode is true.
+integration contracts must set `SAMURAIBFF_CE_MODE=false`. A CE install that
+runs a workflow runner sets `SAMURAIBFF_WORKFLOWS_ENABLED=true`; automatic
+event-triggered workflows and webhooks stay off. See
+[Webhooks + workflows](features-webhooks-workflows.md#editions).
 
 ## What CE mode should affect
 
@@ -78,6 +76,12 @@ false when CE mode is true.
 - In CE mode, `/api/webhooks`, `/api/workflows`, their defaults routes,
   workflow result callbacks/consumer behavior, and session
   workflow/webhook overrides return a clear `feature-not-enabled` response.
+- `SAMURAIBFF_WORKFLOWS_ENABLED=true` is parsed into
+  `[:features :workflows-enabled?]`. In CE mode it enables `/api/workflows`,
+  its defaults routes and on-demand runs
+  (`POST /api/recordings/{session_id}/workflows/{workflow_id}/runs`), and sets
+  `features.workflows_enabled`. The workflow result consumer, the
+  `/internal/workflow-result` callback and session workflow overrides stay off.
 - In CE mode, `sessions.meta` still publishes core session/refined transcript
   settings but omits workflow/webhook routing fields.
 

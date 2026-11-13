@@ -50,7 +50,8 @@
    [samuraibff.db.tenants :as db.tenants]
    [samuraibff.features :as features]
    [samuraibff.observability.diagnostics :as diagnostics]
-   [samuraibff.grpc.client :as grpc.client])
+   [samuraibff.grpc.client :as grpc.client]
+   [samuraibff.workflows.runs :as workflows.runs])
   (:import
    (java.net URI)
    (java.net.http HttpClient HttpClient$Redirect HttpRequest HttpRequest$BodyPublishers HttpResponse$BodyHandlers)
@@ -731,6 +732,7 @@
                                     :realtime_tracks (realtime-track-ids config)
                                     :default_tracks (or (:default-tracks config) {})
                                     :async_tracks (stream-controls/configured-async-tracks config)
+                                    :workflow_provider_types (workflows.runs/provider-types config)
                                     :realtime_track_capabilities (realtime-track-capabilities config grpc)
                                     :features (features/feature-state config)
                                     :access (access-state req)
@@ -747,6 +749,7 @@
                             :realtime_tracks (realtime-track-ids config)
                             :default_tracks (or (:default-tracks config) {})
                             :async_tracks (stream-controls/configured-async-tracks config)
+                            :workflow_provider_types (workflows.runs/provider-types config)
                             :realtime_track_capabilities (realtime-track-capabilities config grpc)
                             :features (features/feature-state config)
                             :access (access-state req)})))))

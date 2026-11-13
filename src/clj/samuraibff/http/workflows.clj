@@ -29,7 +29,8 @@
    [samuraibff.http.definition-access :as access]
    [samuraibff.observability.diagnostics :as diagnostics]
    [samuraibff.schemas :as schemas]
-   [samuraibff.util.uuid :as util.uuid])
+   [samuraibff.util.uuid :as util.uuid]
+   [samuraibff.workflows.runs :as workflows.runs])
   (:import
    (java.util UUID)))
 
@@ -55,6 +56,16 @@
   (or (parse-uuid-or-nil (or (get-in req [:path-params :id]) (get-in req [:path-params "id"])))
       (throw (ex-info "Invalid id" {:type :samuraibff.http/invalid-id}))))
 
+(defn- assert-provider-allowed!
+  "Throw :samuraibff.http/provider-not-allowed unless the requested provider
+  type may be saved (see `workflows.runs/provider-type-allowed?`).
+
+  Inputs: config map, provider map or nil, stored provider type or nil."
+  [config provider stored-type]
+  (when (and (some? provider)
+             (not (workflows.runs/provider-type-allowed? config (:type provider) stored-type)))
+    (throw (ex-info "Provider not allowed" {:type :samuraibff.http/provider-not-allowed}))))
+
 (defn- failure-response
   "Map a handler failure to a fixed JSON response.
 
@@ -66,6 +77,7 @@
         (case type
           :samuraibff.http/missing-datasource (json-response 503 {:ok false :message "db-unavailable"})
           :samuraibff.http/invalid-id (json-response 400 {:ok false :message "invalid-id"})
+          :samuraibff.http/provider-not-allowed (json-response 400 {:ok false :message "provider-not-allowed"})
           (if (instance? clojure.lang.ExceptionInfo e)
             (do (log/warn log-message (diagnostics/failure-details e))
                 (json-response fallback-status {:ok false :message (if (= 400 fallback-status)
@@ -130,8 +142,9 @@
 
   Builders create personal definitions owned by themselves; a Builder request
   for `published` returns 403. Admins may pass `availability` (default
-  `published`). Members and services get 403."
-  [{:keys [db]}]
+  `published`). Members and services get 403. A provider type outside the
+  deployment allowlist returns 400 `provider-not-allowed`."
+  [{:keys [db config]}]
   (fn [req]
     (let [body (or (:body-params req) (:body req) {})]
       (try
@@ -141,6 +154,7 @@
               ds (require-ds! db)
               {:keys [name enabled trigger provider prompt incremental availability]}
               (schemas/decode-and-validate! schemas/CreateWorkflowRequest body)
+              _ (assert-provider-allowed! config provider nil)
               availability (access/creation-availability principal availability)
               workflow-id (util.uuid/uuid7)
               enabled? (boolean (if (contains? body :enabled) enabled true))
@@ -204,8 +218,10 @@
 
   Requires `can-manage-definition?`: 404 when the definition is not visible,
   403 when it is visible but not manageable. Changing `availability` requires
-  Admin. Unpublishing removes the definition from the tenant defaults."
-  [{:keys [db]}]
+  Admin. Unpublishing removes the definition from the tenant defaults. A
+  provider type outside the deployment allowlist returns 400
+  `provider-not-allowed` unless it equals the stored type."
+  [{:keys [db config]}]
   (fn [req]
     (let [body (or (:body-params req) (:body req) {})]
       (try
@@ -220,6 +236,7 @@
            (fn [tx]
              (let [existing (access/authorize-manage!
                              principal (db.workflows/lock-workflow tx tenant-uuid workflow-id))
+                   _ (assert-provider-allowed! config (:provider parsed) (:provider_type existing))
                    availability-patch (access/availability-change principal existing (:availability parsed))
                    patch (merge field-patch availability-patch)]
                (when (seq patch)

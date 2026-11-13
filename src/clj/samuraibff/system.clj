@@ -91,6 +91,23 @@
             (throw (ex-info "Realtime track IDs must be unique" {:track-ids track-ids})))
           tracks)))))
 
+(defn- parse-provider-types
+  "Parse the operator-controlled comma-separated workflow provider type allowlist.
+
+  Inputs:
+  - raw: string or nil (e.g. \"bedrock,openai_compatible\")
+
+  Returns a vector of distinct type strings, nil for blank input, or throws
+  ExceptionInfo for malformed or excessive entries."
+  [raw]
+  (when-let [value (some-> raw str str/trim not-empty)]
+    (let [types (mapv str/trim (str/split value #"," -1))]
+      (when (or (> (count types) 8)
+                (not= (count types) (count (distinct types)))
+                (some #(not (re-matches #"[a-z][a-z0-9_]{0,63}" %)) types))
+        (throw (ex-info "Invalid SAMURAIBFF_WORKFLOW_PROVIDER_TYPES" {})))
+      types)))
+
 (defn- deep-merge
   "Deep merge nested maps.
 
@@ -159,7 +176,11 @@
     {:samuraibff/config
      {:env (some-> (s "SAMURAIBFF_ENV") keyword)
 
-      :features {:ce-mode? (b "SAMURAIBFF_CE_MODE")}
+      :features {:ce-mode? (b "SAMURAIBFF_CE_MODE")
+                 :workflows-enabled? (b "SAMURAIBFF_WORKFLOWS_ENABLED")}
+
+      :workflows {:provider-types (parse-provider-types (getenv-fn "SAMURAIBFF_WORKFLOW_PROVIDER_TYPES"))
+                  :run-max-bytes (i "SAMURAIBFF_WORKFLOW_RUN_MAX_BYTES")}
 
       :http {:host (s "SAMURAIBFF_HTTP_HOST")
              :port (i "SAMURAIBFF_HTTP_PORT")}
@@ -218,7 +239,8 @@
                         :refined (s "SAMURAIBFF_KAFKA_TOPIC_REFINED")
                         :workflow-result (s "SAMURAIBFF_KAFKA_TOPIC_WORKFLOW_RESULT")
                         :recordings-uploaded (s "SAMURAIBFF_KAFKA_TOPIC_RECORDINGS_UPLOADED")
-                        :recordings-upload-failed (s "SAMURAIBFF_KAFKA_TOPIC_RECORDINGS_UPLOAD_FAILED")}}
+                        :recordings-upload-failed (s "SAMURAIBFF_KAFKA_TOPIC_RECORDINGS_UPLOAD_FAILED")
+                        :workflow-dispatch (s "SAMURAIBFF_KAFKA_TOPIC_WORKFLOW_DISPATCH")}}
 
       :uploads {:max-bytes (some-> (getenv-fn "SAMURAIBFF_UPLOAD_MAX_BYTES") str str/trim not-empty parse-long)}
 

@@ -35,6 +35,7 @@ It provides:
   * `audio.raw` (protobuf `AudioChunk`)
   * `sessions.meta` (compacted, JSON) – routing/config snapshot for downstream services
   * `recordings.uploaded` (protobuf `RecordingFinished`) – uploaded file to convert
+  * `workflow.dispatch` (JSON `WorkflowDispatchJob`) – on-demand workflow runs only
 * Postgres:
   * session metadata + selected read models needed directly by the BFF/UI
 * S3/object storage:

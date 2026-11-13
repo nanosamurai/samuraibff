@@ -11,6 +11,7 @@
   - `send-audio-chunk!`
   - `send-sessions-meta!`
   - `send-recording-uploaded!` (topic `recordings.uploaded`, waits for ack)
+  - `send-workflow-dispatch!` (on-demand workflow jobs, topic `workflow.dispatch`)
 
   Security / safety:
   - values are sent as byte[] and keys must be strings
@@ -24,7 +25,7 @@
   (:import
    (java.util Properties)
    (java.util.concurrent TimeUnit)
-   (org.apache.kafka.clients.producer Callback KafkaProducer ProducerRecord)
+   (org.apache.kafka.clients.producer Callback KafkaProducer Producer ProducerRecord)
    (samuraibff.proto AudioChunk RecordingFinished)))
 
 (defn- props
@@ -186,15 +187,46 @@
     (.get (.send producer record) 10 TimeUnit/SECONDS)
     nil))
 
+(def ^:private default-dispatch-timeout-ms
+  10000)
+
+(defn send-workflow-dispatch!
+  "Publish one encoded WorkflowDispatchJob keyed by session_id and wait for the broker ack.
+
+  Inputs:
+  - producer: component map returned by `:samuraibff/kafka-producer`
+  - session-id: string
+  - value: byte[] (JSON-encoded job; callers bound its size)
+  - opts: map with optional keys:
+      :tenant-id string/uuid (Kafka header `tenant_id`)
+      :timeout-ms long (default 10000)
+
+  Returns: nil after the broker acknowledged the record.
+  Throws ex-info {:type :samuraibff.kafka/producer-unavailable} when Kafka is
+  not available, or the send/ack exception (ExecutionException,
+  TimeoutException). The value is never logged."
+  [{:keys [^Producer producer topic-workflow-dispatch]} ^String session-id ^bytes value
+   {:keys [tenant-id timeout-ms] :or {timeout-ms default-dispatch-timeout-ms}}]
+  (when-not (and producer topic-workflow-dispatch)
+    (throw (ex-info "Kafka producer unavailable" {:type :samuraibff.kafka/producer-unavailable})))
+  (session-trace/with-session-trace session-id
+    (let [record (ProducerRecord. ^String topic-workflow-dispatch session-id value)
+          hdrs (.headers record)
+          tp (session-trace/traceparent-for-session session-id)]
+      (when tenant-id
+        (.add hdrs "tenant_id" (.getBytes (str tenant-id) "UTF-8")))
+      (when tp
+        (.add hdrs "traceparent" (.getBytes ^String tp "UTF-8")))
+      (.get (.send producer record) (long timeout-ms) TimeUnit/MILLISECONDS)))
+  nil)
+
 (defmethod ig/init-key :samuraibff/kafka-producer
   [_ {:keys [config]}]
   (let [kafka-cfg (:kafka config)
-        topic-audio-raw (get-in kafka-cfg [:topics :audio-raw] "audio.raw")
-        topic-sessions-meta (get-in kafka-cfg [:topics :sessions-meta] "sessions.meta")
-        topic-recordings-uploaded (get-in kafka-cfg [:topics :recordings-uploaded] "recordings.uploaded")
-        topics {:topic-audio-raw topic-audio-raw
-                :topic-sessions-meta topic-sessions-meta
-                :topic-recordings-uploaded topic-recordings-uploaded}]
+        topics {:topic-audio-raw (get-in kafka-cfg [:topics :audio-raw] "audio.raw")
+                :topic-sessions-meta (get-in kafka-cfg [:topics :sessions-meta] "sessions.meta")
+                :topic-recordings-uploaded (get-in kafka-cfg [:topics :recordings-uploaded] "recordings.uploaded")
+                :topic-workflow-dispatch (get-in kafka-cfg [:topics :workflow-dispatch] "workflow.dispatch")}]
     (log/info "Starting Kafka producer" (assoc topics :bootstrap-servers (:bootstrap-servers kafka-cfg)))
     (try
       (assoc topics

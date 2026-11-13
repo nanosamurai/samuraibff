@@ -352,12 +352,14 @@
 (def WorkflowProvider
   "Workflow provider configuration.
 
-  v1 provider is bedrock.
+  `type` is a provider type ID such as `bedrock` or `openai_compatible`.
+  Create and update accept only the deployment's allowed types
+  (`samuraibff.workflows.runs/provider-types`), except an unchanged stored type.
 
   Shape:
-  - {:type bedrock :model_id <string> :params <map?>}"
+  - {:type <provider-type> :model_id <string> :params <map?>}"
   [:map
-   [:type [:enum "bedrock"]]
+   [:type [:re #"^[a-z][a-z0-9_]{0,63}$"]]
    [:model_id NonEmptyString]
    [:params {:optional true} [:maybe :map]]])
 
@@ -395,7 +397,7 @@
   - {:name <string>
      :enabled <boolean?>
      :trigger {:type <WorkflowTriggerType> :track_id <transcript-track-id>}
-     :provider {:type bedrock :model_id <string> :params <map?>}
+     :provider {:type <provider-type> :model_id <string> :params <map?>}
      :prompt {:text <string>}
      :incremental {:enabled <boolean?> :min_interval_sec <int?>}?
      :availability \"personal\"|\"published\"?}
@@ -475,6 +477,28 @@
    [:ok :boolean]
    [:tenant_id Uuid]
    [:workflow_ids [:sequential Uuid]]])
+
+(def RunWorkflowRequest
+  "Optional request body for POST /api/recordings/{session_id}/workflows/{workflow_id}/runs.
+
+  Selects the stored transcript source. Without it the workflow's own source
+  is used when stored, else the default final track. `track_id` requires
+  `stage`.
+
+  Shape:
+  - {:stage \"final\"|\"refined\"? :track_id <track-id>?}"
+  [:map {:closed true}
+   [:stage {:optional true} [:enum "final" "refined"]]
+   [:track_id {:optional true} [:re #"^\S{1,128}$"]]])
+
+(def RunWorkflowResponse
+  "Response body (202) for an accepted on-demand workflow run."
+  [:map
+   [:ok :boolean]
+   [:workflow_run_id Uuid]
+   [:workflow_id Uuid]
+   [:stage [:enum "final" "refined"]]
+   [:track_id NonEmptyString]])
 
 ;; ---------------------------------------------------------------------
 ;; Webhooks (tenant-configured outbound endpoints)
@@ -673,6 +697,8 @@
                     [:track_id NonEmptyString]
                     [:display_name NonEmptyString]
                     [:default_selected :boolean]]]]
+   ;; Provider types the workflow editor offers (deployment allowlist).
+   [:workflow_provider_types [:vector {:min 1 :max 8} NonEmptyString]]
    [:tenant_id {:optional true} Uuid]
    [:tenant_name {:optional true} :string]
    ;; Expiry of the current access token (epoch ms); the UI refreshes before it.
