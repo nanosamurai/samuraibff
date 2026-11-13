@@ -58,7 +58,9 @@
       (is (= {:ce_mode true
               :workflow_webhook_runtime_enabled false
               :webhooks_enabled false
-              :workflows_enabled true}
+              :workflows_enabled true
+              :uploads_enabled false
+              :uploads_max_bytes 0}
              (features/feature-state cfg))))))
 
 (deftest workflow-provider-types-env-is-validated
