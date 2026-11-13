@@ -51,7 +51,7 @@
     (.put "group.id" (or consumer-group-id "samuraibff-refined"))
 
     ;; TLS / security
-    ;; For MSK TLS-only (port 9094), set to "SSL".
+    ;; For a TLS-only Kafka listener, set to "SSL".
     (.put "security.protocol" (or security-protocol "PLAINTEXT"))
 
     ;; We consume key as string, value as bytes.
