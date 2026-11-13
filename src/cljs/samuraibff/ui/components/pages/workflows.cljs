@@ -148,7 +148,7 @@
                                    :prompt {:text (str prompt)}
 
                                    ;; Note: the field is called :incremental for compatibility with
-                                   ;; webhook-router sessions.meta model, but the UI intentionally
+                                   ;; the sessions.meta workflow target contract, but the UI intentionally
                                    ;; presents it as cumulative transcript + dispatch throttling.
                                    :incremental {:enabled (boolean cumulative-enabled?)
                                                  :min_interval_sec (when (and (number? min-int) (<= 0 min-int)) min-int)}}
@@ -223,7 +223,7 @@
                        :on-change (fn [e]
                                     (set-dispatch-throttle-interval-sec-raw! (.. e -target -value)))}]]
              [:div {:class "hint" :style {:marginTop "6px"}}
-              "Optional. When set, webhook-router will avoid triggering this workflow more often than the given interval (per session)."]])
+              "Optional. When set, nanosamurai will avoid triggering this workflow more often than the given interval (per session)."]])
 
          [:div {:class "row" :style {:gap "16px" :alignItems "center" :marginTop "8px"}}
           [:label {:class "muted" :style {:display "flex" :gap "8px" :alignItems "center"}}

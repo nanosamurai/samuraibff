@@ -374,14 +374,14 @@
 (def WorkflowIncremental
   "Workflow refined-trigger behavior.
 
-  This sub-object is named `incremental` for compatibility with webhook-router's
+  This sub-object is named `incremental` for compatibility with the
   `sessions.meta.workflows.targets[].incremental` contract.
 
   Semantics:
   - `enabled`: when true, the workflow wants to consume the *consolidated* refined
     transcript input (rolling tail) instead of per-window refined segments.
   - `min_interval_sec`: optional dispatch throttling interval (debounce) applied by
-    webhook-router per (session_id, workflow_id) to avoid triggering the workflow
+    the workflow routing service per (session_id, workflow_id) to avoid triggering the workflow
     too frequently.
 
   Shape:

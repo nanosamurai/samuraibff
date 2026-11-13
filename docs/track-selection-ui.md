@@ -42,8 +42,8 @@ it must not shift realtime partial text out of alignment with diarized turns.
 ## Validation
 
 The owning Compose recipe and repeatable browser/DB/Kafka tests are in
-Nanosamurai's `docs/track-selection-ui.md` and `smoke-tests/track-ui/`, mirrored
-in Nanodeploy. They use real browser microphone capture from the repository's
+Nanosamurai's `docs/smoke-tests.md` and `smoke-tests/track-ui/`. They use real
+browser microphone capture from the repository's
 audio fixture, real WhisperX, the existing BFF/Kafka/Persistor/Postgres path,
 and explicitly test-only synthetic second tracks. Synthetic output establishes
 plumbing, not another model's quality.
@@ -74,8 +74,8 @@ Nemotron endpoint and diarization settings were unchanged.
 ## Boundaries
 
 No new tables, topics, protobufs, result envelopes, stored transcript files or
-worker-discovery service. Database migrations remain owned by Nanosamurai and
-Nanodeploy; Persistor's historical migration directory is not used.
+worker-discovery service. Database migrations remain owned by
+Nanosamurai; Persistor's historical migration directory is not used.
 
 Durable per-track failures and completion require a later contract. An absent
 result is reported as unavailable, including when session status is Finished.

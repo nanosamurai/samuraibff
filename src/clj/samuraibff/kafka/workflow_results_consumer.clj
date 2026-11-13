@@ -7,7 +7,7 @@
 
   Origin routing mechanism:
   - workflow-runner includes `stream.source_uri` in result payload (JSON).
-  - webhook-router (producer side) is expected to set this URI to a stable, node-local
+  - the workflow routing service (producer side) is expected to set this URI to a stable, node-local
     websocket URL (host pointing at the origin BFF instance).
   - We derive origin HTTP base URI from this websocket URI by:
       ws://host[:port]/...  -> http://host[:port]
