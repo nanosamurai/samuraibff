@@ -51,10 +51,10 @@
         (is (= routing (:webhook_routing meta)))
         (is (not (contains? meta :workflows)))))
     (testing "workflow triggers alone publish workflow targets but no webhook routing"
-      (let [meta (build {:workflow-triggers-enabled? true})]
+      (let [meta (build {:workflows-triggered-enabled? true})]
         (is (= {:targets targets} (:workflows meta)))
         (is (not (contains? meta :routing)))
         (is (not (contains? meta :webhook_routing)))))
     (testing "on-demand workflows publish neither"
-      (let [meta (build {:workflows-enabled? true})]
+      (let [meta (build {:workflows-ondemand-enabled? true})]
         (is (not-any? #(contains? meta %) [:routing :webhook_routing :workflows]))))))

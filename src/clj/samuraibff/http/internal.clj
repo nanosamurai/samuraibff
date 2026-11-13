@@ -220,7 +220,7 @@
   "Create a Ring handler for `POST /internal/workflow-result`.
 
   Unless automatic workflow triggers are enabled
-  (SAMURAIBFF_WORKFLOW_TRIGGERS_ENABLED), this endpoint returns
+  (SAMURAIBFF_WORKFLOWS_TRIGGERED_ENABLED), this endpoint returns
   feature-not-enabled and does not forward workflow result payloads to
   connected clients.
 
@@ -229,4 +229,4 @@
 
   Returns: Ring handler fn."
   [{:keys [config] :as deps}]
-  (features/wrap-enabled config :workflow-triggers (workflow-result-callback-handler* deps)))
+  (features/wrap-enabled config :workflows-triggered (workflow-result-callback-handler* deps)))

@@ -164,7 +164,7 @@
       (is (= 403 (:status workflow-resp)))
       (is (= false (:ok workflow-body)))
       (is (= "feature-not-enabled" (:message workflow-body)))
-      (is (= "workflow-triggers" (:feature workflow-body))))))
+      (is (= "workflows-triggered" (:feature workflow-body))))))
 
 (deftest create-session-handler-gates-each-override-by-its-own-flag-test
   (let [ws-registry {:config {:env :test}
@@ -178,16 +178,16 @@
                      (let [resp (handler (tp/request-for guest {:body-params body}))]
                        [(:status resp) (:feature (parse-json-body resp))]))]
     (testing "SAMURAIBFF_WEBHOOKS_ENABLED alone still rejects workflow overrides"
-      (is (= [403 "workflow-triggers"]
+      (is (= [403 "workflows-triggered"]
              (feature-of (handler-for {:webhooks-enabled? true})
                          {:workflow_overrides {:use_defaults true}}))))
-    (testing "SAMURAIBFF_WORKFLOW_TRIGGERS_ENABLED alone still rejects webhook overrides"
+    (testing "SAMURAIBFF_WORKFLOWS_TRIGGERED_ENABLED alone still rejects webhook overrides"
       (is (= [403 "webhooks"]
-             (feature-of (handler-for {:workflow-triggers-enabled? true})
+             (feature-of (handler-for {:workflows-triggered-enabled? true})
                          {:webhook_overrides {:use_defaults true}}))))
-    (testing "SAMURAIBFF_WORKFLOWS_ENABLED (on-demand) does not accept session workflow overrides"
-      (is (= [403 "workflow-triggers"]
-             (feature-of (handler-for {:workflows-enabled? true})
+    (testing "SAMURAIBFF_WORKFLOWS_ONDEMAND_ENABLED (on-demand) does not accept session workflow overrides"
+      (is (= [403 "workflows-triggered"]
+             (feature-of (handler-for {:workflows-ondemand-enabled? true})
                          {:workflow_overrides {:use_defaults true}}))))
     (testing "an explicit false wins over the deprecated SAMURAIBFF_CE_MODE=false"
       (is (= [403 "webhooks"]

@@ -446,7 +446,7 @@
         audio-ref (react/useRef nil)
         webhooks? (store/webhooks-enabled?)
         workflow-results? (store/workflow-definitions-enabled?)
-        workflows-enabled? (store/workflows-enabled?)
+        workflows-ondemand-enabled? (store/workflows-ondemand-enabled?)
         side-panel? (or webhooks? workflow-results?)
         both-panels? (and webhooks? workflow-results?)
         right-tab (cond
@@ -628,7 +628,7 @@
             [:div {:class "right-panel-body"}
              (if (= right-tab :workflows)
                [:div {:style {:display "flex" :flexDirection "column" :gap "10px" :flex 1 :minHeight 0}}
-                (when workflows-enabled?
+                (when workflows-ondemand-enabled?
                   [run-workflow-form {:session-id session-id :detail detail}])
                 [ui.wf.results/workflow-results-card {:items (:workflow_results_latest detail) :title "Workflow results" :fill? true}]]
                [ui.wh.outcomes/webhook-dispatches-card {:items (:webhook_delivery_outcomes detail) :title "Webhook dispatches" :fill? true}])]]])]])))

@@ -90,7 +90,7 @@
                               (boolean (:include_full_text cfg))
                               default-include-full-text))
         webhooks? (features/webhooks-enabled? config)
-        triggers? (features/workflow-triggers-enabled? config)
+        triggers? (features/workflows-triggered-enabled? config)
         routing-map (or webhook-routing {:targets_by_event_type {}})
         workflow-targets (vec (or workflow-targets []))
         schema-version 2
@@ -136,7 +136,7 @@
   Returns {:routing map-or-nil :workflow_targets [target ...]}."
   [config ds tenant-id session-id row]
   (let [webhooks? (features/webhooks-enabled? config)
-        triggers? (features/workflow-triggers-enabled? config)
+        triggers? (features/workflows-triggered-enabled? config)
         owner (when (or webhooks? triggers?)
                 (access.integrations/owner-principal ds tenant-id (:user_id row)))]
     {:routing (when webhooks?

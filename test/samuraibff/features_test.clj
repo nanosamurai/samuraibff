@@ -9,8 +9,8 @@
   {:ce_mode true
    :workflow_webhook_runtime_enabled false
    :webhooks_enabled false
-   :workflows_enabled false
-   :workflow_triggers_enabled false
+   :workflows_ondemand_enabled false
+   :workflows_triggered_enabled false
    :uploads_enabled false
    :uploads_max_bytes 0})
 
@@ -21,15 +21,15 @@
 
 (defn- capabilities
   [cfg]
-  {:workflows (features/workflows-enabled? cfg)
+  {:workflows-ondemand (features/workflows-ondemand-enabled? cfg)
    :workflow-definitions (features/workflow-definitions-enabled? cfg)
-   :workflow-triggers (features/workflow-triggers-enabled? cfg)
+   :workflows-triggered (features/workflows-triggered-enabled? cfg)
    :webhooks (features/webhooks-enabled? cfg)})
 
 (deftest feature-state-defaults-to-all-off
   (testing "missing config turns every optional capability off"
     (is (true? (features/ce-mode? {})))
-    (is (= {:workflows false :workflow-definitions false :workflow-triggers false :webhooks false}
+    (is (= {:workflows-ondemand false :workflow-definitions false :workflows-triggered false :webhooks false}
            (capabilities {})))
     (is (= all-off (features/feature-state {}))))
   (testing "the bundled system.edn defaults turn every optional capability off"
@@ -50,23 +50,23 @@
                                               :s3 {:buckets {:recordings {:bucket " "}}}}))))))
 
 (deftest each-capability-flag-enables-only-its-capability
-  (testing "SAMURAIBFF_WORKFLOWS_ENABLED=true enables definitions and on-demand runs"
-    (let [cfg (env-config {"SAMURAIBFF_WORKFLOWS_ENABLED" "true"})]
-      (is (= {:workflows true :workflow-definitions true :workflow-triggers false :webhooks false}
+  (testing "SAMURAIBFF_WORKFLOWS_ONDEMAND_ENABLED=true enables definitions and on-demand runs"
+    (let [cfg (env-config {"SAMURAIBFF_WORKFLOWS_ONDEMAND_ENABLED" "true"})]
+      (is (= {:workflows-ondemand true :workflow-definitions true :workflows-triggered false :webhooks false}
              (capabilities cfg)))
-      (is (= (assoc all-off :workflows_enabled true) (features/feature-state cfg)))))
-  (testing "SAMURAIBFF_WORKFLOW_TRIGGERS_ENABLED=true enables triggers and definitions"
-    (let [cfg (env-config {"SAMURAIBFF_WORKFLOW_TRIGGERS_ENABLED" "true"})]
-      (is (= {:workflows false :workflow-definitions true :workflow-triggers true :webhooks false}
+      (is (= (assoc all-off :workflows_ondemand_enabled true) (features/feature-state cfg)))))
+  (testing "SAMURAIBFF_WORKFLOWS_TRIGGERED_ENABLED=true enables triggers and definitions"
+    (let [cfg (env-config {"SAMURAIBFF_WORKFLOWS_TRIGGERED_ENABLED" "true"})]
+      (is (= {:workflows-ondemand false :workflow-definitions true :workflows-triggered true :webhooks false}
              (capabilities cfg)))
-      (is (= (assoc all-off :workflow_triggers_enabled true) (features/feature-state cfg)))))
+      (is (= (assoc all-off :workflows_triggered_enabled true) (features/feature-state cfg)))))
   (testing "SAMURAIBFF_WEBHOOKS_ENABLED=true enables webhooks only"
     (let [cfg (env-config {"SAMURAIBFF_WEBHOOKS_ENABLED" "true"})]
-      (is (= {:workflows false :workflow-definitions false :workflow-triggers false :webhooks true}
+      (is (= {:workflows-ondemand false :workflow-definitions false :workflows-triggered false :webhooks true}
              (capabilities cfg)))
       (is (= (assoc all-off :webhooks_enabled true) (features/feature-state cfg)))))
   (testing "triggers and webhooks together report the deprecated runtime key"
-    (let [cfg (env-config {"SAMURAIBFF_WORKFLOW_TRIGGERS_ENABLED" "true"
+    (let [cfg (env-config {"SAMURAIBFF_WORKFLOWS_TRIGGERED_ENABLED" "true"
                            "SAMURAIBFF_WEBHOOKS_ENABLED" "true"})]
       (is (true? (:workflow_webhook_runtime_enabled (features/feature-state cfg))))))
   (testing "an unparseable value leaves the capability off"
@@ -77,32 +77,43 @@
     (let [cfg (env-config {"SAMURAIBFF_CE_MODE" "false"})]
       (is (= false (get-in cfg [:features :ce-mode?])))
       (is (false? (features/ce-mode? cfg)))
-      (is (= {:workflows true :workflow-definitions true :workflow-triggers true :webhooks true}
+      (is (= {:workflows-ondemand true :workflow-definitions true :workflows-triggered true :webhooks true}
              (capabilities cfg)))
       (is (= {:ce_mode false
               :workflow_webhook_runtime_enabled true
               :webhooks_enabled true
-              :workflows_enabled true
-              :workflow_triggers_enabled true
+              :workflows_ondemand_enabled true
+              :workflows_triggered_enabled true
               :uploads_enabled false
               :uploads_max_bytes 0}
              (features/feature-state cfg)))))
   (testing "an explicit capability flag wins over SAMURAIBFF_CE_MODE=false"
     (let [cfg (env-config {"SAMURAIBFF_CE_MODE" "false"
                            "SAMURAIBFF_WEBHOOKS_ENABLED" "false"})]
-      (is (= {:workflows true :workflow-definitions true :workflow-triggers true :webhooks false}
+      (is (= {:workflows-ondemand true :workflow-definitions true :workflows-triggered true :webhooks false}
              (capabilities cfg)))
       (is (false? (:workflow_webhook_runtime_enabled (features/feature-state cfg))))))
   (testing "SAMURAIBFF_CE_MODE=true does not override an explicit capability flag"
-    (is (true? (features/workflows-enabled?
+    (is (true? (features/workflows-ondemand-enabled?
                 (env-config {"SAMURAIBFF_CE_MODE" "true"
-                             "SAMURAIBFF_WORKFLOWS_ENABLED" "true"}))))))
+                             "SAMURAIBFF_WORKFLOWS_ONDEMAND_ENABLED" "true"}))))))
+
+(deftest renamed-workflows-flag-is-ignored-with-a-warning
+  (testing "the old SAMURAIBFF_WORKFLOWS_ENABLED name does not enable anything"
+    (let [cfg (env-config {"SAMURAIBFF_WORKFLOWS_ENABLED" "true"})]
+      (is (= {:workflows-ondemand false :workflow-definitions false :workflows-triggered false :webhooks false}
+             (capabilities cfg)))))
+  (testing "startup reports the old name and its replacement"
+    (is (= [["SAMURAIBFF_WORKFLOWS_ENABLED" "SAMURAIBFF_WORKFLOWS_ONDEMAND_ENABLED"]]
+           (#'system/renamed-env-in-use {"SAMURAIBFF_WORKFLOWS_ENABLED" "true"})))
+    (is (empty? (#'system/renamed-env-in-use {"SAMURAIBFF_WORKFLOWS_ENABLED" " "})))
+    (is (empty? (#'system/renamed-env-in-use {})))))
 
 (deftest enabled?-maps-route-features
-  (let [cfg {:features {:workflow-triggers-enabled? true}}]
-    (is (false? (features/enabled? cfg :workflows)))
+  (let [cfg {:features {:workflows-triggered-enabled? true}}]
+    (is (false? (features/enabled? cfg :workflows-ondemand)))
     (is (true? (features/enabled? cfg :workflow-definitions)))
-    (is (true? (features/enabled? cfg :workflow-triggers)))
+    (is (true? (features/enabled? cfg :workflows-triggered)))
     (is (false? (features/enabled? cfg :webhooks)))
     (is (true? (features/enabled? cfg :not-gated)))))
 

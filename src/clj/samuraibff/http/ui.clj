@@ -135,7 +135,7 @@
           (throw (ex-info "forbidden" {:type :samuraibff.http/forbidden})))
         (let [body (or (:body-params req) (:body req) {})
               webhooks? (features/webhooks-enabled? config)
-              triggers? (features/workflow-triggers-enabled? config)
+              triggers? (features/workflows-triggered-enabled? config)
               _ (when (and (not webhooks?) (request-contains-key? body :webhook_overrides))
                   (throw (ex-info "webhook-overrides-disabled"
                                   {:type :samuraibff.http/feature-not-enabled
@@ -143,7 +143,7 @@
               _ (when (and (not triggers?) (request-contains-key? body :workflow_overrides))
                   (throw (ex-info "workflow-overrides-disabled"
                                   {:type :samuraibff.http/feature-not-enabled
-                                   :feature :workflow-triggers})))
+                                   :feature :workflows-triggered})))
               ;; Request body is optional for backward compatibility.
               {:keys [title webhook_overrides session_settings workflow_overrides]} (try
                                                                                       (schemas/decode-and-validate! schemas/CreateSessionRequest body)
@@ -201,7 +201,7 @@
                                                                     :session_id session-id
                                                                     :webhook_overrides_present? (some? webhook_overrides)
                                                                     :webhooks_enabled webhooks?
-                                                                    :workflow_triggers_enabled triggers?})
+                                                                    :workflows_triggered_enabled triggers?})
               (let [meta (sessions.meta/resolve-sessions-meta config ds tenant-id-uuid session-uuid)
                     targets (or (get-in meta [:webhook_routing :targets_by_event_type]) {})
                     wf-targets (get-in meta [:workflows :targets])
@@ -237,7 +237,7 @@
             (json-response 503 {:ok false :message "db-unavailable"})
 
             :samuraibff.http/feature-not-enabled
-            (features/not-enabled-response config (or (:feature (ex-data e)) :workflow-triggers))
+            (features/not-enabled-response config (or (:feature (ex-data e)) :workflows-triggered))
 
             (do
               (log/error e "Failed to create session" {:uri (:uri req)})

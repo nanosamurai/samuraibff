@@ -357,7 +357,7 @@
         wf-defaults-st (hooks/use-atom store/workflow-defaults*)
         auth (hooks/use-atom store/auth*)
         webhooks? (true? (get-in auth [:detail :features :webhooks_enabled]))
-        triggers? (true? (get-in auth [:detail :features :workflow_triggers_enabled]))
+        triggers? (true? (get-in auth [:detail :features :workflows_triggered_enabled]))
         webhooks (when webhooks?
                    (destinations/effective-items (:items webhooks-st) (:webhook_overrides session)
                                                  (:webhook_ids wh-defaults-st) :webhook_ids))

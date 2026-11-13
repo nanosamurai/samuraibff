@@ -177,8 +177,8 @@
      {:env (some-> (s "SAMURAIBFF_ENV") keyword)
 
       :features {:ce-mode? (b "SAMURAIBFF_CE_MODE")
-                 :workflows-enabled? (b "SAMURAIBFF_WORKFLOWS_ENABLED")
-                 :workflow-triggers-enabled? (b "SAMURAIBFF_WORKFLOW_TRIGGERS_ENABLED")
+                 :workflows-ondemand-enabled? (b "SAMURAIBFF_WORKFLOWS_ONDEMAND_ENABLED")
+                 :workflows-triggered-enabled? (b "SAMURAIBFF_WORKFLOWS_TRIGGERED_ENABLED")
                  :webhooks-enabled? (b "SAMURAIBFF_WEBHOOKS_ENABLED")}
 
       :workflows {:provider-types (parse-provider-types (getenv-fn "SAMURAIBFF_WORKFLOW_PROVIDER_TYPES"))
@@ -363,6 +363,23 @@
                       {:path path}
                       e)))))
 
+(def ^:private renamed-env
+  "Env vars that were renamed, as {old-name new-name}. The old name is ignored."
+  {"SAMURAIBFF_WORKFLOWS_ENABLED" "SAMURAIBFF_WORKFLOWS_ONDEMAND_ENABLED"})
+
+(defn- renamed-env-in-use
+  "Return the renamed env vars that are still set.
+
+  Inputs:
+  - getenv-fn: (fn [string] => string|nil)
+
+  Returns: seq of [old-name new-name]. The old names are ignored, so a stale
+  setting leaves its capability off."
+  [getenv-fn]
+  (for [[old-name new-name] renamed-env
+        :when (some-> (getenv-fn old-name) str/trim not-empty)]
+    [old-name new-name]))
+
 (defn read-system-config
   "Read Integrant configuration from `resources/system.edn`.
 
@@ -373,9 +390,13 @@
     instead of classpath `system.edn`.
   - Selected env vars are overlaid on top of the EDN config (see
     `apply-env-overrides`).
+  - Logs a warning for each renamed env var that is still set.
 
-  Returns: config map." 
+  Returns: config map."
   []
+  (doseq [[old-name new-name] (renamed-env-in-use getenv)]
+    (log/warn "Ignoring renamed env var; set the new name instead"
+              {:env old-name :use new-name}))
   (let [cfg-path (some-> (getenv "SAMURAIBFF_CONFIG_PATH") str/trim not-empty)
         cfg (if cfg-path
               (do

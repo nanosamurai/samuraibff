@@ -522,8 +522,8 @@
   []
   (or (get-in @auth* [:detail :features])
       {:webhooks_enabled false
-       :workflows_enabled false
-       :workflow_triggers_enabled false
+       :workflows_ondemand_enabled false
+       :workflows_triggered_enabled false
        :uploads_enabled false
        :uploads_max_bytes 0}))
 
@@ -536,7 +536,7 @@
   []
   (true? (:webhooks_enabled (feature-state))))
 
-(defn workflow-triggers-enabled?
+(defn workflows-triggered-enabled?
   "Return true when automatic event-triggered workflows are turned on: session
   workflow selection and live workflow results.
 
@@ -544,7 +544,7 @@
 
   Returns: boolean."
   []
-  (true? (:workflow_triggers_enabled (feature-state))))
+  (true? (:workflows_triggered_enabled (feature-state))))
 
 (defn uploads-enabled?
   "Return true when `/api/me` reports that file uploads are turned on."
@@ -557,14 +557,14 @@
   (let [limit (:uploads_max_bytes (feature-state))]
     (if (and (number? limit) (pos? limit)) limit 0)))
 
-(defn workflows-enabled?
+(defn workflows-ondemand-enabled?
   "Return true when on-demand workflow runs are turned on.
 
   Inputs: none.
 
   Returns: boolean."
   []
-  (true? (:workflows_enabled (feature-state))))
+  (true? (:workflows_ondemand_enabled (feature-state))))
 
 (defn workflow-definitions-enabled?
   "Return true when the Workflows page and saved workflow results should be
@@ -574,7 +574,7 @@
 
   Returns: boolean."
   []
-  (or (workflows-enabled?) (workflow-triggers-enabled?)))
+  (or (workflows-ondemand-enabled?) (workflows-triggered-enabled?)))
 
 (def ^:private max-log-lines 200)
 (def ^:private max-segments 400)

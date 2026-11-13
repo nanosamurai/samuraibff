@@ -118,7 +118,7 @@ clojure -X:test
 ```
 
 Tests for workflow and webhook behavior turn on the capability they need, for
-example `:features {:workflow-triggers-enabled? true}`; some still use the
+example `:features {:workflows-triggered-enabled? true}`; some still use the
 deprecated `:features {:ce-mode? false}`, which turns on every capability.
 Feature-gate tests keep the defaults, where every capability is off. Static-asset routing tests use a small fixture
 from `test-resources/` and do not require a compiled UI bundle.

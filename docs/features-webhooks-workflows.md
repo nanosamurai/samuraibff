@@ -66,10 +66,10 @@ runner executes them. The BFF does not call a model.
 
 Two paths start a workflow:
 
-* Automatic (`SAMURAIBFF_WORKFLOW_TRIGGERS_ENABLED`): event-triggered workflow
+* Automatic (`SAMURAIBFF_WORKFLOWS_TRIGGERED_ENABLED`): event-triggered workflow
   routing reads the session's workflow targets from `sessions.meta` and starts
   a run on each matching transcript event.
-* On demand (`SAMURAIBFF_WORKFLOWS_ENABLED`): a person starts a run on a
+* On demand (`SAMURAIBFF_WORKFLOWS_ONDEMAND_ENABLED`): a person starts a run on a
   finished session (see [Run on demand](#run-on-demand)).
 
 ### Capability flags
@@ -80,12 +80,12 @@ Each capability is off unless its flag is set. The deprecated
 
 | Capability | Flag |
 | --- | --- |
-| Workflow definitions, on-demand runs, saved results | `SAMURAIBFF_WORKFLOWS_ENABLED` |
-| Automatic runs, session workflow selection, workflow targets in `sessions.meta`, live workflow results on `/ws/events` | `SAMURAIBFF_WORKFLOW_TRIGGERS_ENABLED` (also opens definitions) |
+| Workflow definitions, on-demand runs, saved results | `SAMURAIBFF_WORKFLOWS_ONDEMAND_ENABLED` |
+| Automatic runs, session workflow selection, workflow targets in `sessions.meta`, live workflow results on `/ws/events` | `SAMURAIBFF_WORKFLOWS_TRIGGERED_ENABLED` (also opens definitions) |
 | Webhooks, session webhook selection, webhook routing in `sessions.meta`, delivery outcomes | `SAMURAIBFF_WEBHOOKS_ENABLED` |
 
-`/api/me.features` reports `workflows_enabled`,
-`workflow_triggers_enabled` and `webhooks_enabled` for the UI. Without
+`/api/me.features` reports `workflows_ondemand_enabled`,
+`workflows_triggered_enabled` and `webhooks_enabled` for the UI. Without
 triggers, defaults and source tracks are stored but start nothing
 automatically. Enable workflows only when a workflow runner consumes
 `workflow.dispatch` and the persistor stores `workflow.result`.
@@ -232,5 +232,5 @@ Data flow (high level):
 * origin instance pushes a `/ws/events` JSON event:
   * `{"type":"workflow_result", ...}`
 
-This path needs `SAMURAIBFF_WORKFLOW_TRIGGERS_ENABLED`. It streams results of
+This path needs `SAMURAIBFF_WORKFLOWS_TRIGGERED_ENABLED`. It streams results of
 refined-trigger runs to a live session.

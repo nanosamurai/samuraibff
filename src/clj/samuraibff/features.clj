@@ -3,9 +3,9 @@
 
   Each optional capability has its own flag under `:features`:
 
-  - `:workflows-enabled?` (SAMURAIBFF_WORKFLOWS_ENABLED): workflow
+  - `:workflows-ondemand-enabled?` (SAMURAIBFF_WORKFLOWS_ONDEMAND_ENABLED): workflow
     definitions and on-demand runs on finished sessions.
-  - `:workflow-triggers-enabled?` (SAMURAIBFF_WORKFLOW_TRIGGERS_ENABLED):
+  - `:workflows-triggered-enabled?` (SAMURAIBFF_WORKFLOWS_TRIGGERED_ENABLED):
     automatic event-triggered workflows. Covers session workflow overrides,
     workflow targets in `sessions.meta`, `/internal/workflow-result` and the
     live workflow results consumer. Also opens workflow definitions.
@@ -20,8 +20,8 @@
 
   Public API:
   - ce-mode?
-  - workflows-enabled?
-  - workflow-triggers-enabled?
+  - workflows-ondemand-enabled?
+  - workflows-triggered-enabled?
   - workflow-definitions-enabled?
   - webhooks-enabled?
   - uploads-max-bytes
@@ -53,27 +53,27 @@
       v
       (not (ce-mode? config)))))
 
-(defn workflows-enabled?
+(defn workflows-ondemand-enabled?
   "Return true when workflow definitions and on-demand runs are enabled.
 
   Inputs:
-  - config: BFF config map, may contain [:features :workflows-enabled?]
+  - config: BFF config map, may contain [:features :workflows-ondemand-enabled?]
 
   Returns: boolean."
   [config]
-  (capability-enabled? config :workflows-enabled?))
+  (capability-enabled? config :workflows-ondemand-enabled?))
 
-(defn workflow-triggers-enabled?
+(defn workflows-triggered-enabled?
   "Return true when automatic event-triggered workflows are enabled.
 
   Inputs:
-  - config: BFF config map, may contain [:features :workflow-triggers-enabled?]
+  - config: BFF config map, may contain [:features :workflows-triggered-enabled?]
 
   Returns: boolean. Gates session workflow overrides, workflow targets in
   `sessions.meta`, `/internal/workflow-result` and the workflow results
   consumer."
   [config]
-  (capability-enabled? config :workflow-triggers-enabled?))
+  (capability-enabled? config :workflows-triggered-enabled?))
 
 (defn workflow-definitions-enabled?
   "Return true when workflow definitions and defaults may be managed.
@@ -84,8 +84,8 @@
   Returns: boolean. Both on-demand runs and automatic triggers need
   definitions."
   [config]
-  (or (workflows-enabled? config)
-      (workflow-triggers-enabled? config)))
+  (or (workflows-ondemand-enabled? config)
+      (workflows-triggered-enabled? config)))
 
 (defn webhooks-enabled?
   "Return true when webhooks are enabled.
@@ -118,15 +118,15 @@
 
   Inputs:
   - config: BFF config map
-  - feature: keyword, one of :workflows (on-demand runs),
-    :workflow-definitions, :workflow-triggers or :webhooks
+  - feature: keyword, one of :workflows-ondemand,
+    :workflow-definitions, :workflows-triggered or :webhooks
 
   Returns: boolean. Unknown features are not gated."
   [config feature]
   (case feature
-    :workflows (workflows-enabled? config)
+    :workflows-ondemand (workflows-ondemand-enabled? config)
     :workflow-definitions (workflow-definitions-enabled? config)
-    :workflow-triggers (workflow-triggers-enabled? config)
+    :workflows-triggered (workflows-triggered-enabled? config)
     :webhooks (webhooks-enabled? config)
     true))
 
@@ -137,22 +137,22 @@
   - config: BFF config map
 
   Returns:
-  - {:workflows_enabled boolean          ; definitions + on-demand runs
-     :workflow_triggers_enabled boolean  ; automatic event-triggered runs
+  - {:workflows_ondemand_enabled boolean          ; definitions + on-demand runs
+     :workflows_triggered_enabled boolean  ; automatic event-triggered runs
      :webhooks_enabled boolean
      :uploads_enabled boolean
      :uploads_max_bytes int              ; 0 when uploads are disabled
      :ce_mode boolean                    ; deprecated: the CE switch
      :workflow_webhook_runtime_enabled boolean} ; deprecated: triggers and webhooks"
   [config]
-  (let [triggers? (workflow-triggers-enabled? config)
+  (let [triggers? (workflows-triggered-enabled? config)
         webhooks? (webhooks-enabled? config)
         upload-limit (uploads-max-bytes config)]
     {:ce_mode (ce-mode? config)
      :workflow_webhook_runtime_enabled (and triggers? webhooks?)
      :webhooks_enabled webhooks?
-     :workflows_enabled (workflows-enabled? config)
-     :workflow_triggers_enabled triggers?
+     :workflows_ondemand_enabled (workflows-ondemand-enabled? config)
+     :workflows_triggered_enabled triggers?
      :uploads_enabled (pos? upload-limit)
      :uploads_max_bytes upload-limit}))
 

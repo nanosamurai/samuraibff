@@ -253,7 +253,7 @@
 
 (defmethod ig/init-key :samuraibff/workflow-results-consumer
   [_ {:keys [config ws-registry]}]
-  (if-not (features/workflow-triggers-enabled? config)
+  (if-not (features/workflows-triggered-enabled? config)
     (do
       (log/info "Workflow results Kafka consumer disabled by feature state" {:features (features/feature-state config)})
       {:disabled? true

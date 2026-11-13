@@ -24,9 +24,9 @@
 
   ;; --- Optional capabilities (docs/ce-feature-flags.md) ---
   ;; One flag per capability; each is off unless set:
-  ;; - :workflows-enabled? (SAMURAIBFF_WORKFLOWS_ENABLED): workflow
+  ;; - :workflows-ondemand-enabled? (SAMURAIBFF_WORKFLOWS_ONDEMAND_ENABLED): workflow
   ;;   definitions and on-demand runs.
-  ;; - :workflow-triggers-enabled? (SAMURAIBFF_WORKFLOW_TRIGGERS_ENABLED):
+  ;; - :workflows-triggered-enabled? (SAMURAIBFF_WORKFLOWS_TRIGGERED_ENABLED):
   ;;   automatic event-triggered workflows.
   ;; - :webhooks-enabled? (SAMURAIBFF_WEBHOOKS_ENABLED): webhooks.
   ;; :ce-mode? (SAMURAIBFF_CE_MODE) is deprecated. When false, the unset

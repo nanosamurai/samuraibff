@@ -63,11 +63,11 @@
       (let [run-uri (str "/api/recordings/" (random-uuid) "/workflows/" (random-uuid) "/runs")
             ce (http.router/create-router {:config {:auth {:required? false}} :db {:ds ds}})
             enabled (http.router/create-router {:config {:auth {:required? false}
-                                                         :features {:workflows-enabled? true}}
+                                                         :features {:workflows-ondemand-enabled? true}}
                                                 :db {:ds ds}})]
         (testing "default CE mode gates on-demand runs"
           (is (= "feature-not-enabled" (:message (parse-json-body (request ce :post run-uri))))))
-        (testing "SAMURAIBFF_WORKFLOWS_ENABLED opens workflow routes, not webhook routes"
+        (testing "SAMURAIBFF_WORKFLOWS_ONDEMAND_ENABLED opens workflow routes, not webhook routes"
           (doseq [uri ["/api/workflows" "/api/workflows/defaults"]]
             (is (= 200 (:status (request enabled :get uri))) uri))
           (doseq [uri ["/api/webhooks" "/api/webhooks/defaults"]]
@@ -86,8 +86,8 @@
                                                  :db {:ds ds}}))
             gated? (fn [handler method uri]
                      (= "feature-not-enabled" (:message (parse-json-body (request handler method uri)))))]
-        (testing "SAMURAIBFF_WORKFLOW_TRIGGERS_ENABLED opens workflow definitions, not runs or webhooks"
-          (let [handler (router {:workflow-triggers-enabled? true})]
+        (testing "SAMURAIBFF_WORKFLOWS_TRIGGERED_ENABLED opens workflow definitions, not runs or webhooks"
+          (let [handler (router {:workflows-triggered-enabled? true})]
             (doseq [uri ["/api/workflows" "/api/workflows/defaults"]]
               (is (= 200 (:status (request handler :get uri))) uri))
             (is (gated? handler :post run-uri))

@@ -501,7 +501,7 @@
                                  409 {:body schemas/ApiErrorResponse}
                                  413 {:body schemas/ApiErrorResponse}
                                  503 {:body schemas/ApiErrorResponse}}
-                     :handler (features/wrap-enabled config :workflows (http.workflow-runs/run-workflow-handler deps))}}]]
+                     :handler (features/wrap-enabled config :workflows-ondemand (http.workflow-runs/run-workflow-handler deps))}}]]
            ["/sessions" {:post {:summary "Create session"
                                 :description "Creates a new session identifier for WebSocket streaming."
                                 :parameters {:body schemas/CreateSessionRequest}

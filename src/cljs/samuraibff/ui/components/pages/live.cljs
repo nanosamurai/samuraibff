@@ -319,7 +319,7 @@
   (let [[requested-tab set-tab!] (react/useState :realtime)
         routing-tabs (cond-> []
                        (store/webhooks-enabled?) (conj [:webhooks "Webhooks"])
-                       (store/workflow-triggers-enabled?) (conj [:workflows "Workflows"]))
+                       (store/workflows-triggered-enabled?) (conj [:workflows "Workflows"]))
         tab (if (and (#{:webhooks :workflows} requested-tab)
                      (not-any? #(= requested-tab (first %)) routing-tabs))
               :realtime
@@ -490,7 +490,7 @@
         active (aget active* 0)
         set-active! (aget active* 1)
         webhooks? (store/webhooks-enabled?)
-        triggers? (store/workflow-triggers-enabled?)
+        triggers? (store/workflows-triggered-enabled?)
         active (cond
                  (and (= active :webhooks) webhooks?) :webhooks
                  (and (= active :workflows) triggers?) :workflows
