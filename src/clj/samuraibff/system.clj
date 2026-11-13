@@ -177,7 +177,9 @@
      {:env (some-> (s "SAMURAIBFF_ENV") keyword)
 
       :features {:ce-mode? (b "SAMURAIBFF_CE_MODE")
-                 :workflows-enabled? (b "SAMURAIBFF_WORKFLOWS_ENABLED")}
+                 :workflows-enabled? (b "SAMURAIBFF_WORKFLOWS_ENABLED")
+                 :workflow-triggers-enabled? (b "SAMURAIBFF_WORKFLOW_TRIGGERS_ENABLED")
+                 :webhooks-enabled? (b "SAMURAIBFF_WEBHOOKS_ENABLED")}
 
       :workflows {:provider-types (parse-provider-types (getenv-fn "SAMURAIBFF_WORKFLOW_PROVIDER_TYPES"))
                   :run-max-bytes (i "SAMURAIBFF_WORKFLOW_RUN_MAX_BYTES")}

@@ -134,19 +134,23 @@
         (when-not (:record (policy/capabilities principal))
           (throw (ex-info "forbidden" {:type :samuraibff.http/forbidden})))
         (let [body (or (:body-params req) (:body req) {})
-              feature-enabled? (features/workflow-webhook-runtime-enabled? config)
-              webhook-overrides-present? (request-contains-key? body :webhook_overrides)
-              workflow-overrides-present? (request-contains-key? body :workflow_overrides)
-              _ (when (and (not feature-enabled?)
-                           (or webhook-overrides-present? workflow-overrides-present?))
-                  (throw (ex-info "workflow-webhook-overrides-disabled"
+              webhooks? (features/webhooks-enabled? config)
+              triggers? (features/workflow-triggers-enabled? config)
+              _ (when (and (not webhooks?) (request-contains-key? body :webhook_overrides))
+                  (throw (ex-info "webhook-overrides-disabled"
                                   {:type :samuraibff.http/feature-not-enabled
-                                   :feature :workflow-webhook-runtime})))
+                                   :feature :webhooks})))
+              _ (when (and (not triggers?) (request-contains-key? body :workflow_overrides))
+                  (throw (ex-info "workflow-overrides-disabled"
+                                  {:type :samuraibff.http/feature-not-enabled
+                                   :feature :workflow-triggers})))
               ;; Request body is optional for backward compatibility.
               {:keys [title webhook_overrides session_settings workflow_overrides]} (try
                                                                                       (schemas/decode-and-validate! schemas/CreateSessionRequest body)
                                                                                       (catch Exception _
                                                                                         {}))
+              webhook_overrides (when webhooks? webhook_overrides)
+              workflow_overrides (when triggers? workflow_overrides)
               title (some-> title str str/trim)
               title (when-not (str/blank? (str title)) title)
               default-title (format "Session %1$tF %1$tR" (java.time.ZonedDateTime/now))
@@ -162,7 +166,7 @@
                                         :session_id session-id})
           (when-not ds
             (throw (ex-info "missing-datasource" {:type :samuraibff.http/missing-datasource})))
-          (when feature-enabled?
+          (when (or webhooks? triggers?)
             (access.integrations/assert-overrides-usable!
              ds principal webhook_overrides workflow_overrides))
           (db.sessions/insert-session!
@@ -187,16 +191,17 @@
            (str tenant-id-uuid)
            session-id
            (cond-> {}
-             feature-enabled? (assoc :webhook_overrides webhook_overrides
-                                     :workflow_overrides workflow_overrides)))
+             webhooks? (assoc :webhook_overrides webhook_overrides)
+             triggers? (assoc :workflow_overrides workflow_overrides)))
 
           ;; Publish session routing snapshot (compacted topic) best-effort.
           (when (and ds kafka-producer)
             (try
               (log/info "Resolving sessions.meta routing snapshot" {:tenant_id (str tenant-id-uuid)
                                                                     :session_id session-id
-                                                                    :webhook_overrides_present? (and feature-enabled? (some? webhook_overrides))
-                                                                    :workflow_webhook_runtime_enabled feature-enabled?})
+                                                                    :webhook_overrides_present? (some? webhook_overrides)
+                                                                    :webhooks_enabled webhooks?
+                                                                    :workflow_triggers_enabled triggers?})
               (let [meta (sessions.meta/resolve-sessions-meta config ds tenant-id-uuid session-uuid)
                     targets (or (get-in meta [:webhook_routing :targets_by_event_type]) {})
                     wf-targets (get-in meta [:workflows :targets])
@@ -232,7 +237,7 @@
             (json-response 503 {:ok false :message "db-unavailable"})
 
             :samuraibff.http/feature-not-enabled
-            (features/not-enabled-response config (or (:feature (ex-data e)) :workflow-webhook-runtime))
+            (features/not-enabled-response config (or (:feature (ex-data e)) :workflow-triggers))
 
             (do
               (log/error e "Failed to create session" {:uri (:uri req)})

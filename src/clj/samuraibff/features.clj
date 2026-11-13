@@ -1,43 +1,101 @@
 (ns samuraibff.features
   "Centralized feature availability derived from runtime config.
 
-  Community Edition defaults to enabled. In CE mode, workflow/webhook runtime
-  features are disabled for product clarity and easier local operation.
-  `[:features :workflows-enabled?]` (SAMURAIBFF_WORKFLOWS_ENABLED) enables
-  workflow definitions and on-demand runs in CE. Automatic event-triggered
-  workflows and webhooks stay full-stack features.
+  Each optional capability has its own flag under `:features`:
+
+  - `:workflows-enabled?` (SAMURAIBFF_WORKFLOWS_ENABLED): workflow
+    definitions and on-demand runs on finished sessions.
+  - `:workflow-triggers-enabled?` (SAMURAIBFF_WORKFLOW_TRIGGERS_ENABLED):
+    automatic event-triggered workflows. Covers session workflow overrides,
+    workflow targets in `sessions.meta`, `/internal/workflow-result` and the
+    live workflow results consumer. Also opens workflow definitions.
+  - `:webhooks-enabled?` (SAMURAIBFF_WEBHOOKS_ENABLED): webhook definitions,
+    session webhook overrides, webhook routing in `sessions.meta` and webhook
+    delivery outcomes.
+
+  A capability flag that is unset defaults to false. The deprecated
+  `:ce-mode?` (SAMURAIBFF_CE_MODE) only changes that default: when it is
+  false, unset capability flags default to true. An explicit capability flag
+  always wins.
 
   Public API:
   - ce-mode?
-  - workflow-webhook-runtime-enabled?
-  - uploads-max-bytes
   - workflows-enabled?
+  - workflow-triggers-enabled?
+  - workflow-definitions-enabled?
+  - webhooks-enabled?
+  - uploads-max-bytes
   - feature-state
   - enabled?
+  - not-enabled-response
   - wrap-enabled"
   (:require
    [clojure.string :as str]))
 
 (defn ce-mode?
-  "Return true when Community Edition mode is active.
+  "Return the deprecated Community Edition switch.
 
   Inputs:
   - config: BFF config map, may contain [:features :ce-mode?]
 
-  Returns: boolean. Defaults to true when config is absent or the key is absent."
+  Returns: boolean. Defaults to true when config is absent or the key is
+  absent. It only sets the default of unset capability flags."
   [config]
   (not (false? (get-in config [:features :ce-mode?] true))))
 
-(defn workflow-webhook-runtime-enabled?
-  "Return true when workflow/webhook runtime features are enabled.
+(defn- capability-enabled?
+  "Return the value of capability flag `k`, or its default when unset.
+
+  The default is false, or true when the deprecated CE switch is false."
+  [config k]
+  (let [v (get-in config [:features k])]
+    (if (boolean? v)
+      v
+      (not (ce-mode? config)))))
+
+(defn workflows-enabled?
+  "Return true when workflow definitions and on-demand runs are enabled.
+
+  Inputs:
+  - config: BFF config map, may contain [:features :workflows-enabled?]
+
+  Returns: boolean."
+  [config]
+  (capability-enabled? config :workflows-enabled?))
+
+(defn workflow-triggers-enabled?
+  "Return true when automatic event-triggered workflows are enabled.
+
+  Inputs:
+  - config: BFF config map, may contain [:features :workflow-triggers-enabled?]
+
+  Returns: boolean. Gates session workflow overrides, workflow targets in
+  `sessions.meta`, `/internal/workflow-result` and the workflow results
+  consumer."
+  [config]
+  (capability-enabled? config :workflow-triggers-enabled?))
+
+(defn workflow-definitions-enabled?
+  "Return true when workflow definitions and defaults may be managed.
 
   Inputs:
   - config: BFF config map
 
-  Returns: boolean. This is false in CE mode and true when
-  SAMURAIBFF_CE_MODE=false has been parsed into config."
+  Returns: boolean. Both on-demand runs and automatic triggers need
+  definitions."
   [config]
-  (not (ce-mode? config)))
+  (or (workflows-enabled? config)
+      (workflow-triggers-enabled? config)))
+
+(defn webhooks-enabled?
+  "Return true when webhooks are enabled.
+
+  Inputs:
+  - config: BFF config map, may contain [:features :webhooks-enabled?]
+
+  Returns: boolean."
+  [config]
+  (capability-enabled? config :webhooks-enabled?))
 
 (defn uploads-max-bytes
   "Return the file upload limit in bytes, or 0 when file uploads are disabled.
@@ -55,36 +113,21 @@
       max-bytes
       0)))
 
-(defn workflows-enabled?
-  "Return true when workflow definitions and on-demand runs are enabled.
-
-  Inputs:
-  - config: BFF config map, may contain [:features :workflows-enabled?]
-
-  Returns: boolean. True outside CE mode, and in CE mode when
-  SAMURAIBFF_WORKFLOWS_ENABLED=true has been parsed into config."
-  [config]
-  (or (workflow-webhook-runtime-enabled? config)
-      (true? (get-in config [:features :workflows-enabled?]))))
-
 (defn enabled?
   "Return true when a named feature is enabled.
 
   Inputs:
   - config: BFF config map
-  - feature: keyword, currently :webhooks, :workflows, or
-    :workflow-webhook-runtime
+  - feature: keyword, one of :workflows (on-demand runs),
+    :workflow-definitions, :workflow-triggers or :webhooks
 
-  Returns: boolean. :workflows follows `workflows-enabled?`; the others
-  follow `workflow-webhook-runtime-enabled?`."
+  Returns: boolean. Unknown features are not gated."
   [config feature]
   (case feature
-    (:webhooks :workflow-webhook-runtime)
-    (workflow-webhook-runtime-enabled? config)
-
-    :workflows
-    (workflows-enabled? config)
-
+    :workflows (workflows-enabled? config)
+    :workflow-definitions (workflow-definitions-enabled? config)
+    :workflow-triggers (workflow-triggers-enabled? config)
+    :webhooks (webhooks-enabled? config)
     true))
 
 (defn feature-state
@@ -94,24 +137,27 @@
   - config: BFF config map
 
   Returns:
-  - {:ce_mode boolean
-     :workflow_webhook_runtime_enabled boolean
+  - {:workflows_enabled boolean          ; definitions + on-demand runs
+     :workflow_triggers_enabled boolean  ; automatic event-triggered runs
      :webhooks_enabled boolean
-     :workflows_enabled boolean
      :uploads_enabled boolean
-     :uploads_max_bytes int (0 when uploads are disabled)}"
+     :uploads_max_bytes int              ; 0 when uploads are disabled
+     :ce_mode boolean                    ; deprecated: the CE switch
+     :workflow_webhook_runtime_enabled boolean} ; deprecated: triggers and webhooks"
   [config]
-  (let [runtime? (workflow-webhook-runtime-enabled? config)
+  (let [triggers? (workflow-triggers-enabled? config)
+        webhooks? (webhooks-enabled? config)
         upload-limit (uploads-max-bytes config)]
     {:ce_mode (ce-mode? config)
-     :workflow_webhook_runtime_enabled runtime?
-     :webhooks_enabled runtime?
+     :workflow_webhook_runtime_enabled (and triggers? webhooks?)
+     :webhooks_enabled webhooks?
      :workflows_enabled (workflows-enabled? config)
+     :workflow_triggers_enabled triggers?
      :uploads_enabled (pos? upload-limit)
      :uploads_max_bytes upload-limit}))
 
 (defn not-enabled-response
-  "Return a clear Ring response for disabled commercial features.
+  "Return a clear Ring response for a disabled feature.
 
   Inputs:
   - config: BFF config map
@@ -130,7 +176,7 @@
 
   Inputs:
   - config: BFF config map
-  - feature: keyword
+  - feature: keyword accepted by `enabled?`
   - handler: Ring handler function
 
   Returns: Ring handler function."

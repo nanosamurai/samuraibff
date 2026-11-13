@@ -38,3 +38,23 @@
       (is (not (contains? meta :webhook_routing)))
       (is (not (contains? meta :workflows)))
       (is (= false (get-in meta [:refined_transcript :consolidation :enabled]))))))
+
+(deftest build-sessions-meta-follows-each-capability-flag
+  (let [tenant-id (UUID/fromString "00000000-0000-0000-0000-000000000000")
+        session-id (UUID/fromString "11111111-1111-1111-1111-111111111111")
+        routing {:targets_by_event_type {"transcript.refined.segment" [{:id "x"}]}}
+        targets [{:workflow_id "x"}]
+        build #(sessions.meta/build-sessions-meta {:features %} tenant-id session-id routing nil targets)]
+    (testing "webhooks alone publish webhook routing but no workflow targets"
+      (let [meta (build {:webhooks-enabled? true})]
+        (is (= routing (:routing meta)))
+        (is (= routing (:webhook_routing meta)))
+        (is (not (contains? meta :workflows)))))
+    (testing "workflow triggers alone publish workflow targets but no webhook routing"
+      (let [meta (build {:workflow-triggers-enabled? true})]
+        (is (= {:targets targets} (:workflows meta)))
+        (is (not (contains? meta :routing)))
+        (is (not (contains? meta :webhook_routing)))))
+    (testing "on-demand workflows publish neither"
+      (let [meta (build {:workflows-enabled? true})]
+        (is (not-any? #(contains? meta %) [:routing :webhook_routing :workflows]))))))

@@ -219,12 +219,14 @@
 (defn workflow-result-callback-handler
   "Create a Ring handler for `POST /internal/workflow-result`.
 
-  In Community Edition mode, this endpoint returns feature-not-enabled and does
-  not forward workflow result payloads to connected clients.
+  Unless automatic workflow triggers are enabled
+  (SAMURAIBFF_WORKFLOW_TRIGGERS_ENABLED), this endpoint returns
+  feature-not-enabled and does not forward workflow result payloads to
+  connected clients.
 
   Inputs:
   - deps: map with :config and :ws-registry
 
   Returns: Ring handler fn."
   [{:keys [config] :as deps}]
-  (features/wrap-enabled config :workflow-webhook-runtime (workflow-result-callback-handler* deps)))
+  (features/wrap-enabled config :workflow-triggers (workflow-result-callback-handler* deps)))
