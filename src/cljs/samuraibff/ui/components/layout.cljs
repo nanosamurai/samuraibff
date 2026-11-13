@@ -48,13 +48,13 @@
            :route {:page :upload :params {}}
            :active? (= active-page :upload)})
 
-    (store/workflow-webhook-runtime-enabled?)
+    (store/webhooks-enabled?)
     (conj {:label "Webhooks"
            :icon :webhooks
            :route {:page :webhooks :params {}}
            :active? (= active-page :webhooks)})
 
-    (store/workflows-enabled?)
+    (store/workflow-definitions-enabled?)
     (conj {:label "Workflows"
            :icon :workflows
            :route {:page :workflows :params {}}
