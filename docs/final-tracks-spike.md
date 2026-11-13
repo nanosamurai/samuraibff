@@ -20,7 +20,7 @@ the schema fix was required for the real HTTP reconnect assertion.
 
 The repeatable overlay and assertions live in Nanosamurai's
 `docker-compose.final-tracks-smoke.yml` and `smoke-tests/final-tracks/`; see its
-`docs/final-tracks-spike.md` (mirrored in Nanodeploy). The rollout and full smoke
+`docs/smoke-tests.md`. The rollout and full smoke
 now target the original Compose project `nanosamurai` and its Postgres 18 database,
 where migrations 017/018 were applied. All 117 original transcripts and 51
 recording records were preserved. BFF uses its local image at
