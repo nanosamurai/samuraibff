@@ -136,8 +136,9 @@ receive all matching tracks separately, identified by `event.data.track_id`.
 
 ### Deployment and validation
 
-Deploy together with the matching webhook-router and workflow-runner. Apply
-Nanodeploy migration `020-bind-workflows-to-tracks.up.sql` first; it adds the
+Deploy together with the matching automatic workflow routing service and
+workflow-runner. Apply database migration `020-bind-workflows-to-tracks.up.sql`
+(nanosamurai `docker/postgres/migrations/`) first; it adds the
 workflow column and binds existing transcript definitions to `whisperx`. Review
 those definitions if a different track should supply their input. The migration
 does not change recording triggers. There are no new environment variables.

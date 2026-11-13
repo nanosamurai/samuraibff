@@ -3,7 +3,7 @@
 
   Purpose:
   - Provide a compact, session-scoped configuration snapshot for downstream
-    routers/processors (e.g. webhook-router/event-router, future workflows).
+    routers/processors (e.g. webhook delivery and workflow routing services).
 
   Key properties:
   - JSON-friendly (plain maps/vectors, string UUIDs)

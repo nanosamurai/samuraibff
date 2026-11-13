@@ -350,8 +350,9 @@ Workflow transcript triggers select one explicit `trigger.track_id` in addition
 to the event type. Settings → Workflows shows a source-track dropdown, and
 session workflow choices display that binding. Use separate workflow definitions
 for the same prompt on multiple tracks. Recording triggers remain session scoped.
-Apply Nanodeploy migration `020-bind-workflows-to-tracks.up.sql` before deploying
-this BFF with the matching webhook-router and workflow-runner. It binds existing
+Apply database migration `020-bind-workflows-to-tracks.up.sql` (nanosamurai
+`docker/postgres/migrations/`) before deploying this BFF with the matching
+automatic workflow routing service and workflow-runner. It binds existing
 transcript workflows to `whisperx`; new API requests must specify a track.
 * Security + auth: `docs/security-auth.md`
 * Ops + observability: `docs/ops-observability.md`

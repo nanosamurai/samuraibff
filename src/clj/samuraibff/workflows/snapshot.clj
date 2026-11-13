@@ -59,7 +59,7 @@
   - row map from db.workflows/list-workflows
 
   Returns:
-  - JSON-friendly target map matching webhook-router's SessionsMeta.Workflows.Target,
+  - JSON-friendly target map matching the `sessions.meta` workflow target contract,
     or nil when the row has an unsupported trigger, a blank prompt or a blank
     model ID. On-demand runs reuse its prompt and provider."
   [w]
@@ -92,7 +92,7 @@
   - target.incremental.enabled == true
 
   Note:
-  - Despite the name `incremental`, webhook-router uses this section both for:
+  - Despite the name `incremental`, the workflow routing service uses this section both for:
     - dispatch throttling (`min_interval_sec`), and
     - selecting consolidated refined transcript input for workflow-runner.
   "
