@@ -28,13 +28,13 @@
                   :user #js {:sub "u-1"}
                   :tenant_id "t-1"
                   :workflow_provider_types #js ["openai_compatible"]
-                  :features #js {:workflows_enabled true}}]
+                  :features #js {:workflows_ondemand_enabled true}}]
     (testing "a signed-in user"
       (let [detail (auth/me-detail body)]
         (is (= ["openai_compatible"] (:workflow_provider_types detail)))
         (is (= "t-1" (:tenant_id detail)))
         (is (= {:sub "u-1"} (:user detail)))
-        (is (= {:workflows_enabled true} (:features detail)))))
+        (is (= {:workflows_ondemand_enabled true} (:features detail)))))
     (testing "an anonymous visitor keeps the list but gets no user fields"
       (aset body "authenticated" false)
       (let [detail (auth/me-detail body)]

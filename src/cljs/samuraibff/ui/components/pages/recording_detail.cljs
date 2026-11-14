@@ -444,9 +444,15 @@
         [show-workflows? set-show-workflows!] (react/useState false)
         [right-tab set-right-tab!] (react/useState :workflows)
         audio-ref (react/useRef nil)
-        runtime-enabled? (store/workflow-webhook-runtime-enabled?)
-        workflows-enabled? (store/workflows-enabled?)
-        side-panel? (or runtime-enabled? workflows-enabled?)
+        webhooks? (store/webhooks-enabled?)
+        workflow-results? (store/workflow-definitions-enabled?)
+        workflows-ondemand-enabled? (store/workflows-ondemand-enabled?)
+        side-panel? (or webhooks? workflow-results?)
+        both-panels? (and webhooks? workflow-results?)
+        right-tab (cond
+                    both-panels? right-tab
+                    workflow-results? :workflows
+                    :else :webhooks)
         can-share? (permissions/use-capability? :share_sessions)
         session (:session detail)
         session-access (:access session)
@@ -566,7 +572,9 @@
                                     (set-time! 0))
                                   (set-tab! id))} label])]
         (when side-panel?
-          (let [panel (if runtime-enabled? "workflows and webhooks" "workflows")
+          (let [panel (cond both-panels? "workflows and webhooks"
+                            workflow-results? "workflows"
+                            :else "webhooks")
                 label (str (if show-workflows? "Hide " "Show ") panel)]
             [:<>
              [:div {:class "spacer"}]
@@ -612,15 +620,15 @@
         (when (and side-panel? show-workflows?)
           [:div {:class "split-side match-main"}
            [:div {:class "right-panel"}
-            (when runtime-enabled?
+            (when both-panels?
               [:div {:class "tabs"}
                (for [[id label] [[:workflows "Workflows"] [:webhooks "Webhooks"]]]
                  [:button {:key id :class (str "tab " (when (= id right-tab) "active"))
                            :on-click #(set-right-tab! id)} label])])
             [:div {:class "right-panel-body"}
-             (if (or (not runtime-enabled?) (= right-tab :workflows))
+             (if (= right-tab :workflows)
                [:div {:style {:display "flex" :flexDirection "column" :gap "10px" :flex 1 :minHeight 0}}
-                (when workflows-enabled?
+                (when workflows-ondemand-enabled?
                   [run-workflow-form {:session-id session-id :detail detail}])
                 [ui.wf.results/workflow-results-card {:items (:workflow_results_latest detail) :title "Workflow results" :fill? true}]]
                [ui.wh.outcomes/webhook-dispatches-card {:items (:webhook_delivery_outcomes detail) :title "Webhook dispatches" :fill? true}])]]])]])))

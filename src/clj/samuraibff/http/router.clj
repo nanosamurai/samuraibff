@@ -501,7 +501,7 @@
                                  409 {:body schemas/ApiErrorResponse}
                                  413 {:body schemas/ApiErrorResponse}
                                  503 {:body schemas/ApiErrorResponse}}
-                     :handler (features/wrap-enabled config :workflows (http.workflow-runs/run-workflow-handler deps))}}]]
+                     :handler (features/wrap-enabled config :workflows-ondemand (http.workflow-runs/run-workflow-handler deps))}}]]
            ["/sessions" {:post {:summary "Create session"
                                 :description "Creates a new session identifier for WebSocket streaming."
                                 :parameters {:body schemas/CreateSessionRequest}
@@ -598,7 +598,7 @@
                     :responses {200 {:body schemas/WorkflowDefaultsResponse}
                                 403 {:body schemas/ApiErrorResponse}
                                 503 {:body schemas/ApiErrorResponse}}
-                    :handler (features/wrap-enabled config :workflows (http.workflows/get-defaults-handler deps))}
+                    :handler (features/wrap-enabled config :workflow-definitions (http.workflows/get-defaults-handler deps))}
               :put {:summary "Set workflow defaults"
                     :description "Replaces tenant workflow defaults."
                     :parameters {:body schemas/WorkflowDefaultsRequest}
@@ -606,7 +606,7 @@
                                 400 {:body schemas/ApiErrorResponse}
                                 403 {:body schemas/ApiErrorResponse}
                                 503 {:body schemas/ApiErrorResponse}}
-                    :handler (features/wrap-enabled config :workflows (http.workflows/set-defaults-handler deps))}}]
+                    :handler (features/wrap-enabled config :workflow-definitions (http.workflows/set-defaults-handler deps))}}]
 
             [""
              {:get {:summary "List workflows"
@@ -614,7 +614,7 @@
                     :responses {200 {:body schemas/WorkflowsListResponse}
                                 403 {:body schemas/ApiErrorResponse}
                                 503 {:body schemas/ApiErrorResponse}}
-                    :handler (features/wrap-enabled config :workflows (http.workflows/list-workflows-handler deps))}
+                    :handler (features/wrap-enabled config :workflow-definitions (http.workflows/list-workflows-handler deps))}
 
               :post {:summary "Create workflow"
                      :description "Creates a new workflow definition."
@@ -623,7 +623,7 @@
                                  400 {:body schemas/ApiErrorResponse}
                                  403 {:body schemas/ApiErrorResponse}
                                  503 {:body schemas/ApiErrorResponse}}
-                     :handler (features/wrap-enabled config :workflows (http.workflows/create-workflow-handler deps))}}]
+                     :handler (features/wrap-enabled config :workflow-definitions (http.workflows/create-workflow-handler deps))}}]
 
             ["/:id"
              {:parameters {:path [:map [:id :string]]}}
@@ -635,7 +635,7 @@
                                     403 {:body schemas/ApiErrorResponse}
                                     404 {:body schemas/ApiErrorResponse}
                                     503 {:body schemas/ApiErrorResponse}}
-                        :handler (features/wrap-enabled config :workflows (http.workflows/update-workflow-handler deps))}
+                        :handler (features/wrap-enabled config :workflow-definitions (http.workflows/update-workflow-handler deps))}
                   :delete {:summary "Delete workflow"
                            :description "Deletes a workflow definition."
                            :responses {200 {:body schemas/ApiOkResponse}
@@ -643,7 +643,7 @@
                                        403 {:body schemas/ApiErrorResponse}
                                        404 {:body schemas/ApiErrorResponse}
                                        503 {:body schemas/ApiErrorResponse}}
-                           :handler (features/wrap-enabled config :workflows (http.workflows/delete-workflow-handler deps))}}]]]
+                           :handler (features/wrap-enabled config :workflow-definitions (http.workflows/delete-workflow-handler deps))}}]]]
 
            ["/sessions/:session_id"
             {:patch {:summary "Rename session"

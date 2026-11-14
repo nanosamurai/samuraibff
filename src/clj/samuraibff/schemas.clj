@@ -710,10 +710,13 @@
      [:email {:optional true} :string]]]
    [:features {:optional true}
     [:map
+     ;; Deprecated: the SAMURAIBFF_CE_MODE switch.
      [:ce_mode :boolean]
+     ;; Deprecated: workflows_triggered_enabled and webhooks_enabled.
      [:workflow_webhook_runtime_enabled :boolean]
      [:webhooks_enabled :boolean]
-     [:workflows_enabled :boolean]
+     [:workflows_ondemand_enabled :boolean]
+     [:workflows_triggered_enabled :boolean]
      [:uploads_enabled :boolean]
      [:uploads_max_bytes [:int {:min 0}]]]]
    [:access {:optional true} access.schemas/MeAccess]

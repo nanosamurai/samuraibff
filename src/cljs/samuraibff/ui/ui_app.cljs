@@ -33,7 +33,7 @@
    [:div {:class "page-header"}
     [:div
      [:div {:class "page-title"} title]
-     [:div {:class "muted"} "This feature is not enabled in Community Edition."]]
+     [:div {:class "muted"} "This feature is not enabled on this server."]]
     [router/link {:route {:page :recordings :params {}}
                   :class "btn"}
      "Sessions"]]])
@@ -133,10 +133,10 @@
            :upload [pages.upload/upload-page]
            :recording [pages.recording-detail/recording-detail-page
                        {:session-id (get-in route [:params :session_id])}]
-           :webhooks (if (store/workflow-webhook-runtime-enabled?)
+           :webhooks (if (store/webhooks-enabled?)
                        [pages.webhooks/webhooks-page]
                        [feature-unavailable-page "Webhooks"])
-           :workflows (if (store/workflows-enabled?)
+           :workflows (if (store/workflow-definitions-enabled?)
                         [pages.workflows/workflows-page]
                         [feature-unavailable-page "Workflows"])
            :speakers [pages.speakers/speakers-page]

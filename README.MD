@@ -172,11 +172,12 @@ clojure -M:run
 
 Default local bind: `127.0.0.1:8000`.
 
-Community Edition mode is enabled by default. It hides/disables workflow and
-webhook runtime features unless `SAMURAIBFF_CE_MODE=false` is set by a
-commercial/full deployment. `SAMURAIBFF_WORKFLOWS_ENABLED=true` enables
-workflow definitions and on-demand runs in Community Edition (see
-[Workflows](#workflows)).
+Optional capabilities are off by default and each has its own flag:
+`SAMURAIBFF_WORKFLOWS_ONDEMAND_ENABLED` (workflow definitions and on-demand runs),
+`SAMURAIBFF_WORKFLOWS_TRIGGERED_ENABLED` (automatic event-triggered workflows)
+and `SAMURAIBFF_WEBHOOKS_ENABLED`. `SAMURAIBFF_CE_MODE=false` is deprecated; it
+turns on every capability whose flag is not set. See
+[Feature flags](docs/ce-feature-flags.md).
 
 ### UI (browser)
 
@@ -492,7 +493,8 @@ Kafka and shows the stored result.
 
 | Environment variable | Default | Meaning |
 | --- | --- | --- |
-| `SAMURAIBFF_WORKFLOWS_ENABLED` | `false` | Enables workflow definitions and on-demand runs in Community Edition. Always on when `SAMURAIBFF_CE_MODE=false`. |
+| `SAMURAIBFF_WORKFLOWS_ONDEMAND_ENABLED` | `false` | Enables workflow definitions and on-demand runs. Defaults to `true` when the deprecated `SAMURAIBFF_CE_MODE=false` is set. |
+| `SAMURAIBFF_WORKFLOWS_TRIGGERED_ENABLED` | `false` | Enables automatic event-triggered workflows, session workflow selection and live workflow results. Same deprecated default. |
 | `SAMURAIBFF_WORKFLOW_PROVIDER_TYPES` | `bedrock` | Comma-separated provider types the workflow editor offers and the API accepts, for example `bedrock,openai_compatible`. |
 | `SAMURAIBFF_WORKFLOW_RUN_MAX_BYTES` | `524288` | Maximum encoded size of one on-demand job. Larger runs return `413`. |
 | `SAMURAIBFF_KAFKA_TOPIC_WORKFLOW_DISPATCH` | `workflow.dispatch` | Topic for on-demand workflow jobs. |

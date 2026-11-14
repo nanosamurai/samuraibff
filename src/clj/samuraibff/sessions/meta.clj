@@ -89,7 +89,8 @@
                             (if (contains? cfg :include_full_text)
                               (boolean (:include_full_text cfg))
                               default-include-full-text))
-        runtime-enabled? (features/workflow-webhook-runtime-enabled? config)
+        webhooks? (features/webhooks-enabled? config)
+        triggers? (features/workflows-triggered-enabled? config)
         routing-map (or webhook-routing {:targets_by_event_type {}})
         workflow-targets (vec (or workflow-targets []))
         schema-version 2
@@ -104,10 +105,12 @@
                 :topic (str topic)
                 :include_full_text (boolean include-full-text)}}}]
     (cond-> base
-      runtime-enabled?
+      webhooks?
       (assoc :routing routing-map
-             :webhook_routing routing-map
-             :workflows {:targets workflow-targets}))))
+             :webhook_routing routing-map)
+
+      triggers?
+      (assoc :workflows {:targets workflow-targets}))))
 
 (defn- load-session-row
   "Read the session columns needed to resolve sessions.meta, or nil."
@@ -132,13 +135,14 @@
 
   Returns {:routing map-or-nil :workflow_targets [target ...]}."
   [config ds tenant-id session-id row]
-  (let [enabled? (features/workflow-webhook-runtime-enabled? config)
-        owner (when enabled?
+  (let [webhooks? (features/webhooks-enabled? config)
+        triggers? (features/workflows-triggered-enabled? config)
+        owner (when (or webhooks? triggers?)
                 (access.integrations/owner-principal ds tenant-id (:user_id row)))]
-    {:routing (when enabled?
+    {:routing (when webhooks?
                 (webhooks.snapshot/resolve-routing-snapshot
                  ds tenant-id session-id (parse-json (:webhook_overrides row)) owner))
-     :workflow_targets (if enabled?
+     :workflow_targets (if triggers?
                          (workflows.snapshot/resolve-targets
                           ds tenant-id session-id (parse-json (:workflow_overrides row)) owner)
                          [])}))

@@ -317,8 +317,13 @@
   "Render independent output tabs with direct toggles alongside the existing session tools."
   [{:keys [open? set-open!]}]
   (let [[requested-tab set-tab!] (react/useState :realtime)
-        runtime-enabled? (store/workflow-webhook-runtime-enabled?)
-        tab (if (and (not runtime-enabled?) (#{:webhooks :workflows} requested-tab)) :realtime requested-tab)]
+        routing-tabs (cond-> []
+                       (store/webhooks-enabled?) (conj [:webhooks "Webhooks"])
+                       (store/workflows-triggered-enabled?) (conj [:workflows "Workflows"]))
+        tab (if (and (#{:webhooks :workflows} requested-tab)
+                     (not-any? #(= requested-tab (first %)) routing-tabs))
+              :realtime
+              requested-tab)]
     (when open?
       [:section {:class "controls stream-controls session-settings" :aria-label "Session settings"}
        [:div {:class "stream-controls-header"}
@@ -330,8 +335,7 @@
         (for [[stage label] [[:realtime "Real-time"] [:refined "Refined"] [:final "Final"]]]
           [stream-controls/tab-header {:key stage :stage stage :label label :active? (= tab stage)
                                        :on-select #(set-tab! stage)}])
-        (for [[id label] (cond-> [[:recording "Recording"] [:audio "Audio"]]
-                           runtime-enabled? (into [[:webhooks "Webhooks"] [:workflows "Workflows"]]))]
+        (for [[id label] (into [[:recording "Recording"] [:audio "Audio"]] routing-tabs)]
           [:button {:key id :class (str "settings-tab " (when (= tab id) "active"))
                     :type "button" :role "tab" :id (str "settings-tab-" (name id))
                     :aria-controls "session-settings-content" :aria-selected (= tab id)
@@ -485,8 +489,12 @@
   (let [active* (react/useState :workflows)
         active (aget active* 0)
         set-active! (aget active* 1)
-        runtime-enabled? (store/workflow-webhook-runtime-enabled?)
-        active (if runtime-enabled? active :log)
+        webhooks? (store/webhooks-enabled?)
+        triggers? (store/workflows-triggered-enabled?)
+        active (cond
+                 (and (= active :webhooks) webhooks?) :webhooks
+                 (and (= active :workflows) triggers?) :workflows
+                 :else :log)
         debug-asr? (hooks/use-atom store/debug-asr-log?*)
         workflow-results (hooks/use-atom store/workflow-results*)]
     [:div {:class "right-panel"}
@@ -494,11 +502,11 @@
       [:button {:class (str "tab " (when (= active :log) "active"))
                 :on-click (fn [_] (set-active! :log))}
        "Log"]
-      (when runtime-enabled?
+      (when webhooks?
         [:button {:class (str "tab " (when (= active :webhooks) "active"))
                   :on-click (fn [_] (set-active! :webhooks))}
          "Webhooks"])
-      (when runtime-enabled?
+      (when triggers?
         [:button {:class (str "tab " (when (= active :workflows) "active"))
                   :on-click (fn [_] (set-active! :workflows))}
          "Workflows"])]

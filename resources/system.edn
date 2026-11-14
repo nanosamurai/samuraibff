@@ -22,13 +22,17 @@
            :recheck-grace-s 120
            :recheck-timeout-s 5}
 
-  ;; --- Edition / product feature flags ---
-  ;; Community Edition mode hides/disables workflow and webhook runtime features.
-  ;; Commercial deployments should set SAMURAIBFF_CE_MODE=false.
-  ;; :workflows-enabled? (SAMURAIBFF_WORKFLOWS_ENABLED) enables workflow
-  ;; definitions and on-demand runs in Community Edition.
-  :features {:ce-mode? true
-             :workflows-enabled? false}
+  ;; --- Optional capabilities (docs/ce-feature-flags.md) ---
+  ;; One flag per capability; each is off unless set:
+  ;; - :workflows-ondemand-enabled? (SAMURAIBFF_WORKFLOWS_ONDEMAND_ENABLED): workflow
+  ;;   definitions and on-demand runs.
+  ;; - :workflows-triggered-enabled? (SAMURAIBFF_WORKFLOWS_TRIGGERED_ENABLED):
+  ;;   automatic event-triggered workflows.
+  ;; - :webhooks-enabled? (SAMURAIBFF_WEBHOOKS_ENABLED): webhooks.
+  ;; :ce-mode? (SAMURAIBFF_CE_MODE) is deprecated. When false, the unset
+  ;; capability flags default to true. Leave the capability keys out of this
+  ;; file so that the deprecated switch still works.
+  :features {:ce-mode? true}
 
   ;; --- Workflows ---
   ;; provider-types: provider types the workflow editor offers and the API accepts.

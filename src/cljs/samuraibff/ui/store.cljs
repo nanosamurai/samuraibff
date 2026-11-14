@@ -521,21 +521,30 @@
   Returns: map with JSON-derived keyword keys."
   []
   (or (get-in @auth* [:detail :features])
-      {:ce_mode true
-       :workflow_webhook_runtime_enabled false
-       :webhooks_enabled false
-       :workflows_enabled false
+      {:webhooks_enabled false
+       :workflows_ondemand_enabled false
+       :workflows_triggered_enabled false
        :uploads_enabled false
        :uploads_max_bytes 0}))
 
-(defn workflow-webhook-runtime-enabled?
-  "Return true when workflow/webhook runtime UI should be shown.
+(defn webhooks-enabled?
+  "Return true when `/api/me` reports that webhooks are turned on.
 
   Inputs: none.
 
   Returns: boolean."
   []
-  (true? (:workflow_webhook_runtime_enabled (feature-state))))
+  (true? (:webhooks_enabled (feature-state))))
+
+(defn workflows-triggered-enabled?
+  "Return true when automatic event-triggered workflows are turned on: session
+  workflow selection and live workflow results.
+
+  Inputs: none.
+
+  Returns: boolean."
+  []
+  (true? (:workflows_triggered_enabled (feature-state))))
 
 (defn uploads-enabled?
   "Return true when `/api/me` reports that file uploads are turned on."
@@ -548,16 +557,24 @@
   (let [limit (:uploads_max_bytes (feature-state))]
     (if (and (number? limit) (pos? limit)) limit 0)))
 
-(defn workflows-enabled?
-  "Return true when workflow definitions, on-demand runs and saved workflow
-  results should be shown. Also true in Community Edition when the
-  deployment enables workflows.
+(defn workflows-ondemand-enabled?
+  "Return true when on-demand workflow runs are turned on.
 
   Inputs: none.
 
   Returns: boolean."
   []
-  (true? (:workflows_enabled (feature-state))))
+  (true? (:workflows_ondemand_enabled (feature-state))))
+
+(defn workflow-definitions-enabled?
+  "Return true when the Workflows page and saved workflow results should be
+  shown: on-demand runs or automatic triggers are turned on.
+
+  Inputs: none.
+
+  Returns: boolean."
+  []
+  (or (workflows-ondemand-enabled?) (workflows-triggered-enabled?)))
 
 (def ^:private max-log-lines 200)
 (def ^:private max-segments 400)

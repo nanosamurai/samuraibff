@@ -311,10 +311,11 @@
 (defn- load-routing-lists!
   "Load workflow and webhook lists and defaults that are not loaded yet.
 
-  Inputs: current store maps for webhooks, webhook defaults, workflows and
-  workflow defaults. Returns: nil. Errors go to the same store error fields
+  Inputs: {:webhooks? bool :workflows? bool} naming the enabled kinds, then
+  current store maps for webhooks, webhook defaults, workflows and workflow
+  defaults. Disabled kinds are not requested. Returns: nil. Errors go to the same store error fields
   the routing panels show."
-  [webhooks-st wh-defaults-st workflows-st wf-defaults-st]
+  [{:keys [webhooks? workflows?]} webhooks-st wh-defaults-st workflows-st wf-defaults-st]
   (letfn [(load! [st set-loading! set-error! fetch! on-ok]
             (when (and (not (true? (:loading? st))) (nil? (:error st)))
               (set-loading! true)
@@ -322,16 +323,16 @@
                   (.then on-ok)
                   (.catch (fn [e] (set-error! (shared/safe-http-error e))))
                   (.finally (fn [] (set-loading! false))))))]
-    (when (empty? (:items webhooks-st))
+    (when (and webhooks? (empty? (:items webhooks-st)))
       (load! webhooks-st store/set-webhooks-loading! store/set-webhooks-error!
              api/list-webhooks! #(store/set-webhooks-items! (:items %))))
-    (when (empty? (:webhook_ids wh-defaults-st))
+    (when (and webhooks? (empty? (:webhook_ids wh-defaults-st)))
       (load! wh-defaults-st store/set-webhook-defaults-loading! store/set-webhook-defaults-error!
              api/get-webhook-defaults! #(store/set-webhook-defaults-ids! (:webhook_ids %))))
-    (when (empty? (:items workflows-st))
+    (when (and workflows? (empty? (:items workflows-st)))
       (load! workflows-st store/set-workflows-loading! store/set-workflows-error!
              api/list-workflows! #(store/set-workflows-items! (:items %))))
-    (when (empty? (:workflow_ids wf-defaults-st))
+    (when (and workflows? (empty? (:workflow_ids wf-defaults-st)))
       (load! wf-defaults-st store/set-workflow-defaults-loading! store/set-workflow-defaults-error!
              api/get-workflow-defaults! #(store/set-workflow-defaults-ids! (:workflow_ids %)))))
   nil)
@@ -342,9 +343,10 @@
   Uses the same rule as session creation: organization defaults (when
   enabled) plus selected items, enabled items only. Shows webhook destination
   hosts and workflow models so the recorder sees where results go without
-  opening Session settings. Renders nothing when the runtime is disabled.
-  Subscribes to the auth store so it appears once `/api/me` reports the
-  runtime, even when it first rendered before that response.
+  opening Session settings. Lists webhooks only when webhooks are enabled and
+  workflows only when automatic workflow triggers are enabled; renders
+  nothing when neither is. Subscribes to the auth store so it appears once
+  `/api/me` reports them, even when it first rendered before that response.
 
   Returns: hiccup or nil."
   []
@@ -354,20 +356,27 @@
         workflows-st (hooks/use-atom store/workflows*)
         wf-defaults-st (hooks/use-atom store/workflow-defaults*)
         auth (hooks/use-atom store/auth*)
-        runtime-enabled? (true? (get-in auth [:detail :features :workflow_webhook_runtime_enabled]))
-        webhooks (destinations/effective-items (:items webhooks-st) (:webhook_overrides session)
-                                               (:webhook_ids wh-defaults-st) :webhook_ids)
-        workflows (destinations/effective-items (:items workflows-st) (:workflow_overrides session)
-                                                (:workflow_ids wf-defaults-st) :workflow_ids)
-        loading? (some #(true? (:loading? %)) [webhooks-st wh-defaults-st workflows-st wf-defaults-st])]
+        webhooks? (true? (get-in auth [:detail :features :webhooks_enabled]))
+        triggers? (true? (get-in auth [:detail :features :workflows_triggered_enabled]))
+        webhooks (when webhooks?
+                   (destinations/effective-items (:items webhooks-st) (:webhook_overrides session)
+                                                 (:webhook_ids wh-defaults-st) :webhook_ids))
+        workflows (when triggers?
+                    (destinations/effective-items (:items workflows-st) (:workflow_overrides session)
+                                                  (:workflow_ids wf-defaults-st) :workflow_ids))
+        loading? (some #(true? (:loading? %))
+                       (cond-> []
+                         webhooks? (conj webhooks-st wh-defaults-st)
+                         triggers? (conj workflows-st wf-defaults-st)))]
     (react/useEffect
      (fn []
-       (when runtime-enabled?
-         (load-routing-lists! @store/webhooks* @store/webhook-defaults*
+       (when (or webhooks? triggers?)
+         (load-routing-lists! {:webhooks? webhooks? :workflows? triggers?}
+                              @store/webhooks* @store/webhook-defaults*
                               @store/workflows* @store/workflow-defaults*))
        js/undefined)
-     #js [runtime-enabled?])
-    (when runtime-enabled?
+     #js [webhooks? triggers?])
+    (when (or webhooks? triggers?)
       [:div {:class "field" :style {:minWidth 0}}
        [:div {:class "label"} "Results are sent to"]
        (cond

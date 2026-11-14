@@ -159,12 +159,40 @@
       (is (= 403 (:status webhook-resp)))
       (is (= false (:ok webhook-body)))
       (is (= "feature-not-enabled" (:message webhook-body)))
-      (is (= "workflow-webhook-runtime" (:feature webhook-body)))
+      (is (= "webhooks" (:feature webhook-body)))
 
       (is (= 403 (:status workflow-resp)))
       (is (= false (:ok workflow-body)))
       (is (= "feature-not-enabled" (:message workflow-body)))
-      (is (= "workflow-webhook-runtime" (:feature workflow-body))))))
+      (is (= "workflows-triggered" (:feature workflow-body))))))
+
+(deftest create-session-handler-gates-each-override-by-its-own-flag-test
+  (let [ws-registry {:config {:env :test}
+                     :sessions (atom {})}
+        handler-for (fn [features]
+                      (http.ui/create-session-handler {:config {:auth {:required? false}
+                                                                :features features}
+                                                       :ws-registry ws-registry
+                                                       :db {:ds nil}}))
+        feature-of (fn [handler body]
+                     (let [resp (handler (tp/request-for guest {:body-params body}))]
+                       [(:status resp) (:feature (parse-json-body resp))]))]
+    (testing "SAMURAIBFF_WEBHOOKS_ENABLED alone still rejects workflow overrides"
+      (is (= [403 "workflows-triggered"]
+             (feature-of (handler-for {:webhooks-enabled? true})
+                         {:workflow_overrides {:use_defaults true}}))))
+    (testing "SAMURAIBFF_WORKFLOWS_TRIGGERED_ENABLED alone still rejects webhook overrides"
+      (is (= [403 "webhooks"]
+             (feature-of (handler-for {:workflows-triggered-enabled? true})
+                         {:webhook_overrides {:use_defaults true}}))))
+    (testing "SAMURAIBFF_WORKFLOWS_ONDEMAND_ENABLED (on-demand) does not accept session workflow overrides"
+      (is (= [403 "workflows-triggered"]
+             (feature-of (handler-for {:workflows-ondemand-enabled? true})
+                         {:workflow_overrides {:use_defaults true}}))))
+    (testing "an explicit false wins over the deprecated SAMURAIBFF_CE_MODE=false"
+      (is (= [403 "webhooks"]
+             (feature-of (handler-for {:ce-mode? false :webhooks-enabled? false})
+                         {:webhook_overrides {:use_defaults true}}))))))
 
 (deftest create-session-handler-allows-workflow-webhook-overrides-when-enabled-test
   (testing "POST /api/sessions accepts workflow/webhook overrides when CE mode is false"

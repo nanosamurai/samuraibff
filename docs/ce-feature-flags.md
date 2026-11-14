@@ -1,93 +1,115 @@
-# Community Edition feature flags
+# Feature flags
 
 Status: implemented in samuraibff
 
-Last updated: 2026-11-07
+Last updated: 2026-11-13
 
 ## Decision
 
-Community Edition should keep workflow/webhook contracts visible in the public
-repo, but should not present workflow/webhook runtime features as part of the
-default OSS experience.
+Workflow and webhook contracts stay visible in the public repo. Each optional
+capability has its own flag, so a deployment turns on what it runs and the
+flags describe the stack instead of an edition.
 
-| Environment variable | Default | Meaning |
+| Environment variable | Default | Enables |
 | --- | --- | --- |
-| `SAMURAIBFF_CE_MODE` | `true` | When true, hide/disable workflow and webhook runtime features. |
-| `SAMURAIBFF_WORKFLOWS_ENABLED` | `false` | In CE mode, enable workflow definitions, on-demand runs and saved workflow results. Always on when `SAMURAIBFF_CE_MODE=false`. |
+| `SAMURAIBFF_WORKFLOWS_ONDEMAND_ENABLED` | `false` | Workflow definitions, on-demand runs on finished sessions, saved workflow results. |
+| `SAMURAIBFF_WORKFLOWS_TRIGGERED_ENABLED` | `false` | Automatic event-triggered workflows: session workflow selection, workflow targets in `sessions.meta`, `/internal/workflow-result`, the `workflow.result` consumer and live results on `/ws/events`. Also opens workflow definitions. |
+| `SAMURAIBFF_WEBHOOKS_ENABLED` | `false` | Webhook definitions and defaults, session webhook selection, webhook routing in `sessions.meta`, webhook delivery outcomes. |
+| `SAMURAIBFF_CE_MODE` | `true` | Deprecated. When `false`, every capability flag above that is not set defaults to `true`. |
 
-This keeps OSS easy to run: the `nanosamurai` Compose stack can omit the flag
-and get CE behavior. A deployment that intentionally enables the non-CE
-integration contracts must set `SAMURAIBFF_CE_MODE=false`. A CE install that
-runs a workflow runner sets `SAMURAIBFF_WORKFLOWS_ENABLED=true`; automatic
-event-triggered workflows and webhooks stay off. See
-[Webhooks + workflows](features-webhooks-workflows.md#editions).
+Values `true`/`1`/`yes`/`y` turn a flag on and `false`/`0`/`no`/`n` turn it
+off. Any other value counts as not set.
 
-## What CE mode should affect
+An explicit capability flag always wins over `SAMURAIBFF_CE_MODE`. For
+example, `SAMURAIBFF_CE_MODE=false` with `SAMURAIBFF_WEBHOOKS_ENABLED=false`
+turns on workflows and workflow triggers but not webhooks.
 
-- UI:
-  - hide or disable Webhooks and Workflows navigation/pages
-  - hide session creation controls for `webhook_overrides`,
-    `workflow_overrides`, and workflow-driven rolling-tail options
-  - avoid showing empty workflow/webhook panels on recording detail unless they
-    are clearly disabled
+Turn on only what the stack runs:
+
+* `SAMURAIBFF_WORKFLOWS_ONDEMAND_ENABLED` needs a workflow runner that consumes
+  `workflow.dispatch`, and a persistor that stores workflow results
+  (`SP_WORKFLOW_RESULT_ENABLED=true`).
+* `SAMURAIBFF_WORKFLOWS_TRIGGERED_ENABLED` needs automatic event-triggered
+  workflow routing that reads `sessions.meta`, and the same runner.
+* `SAMURAIBFF_WEBHOOKS_ENABLED` needs a webhook delivery service that reads
+  `sessions.meta`.
+
+See [Webhooks + workflows](features-webhooks-workflows.md#capability-flags).
+
+## Upgrading from `SAMURAIBFF_CE_MODE`
+
+* Nothing set: every capability stays off, as before.
+* `SAMURAIBFF_CE_MODE=false`: every capability stays on, as before. Replace it
+  with the three capability flags set to `true` when convenient; the switch
+  will be removed in a later release.
+* `SAMURAIBFF_WORKFLOWS_ENABLED` is renamed to
+  `SAMURAIBFF_WORKFLOWS_ONDEMAND_ENABLED`, with the same meaning. The BFF
+  ignores the old name and logs a warning at startup, so a stack that still
+  sets it has on-demand runs off until it uses the new name.
+* `SAMURAIBFF_CE_MODE=false` with `SAMURAIBFF_WORKFLOWS_ONDEMAND_ENABLED=false`:
+  before, the BFF ignored an explicit `false`; now it turns off on-demand runs.
+  The Workflows page stays because triggers still need definitions.
+
+## What each flag gates
+
+- UI (convenience, not enforcement):
+  - Webhooks page, navigation item, Session settings tab, live Webhooks tab
+    and webhook dispatches on the recording page: `webhooks_enabled`.
+  - Session settings Workflows tab and live Workflows tab:
+    `workflows_triggered_enabled`.
+  - Workflows page, navigation item and saved results on the recording page:
+    `workflows_ondemand_enabled` or `workflows_triggered_enabled`. The run form:
+    `workflows_ondemand_enabled`.
+  - "Results are sent to" lists webhooks and workflows for their own flag.
 - API:
-  - disable `/api/webhooks` and `/api/workflows` routes, including defaults
-  - return a clear "not enabled" response for disabled commercial routes
-  - reject workflow/webhook override fields in `POST /api/sessions` instead of
-    silently accepting settings that CE will not use
-- Kafka/session metadata:
-  - do not resolve webhook routing snapshots in CE
-  - do not resolve workflow target snapshots in CE
-  - do not publish workflow/webhook routing data into `sessions.meta`
-  - do not force refined transcript consolidation only because workflow targets
-    would have required it; keep any pure-STT consolidation behavior separate
-- Runtime consumers:
-  - do not start the workflow result consumer in CE
-  - do not forward `/internal/workflow-result` payloads in CE
-- Documentation:
-  - keep contract docs public, but mark workflow/webhook runtime behavior as
-    disabled in CE
+  - `/api/webhooks`, its defaults and
+    `/api/sessions/{session_id}/webhook-delivery-outcomes`:
+    webhooks.
+  - `/api/workflows` and its defaults: workflows or workflow triggers.
+  - `POST /api/recordings/{session_id}/workflows/{workflow_id}/runs`:
+    workflows.
+  - `POST /api/sessions` rejects `webhook_overrides` without webhooks and
+    `workflow_overrides` without workflow triggers, instead of silently
+    accepting settings the stack will not use.
+  - A disabled route returns `403` with `{"message": "feature-not-enabled",
+    "feature": "<webhooks|workflows-ondemand|workflow-definitions|workflows-triggered>"}`.
+- `sessions.meta`: core session and refined transcript settings are always
+  published. `routing` and `webhook_routing` need webhooks;
+  `workflows.targets` needs workflow triggers. Refined transcript
+  consolidation is forced on only for workflow targets that are published.
+- Runtime: the `workflow.result` consumer and `/internal/workflow-result`
+  need workflow triggers. On-demand results reach the recording page through
+  the persistor, not through this path.
 
-## Implementation plan
+## `/api/me` features
 
-1. Add config parsing for `SAMURAIBFF_CE_MODE`, defaulting to true.
-2. Add one small helper for commercial feature availability, so UI/API/session
-   code does not duplicate flag logic.
-3. Pass the feature state to the UI bootstrap payload and hide disabled pages
-   and controls client-side.
-4. Gate BFF routes server-side; UI hiding is convenience, not enforcement.
-5. Gate session creation so CE does not accept workflow/webhook overrides or
-   publish non-empty workflow/webhook metadata to `sessions.meta`.
-6. Make the workflow result consumer a no-op, or omit its Integrant key, when CE
-   mode is true.
-7. Add focused tests for default CE behavior and `SAMURAIBFF_CE_MODE=false`
-   compatibility.
-8. After code lands, update `nanosamurai` docs to rely on the default CE mode
-   and document `SAMURAIBFF_CE_MODE=false` only in the deployment configuration
-   that owns the non-CE integrations.
+`/api/me` returns a `features` map for UI gating:
 
-## samuraibff implementation notes
+| Key | Meaning |
+| --- | --- |
+| `workflows_ondemand_enabled` | `SAMURAIBFF_WORKFLOWS_ONDEMAND_ENABLED` resolved |
+| `workflows_triggered_enabled` | `SAMURAIBFF_WORKFLOWS_TRIGGERED_ENABLED` resolved |
+| `webhooks_enabled` | `SAMURAIBFF_WEBHOOKS_ENABLED` resolved |
+| `uploads_enabled`, `uploads_max_bytes` | File uploads, independent of these flags (see `docs/features-file-uploads.md`) |
+| `ce_mode` | Deprecated: the `SAMURAIBFF_CE_MODE` value |
+| `workflow_webhook_runtime_enabled` | Deprecated: `workflows_triggered_enabled` and `webhooks_enabled` |
 
-- `SAMURAIBFF_CE_MODE` is parsed into `[:features :ce-mode?]` and defaults to
-  true.
-- `/api/me` returns a JSON-friendly `features` map for UI gating. It also
-  carries `uploads_enabled` and `uploads_max_bytes` for the Upload page; these
-  do not depend on CE mode (see `docs/features-file-uploads.md`).
-- In CE mode, `/api/webhooks`, `/api/workflows`, their defaults routes,
-  workflow result callbacks/consumer behavior, and session
-  workflow/webhook overrides return a clear `feature-not-enabled` response.
-- `SAMURAIBFF_WORKFLOWS_ENABLED=true` is parsed into
-  `[:features :workflows-enabled?]`. In CE mode it enables `/api/workflows`,
-  its defaults routes and on-demand runs
-  (`POST /api/recordings/{session_id}/workflows/{workflow_id}/runs`), and sets
-  `features.workflows_enabled`. The workflow result consumer, the
-  `/internal/workflow-result` callback and session workflow overrides stay off.
-- In CE mode, `sessions.meta` still publishes core session/refined transcript
-  settings but omits workflow/webhook routing fields.
+## Implementation notes
+
+- Flags are parsed into `[:features :workflows-ondemand-enabled?]`,
+  `[:features :workflows-triggered-enabled?]`, `[:features :webhooks-enabled?]`
+  and the deprecated `[:features :ce-mode?]`. `resources/system.edn` leaves
+  the capability keys out so that the deprecated switch still sets their
+  default.
+- `samuraibff.features` is the only place that resolves the flags; routes use
+  `features/wrap-enabled` with `:workflows-ondemand`, `:workflow-definitions`,
+  `:workflows-triggered` or `:webhooks`.
 
 ## Security note
 
-This flag is primarily for product boundary, UX clarity, and dependency
-simplification. It is not meant to hide a secret protocol. Contracts can remain
-visible; the important behavior is that CE does not run workflow/webhook flows
-by default.
+The flags set the product boundary and keep unused dependencies off. They do
+not hide a secret protocol. Server-side gates enforce them; the UI only hides
+what is off. Every capability is off unless set, so a missing or misspelled
+value fails closed. Turning on a capability does not change access rules:
+definitions and session use still follow the roles in
+[Webhooks + workflows](features-webhooks-workflows.md#access-to-definitions).

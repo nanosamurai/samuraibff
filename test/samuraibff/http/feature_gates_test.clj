@@ -1,5 +1,5 @@
 (ns samuraibff.http.feature-gates-test
-  "HTTP route tests for CE workflow/webhook feature gates.
+  "HTTP route tests for workflow/webhook capability gates.
 
   `/api/*` resolves the request principal from Postgres, so the router runs
   against a Postgres testcontainer with the guest principal seeded
@@ -63,11 +63,11 @@
       (let [run-uri (str "/api/recordings/" (random-uuid) "/workflows/" (random-uuid) "/runs")
             ce (http.router/create-router {:config {:auth {:required? false}} :db {:ds ds}})
             enabled (http.router/create-router {:config {:auth {:required? false}
-                                                         :features {:workflows-enabled? true}}
+                                                         :features {:workflows-ondemand-enabled? true}}
                                                 :db {:ds ds}})]
         (testing "default CE mode gates on-demand runs"
           (is (= "feature-not-enabled" (:message (parse-json-body (request ce :post run-uri))))))
-        (testing "SAMURAIBFF_WORKFLOWS_ENABLED opens workflow routes, not webhook routes"
+        (testing "SAMURAIBFF_WORKFLOWS_ONDEMAND_ENABLED opens workflow routes, not webhook routes"
           (doseq [uri ["/api/workflows" "/api/workflows/defaults"]]
             (is (= 200 (:status (request enabled :get uri))) uri))
           (doseq [uri ["/api/webhooks" "/api/webhooks/defaults"]]
@@ -75,6 +75,35 @@
           (let [resp (request enabled :post run-uri)]
             (is (= 404 (:status resp)))
             (is (= "not-found" (:message (parse-json-body resp))))))))))
+
+(deftest each-flag-opens-only-its-routes
+  (with-guest-db
+    (fn [ds]
+      (let [run-uri (str "/api/recordings/" (random-uuid) "/workflows/" (random-uuid) "/runs")
+            router (fn [features]
+                     (http.router/create-router {:config {:auth {:required? false}
+                                                          :features features}
+                                                 :db {:ds ds}}))
+            gated? (fn [handler method uri]
+                     (= "feature-not-enabled" (:message (parse-json-body (request handler method uri)))))]
+        (testing "SAMURAIBFF_WORKFLOWS_TRIGGERED_ENABLED opens workflow definitions, not runs or webhooks"
+          (let [handler (router {:workflows-triggered-enabled? true})]
+            (doseq [uri ["/api/workflows" "/api/workflows/defaults"]]
+              (is (= 200 (:status (request handler :get uri))) uri))
+            (is (gated? handler :post run-uri))
+            (doseq [uri ["/api/webhooks" "/api/webhooks/defaults"]]
+              (is (gated? handler :get uri) uri))))
+        (testing "SAMURAIBFF_WEBHOOKS_ENABLED opens webhook routes only"
+          (let [handler (router {:webhooks-enabled? true})]
+            (doseq [uri ["/api/webhooks" "/api/webhooks/defaults"]]
+              (is (= 200 (:status (request handler :get uri))) uri))
+            (doseq [uri ["/api/workflows" "/api/workflows/defaults"]]
+              (is (gated? handler :get uri) uri))
+            (is (gated? handler :post run-uri))))
+        (testing "an explicit false closes routes despite SAMURAIBFF_CE_MODE=false"
+          (let [handler (router {:ce-mode? false :webhooks-enabled? false})]
+            (is (gated? handler :get "/api/webhooks"))
+            (is (= 200 (:status (request handler :get "/api/workflows"))))))))))
 
 (deftest commercial-mode-leaves-routes-enabled
   (with-guest-db
