@@ -48,7 +48,9 @@
         (is (not (ui.corrections/text-changed? change)))
         (is (= ["d" "a"] (mapv :id (:history change))))
         (is (nil? (:diff (first (ui.corrections/view-messages restored :changes)))))
-        (is (not (:edited (first (ui.corrections/view-messages restored :corrected)))))))
+        (is (not (:edited (first (ui.corrections/view-messages restored :corrected)))))
+        (is (ui.corrections/restores-machine? change (:text-edit change)))
+        (is (not (ui.corrections/restores-machine? change (last (:history change)))))))
     (testing "original view"
       (is (= ["Hello tear" "Hi" "noise"] (mapv :text (ui.corrections/view-messages source :original))))
       (is (not-any? :edited (ui.corrections/view-messages source :original))))))
@@ -61,22 +63,45 @@
     (is (= {:speaker "Miro"} (ui.corrections/speaker-request speakers "Miro")))
     (is (nil? (ui.corrections/speaker-request speakers "  ")))))
 
-(deftest describe-test
-  (is (= "Changed “tear” to “tier”"
-         (ui.corrections/describe {:kind "segment_text" :old_value {:text "Hello tear"} :new_value {:text "Hello tier"}})))
-  (is (= "Added “there”" (ui.corrections/describe {:kind "segment_text" :old_value {:text "Hello"} :new_value {:text "Hello there"}})))
-  (is (= "Removed “uh”" (ui.corrections/describe {:kind "segment_text" :old_value {:text "uh Hello"} :new_value {:text "Hello"}})))
-  (is (= "Cleared the text" (ui.corrections/describe {:kind "segment_text" :old_value {:text "noise"} :new_value {:text ""}})))
-  (is (= "Set the speaker to Petr" (ui.corrections/describe {:kind "segment_speaker" :new_value {:speaker "Petr"}})))
-  (is (= "Changed “Each” to “Every”; added “test”"
-         (ui.corrections/describe {:kind "segment_text" :old_value {:text "Each word. This sample"}
-                                   :new_value {:text "Every word. This test sample"}})))
-  (is (= "Removed “a”; removed “b”; removed “c”; 1 more"
-         (ui.corrections/describe {:kind "segment_text" :old_value {:text "a x b x c x d x"}
-                                   :new_value {:text "x x x x"}})))
-  (is (= "Changed the spacing" (ui.corrections/describe {:kind "segment_text" :old_value {:text "a  b"} :new_value {:text "a b"}})))
-  (is (= "Renamed SPEAKER_00 to Miro in the whole transcript"
-         (ui.corrections/describe {:kind "speaker_label" :speaker_label "SPEAKER_00" :new_value {:speaker "Miro"}})))
+(defn- plain
+  "Render describe runs as text, with replaced values in [brackets] and new
+  values in {braces}."
+  [runs]
+  (apply str (map (fn [[op text]] (case op :del (str "[" text "]") :ins (str "{" text "}") text)) runs)))
+
+(deftest describe-runs-test
+  (let [describe #(plain (ui.corrections/describe-runs %))]
+    (is (= [[:text "Changed "] [:del "tear"] [:text " to "] [:ins "tier"]]
+           (ui.corrections/describe-runs {:kind "segment_text" :old_value {:text "Hello tear"}
+                                          :new_value {:text "Hello tier"}})))
+    (is (= "Added {there}" (describe {:kind "segment_text" :old_value {:text "Hello"} :new_value {:text "Hello there"}})))
+    (is (= "Removed [uh]" (describe {:kind "segment_text" :old_value {:text "uh Hello"} :new_value {:text "Hello"}})))
+    (is (= "Cleared the text" (describe {:kind "segment_text" :old_value {:text "noise"} :new_value {:text ""}})))
+    (is (= "Changed [Each] to {Every}; added {test}"
+           (describe {:kind "segment_text" :old_value {:text "Each word. This sample"}
+                      :new_value {:text "Every word. This test sample"}})))
+    (is (= "Removed [a]; removed [b]; removed [c]; 1 more"
+           (describe {:kind "segment_text" :old_value {:text "a x b x c x d x"} :new_value {:text "x x x x"}})))
+    (is (= "Changed the spacing" (describe {:kind "segment_text" :old_value {:text "a  b"} :new_value {:text "a b"}})))
+    (is (= "Set the speaker to {Petr}" (describe {:kind "segment_speaker" :new_value {:speaker "Petr"}})))
+    (is (= "Changed the speaker from [Anna] to {Petr}"
+           (describe {:kind "segment_speaker" :old_value {:speaker "Anna"} :new_value {:speaker "Petr"}})))
+    (is (= "Renamed [SPEAKER_00] to {Miro} in the whole transcript"
+           (describe {:kind "speaker_label" :speaker_label "SPEAKER_00" :new_value {:speaker "Miro"}})))
+    (is (= "Undid a change" (describe {:kind "undo"})))))
+
+(deftest restores-machine-test
+  (let [change {:original {:text "Hello" :speaker "SPEAKER_00"}}]
+    (is (ui.corrections/restores-machine? change {:kind "segment_text" :new_value {:text "Hello"}}))
+    (is (not (ui.corrections/restores-machine? change {:kind "segment_text" :new_value {:text "Hi"}})))
+    (is (ui.corrections/restores-machine? change {:kind "segment_speaker" :new_value {:speaker "SPEAKER_00"}}))
+    (is (not (ui.corrections/restores-machine? change {:kind "segment_speaker"
+                                                       :new_value {:speaker "SPEAKER_00" :speaker_id "p"}})))
+    (is (ui.corrections/restores-machine? change {:kind "speaker_label" :speaker_label "SPEAKER_00"
+                                                  :new_value {:speaker "SPEAKER_00"}}))
+    (is (not (ui.corrections/restores-machine? change {:kind "undo"})))))
+
+(deftest author-label-test
   (is (= "you" (ui.corrections/author-label {:author {:is_me true :display_name "Alice"}})))
   (is (= "Alice" (ui.corrections/author-label {:author {:is_me false :display_name "Alice"}})))
   (is (= "someone" (ui.corrections/author-label {:author {:is_me false}}))))

@@ -119,11 +119,6 @@
         {:speaker_id (str (:id speaker))}
         {:speaker name}))))
 
-(defn- quoted
-  [text]
-  (let [text (str/trim (str text))]
-    (if (str/blank? text) "(empty)" (str "“" text "”"))))
-
 (defn- change-hunks
   "Group a word diff into separate changes: [{:removed string :added string}]."
   [diff]
@@ -133,42 +128,61 @@
               {:removed (str/join " " (keep (fn [[op text]] (when (= :del op) text)) runs))
                :added (str/join " " (keep (fn [[op text]] (when (= :ins op) text)) runs))}))))
 
-(defn- hunk-phrase
+(defn- hunk-runs
   [{:keys [removed added]}]
   (cond
-    (str/blank? removed) (str "added " (quoted added))
-    (str/blank? added) (str "removed " (quoted removed))
-    :else (str "changed " (quoted removed) " to " (quoted added))))
+    (str/blank? removed) [[:text "added "] [:ins added]]
+    (str/blank? added) [[:text "removed "] [:del removed]]
+    :else [[:text "changed "] [:del removed] [:text " to "] [:ins added]]))
 
 (defn- capitalize-first
   [s]
   (if (seq s) (str (str/upper-case (subs s 0 1)) (subs s 1)) s))
 
-(defn- describe-text
+(defn- text-runs
   "Describe a text correction: up to three separate changes, then a count."
   [old-text new-text]
   (let [hunks (change-hunks (corrections/word-diff old-text new-text))
         more (- (count hunks) 3)]
     (cond
-      (str/blank? new-text) "Cleared the text"
-      (empty? hunks) "Changed the spacing"
-      :else (capitalize-first
-             (str (str/join "; " (map hunk-phrase (take 3 hunks)))
-                  (when (pos? more) (str "; " more " more")))))))
+      (str/blank? new-text) [[:text "Cleared the text"]]
+      (empty? hunks) [[:text "Changed the spacing"]]
+      :else (-> (into [] (comp (interpose [[:text "; "]]) cat) (map hunk-runs (take 3 hunks)))
+                (update-in [0 1] capitalize-first)
+                (cond-> (pos? more) (conj [:text (str "; " more " more")]))))))
 
-(defn describe
-  "Describe one correction in plain language for the change history.
+(defn describe-runs
+  "Describe one correction for the change history as runs [[op text]]: op
+  :text is plain text, :del a value the correction replaced and :ins the
+  value it set, so the UI can highlight them like the word diff.
 
-  Inputs: a correction map. Returns a string such as
-  \"Changed “tear” to “tier”; added “test”\", \"Set the speaker to Petr\"
-  or \"Renamed SPEAKER_00 to Miro in the whole transcript\"."
+  Inputs: a correction map. Returns runs that read, for example, \"Changed
+  [tear] to [tier]; added [test]\", \"Changed the speaker from [Anna] to
+  [Petr]\" or \"Renamed [SPEAKER_00] to [Miro] in the whole transcript\"."
   [{:keys [kind old_value new_value speaker_label]}]
   (case kind
-    "segment_text" (describe-text (:text old_value) (:text new_value))
-    "segment_speaker" (str "Set the speaker to " (:speaker new_value))
-    "speaker_label" (str "Renamed " (transcript/speaker->display-name speaker_label) " to "
-                         (:speaker new_value) " in the whole transcript")
-    "Undid a change"))
+    "segment_text" (text-runs (:text old_value) (:text new_value))
+    "segment_speaker" (if (seq (:speaker old_value))
+                        [[:text "Changed the speaker from "]
+                         [:del (transcript/speaker->display-name (:speaker old_value))]
+                         [:text " to "] [:ins (:speaker new_value)]]
+                        [[:text "Set the speaker to "] [:ins (:speaker new_value)]])
+    "speaker_label" [[:text "Renamed "] [:del (transcript/speaker->display-name speaker_label)]
+                     [:text " to "] [:ins (:speaker new_value)] [:text " in the whole transcript"]]
+    [[:text "Undid a change"]]))
+
+(defn restores-machine?
+  "True when a correction sets a segment back to what the machine produced.
+
+  Inputs: the segment change from `corrections/segment-changes` and one
+  correction from its history."
+  [{:keys [original]} {:keys [kind new_value speaker_label]}]
+  (case kind
+    "segment_text" (= (str (:text new_value)) (str (:text original)))
+    "segment_speaker" (and (= (:speaker new_value) (:speaker original))
+                           (= (:speaker_id new_value) (:speaker_id original)))
+    "speaker_label" (and (= (:speaker new_value) speaker_label) (nil? (:speaker_id new_value)))
+    false))
 
 (defn author-label
   "Return who made a correction: \"you\", the author's name, or \"someone\"."

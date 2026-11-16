@@ -18,7 +18,6 @@
   `ui.corrections/modes`, on-change receives the new mode and changed-count
   is the number of segments that differ from the machine transcript."
   [{:keys [mode on-change changed-count]}]
-
   [:div {:class "correction-toggle" :role "group" :aria-label "Transcript version"}
    (for [[id label] ui.corrections/modes]
      [:button {:key (name id) :type "button" :class (str "btn ghost" (when (= id mode) " active"))
@@ -27,18 +26,20 @@
    [:span {:class "muted"}
     (str changed-count (if (= 1 changed-count) " segment changed" " segments changed"))]])
 
+(defn- run-node
+  [[op text]]
+  (case op
+    :del [:del {:class "diff-del"} text]
+    :ins [:ins {:class "diff-ins"} text]
+    text))
+
 (defn diff-text
   "Render word runs from `corrections/word-diff`: removed words as <del>,
   added words as <ins>."
   [diff]
   (into [:span {:class "correction-diff"}]
-        (interpose " "
-                   (map (fn [[op text]]
-                          (case op
-                            :del [:del {:class "diff-del"} text]
-                            :ins [:ins {:class "diff-ins"} text]
-                            [:span text]))
-                        diff))))
+        (interpose " " (map run-node diff))))
+
 
 (defn text-editor
   "Inline editor for one segment's text.
@@ -129,9 +130,15 @@
   (some-> (:created_at correction) util/iso->ms util/fmt-local-ymd-hm))
 
 (defn- edit-line
-  [correction]
-  (str (ui.corrections/describe correction) " · " (ui.corrections/author-label correction)
-       (when-let [t (when-label correction)] (str " · " t))))
+  "Render one correction: what it changed (removed and new values
+  highlighted), who made it and when."
+  [change correction]
+  [:span {:class "correction-diff"}
+   (into [:<>] (map run-node (ui.corrections/describe-runs correction)))
+   (when (ui.corrections/restores-machine? change correction)
+     " (back to the machine version)")
+   (str " · " (ui.corrections/author-label correction))
+   (when-let [t (when-label correction)] (str " · " t))])
 
 (defn change-footer
   "Render who changed a segment, an Undo for each change in effect and the
@@ -147,7 +154,7 @@
       [:div {:class "correction-meta"}
        (for [edit active]
          [:div {:key (:id edit) :class "correction-line"}
-          [:span (edit-line edit)]
+          (edit-line change edit)
           (when can-manage?
             [:button {:class "btn ghost correction-undo" :type "button" :disabled busy?
                       :title "Undo this change" :on-click #(on-undo edit)}
@@ -157,7 +164,7 @@
         [:ul {:class "correction-history"}
          (for [edit history]
            [:li {:key (:id edit) :class (when (:undone edit) "undone")}
-            (edit-line edit)
+            (edit-line change edit)
             (when (:undone edit)
               (str " · undone by " (ui.corrections/author-label (:undone_by edit))))])]]])))
 
