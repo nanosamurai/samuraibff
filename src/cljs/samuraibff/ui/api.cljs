@@ -507,6 +507,20 @@
       (.then (fn [body]
                (js->clj body :keywordize-keys true)))))
 
+(defn create-transcript-correction!
+  "Append one correction to a final transcript.
+
+  Endpoint: POST /api/recordings/:session_id/transcripts/:transcript_id/corrections
+
+  Inputs: session ID string, transcript ID string and the request body
+  {:kind :base_seq ...} (see `samuraibff.transcripts.correction-schemas`).
+  Returns: Promise of {:ok true :correction {...} :head_seq n}. Rejects like
+  `ensure-ok!`; a stale edit rejects with {:status 409 :code \"correction-conflict\"}."
+  [session-id transcript-id body]
+  (fetch-json! (str "/api/recordings/" (js/encodeURIComponent (str session-id))
+                    "/transcripts/" (js/encodeURIComponent (str transcript-id)) "/corrections")
+               {:method "POST" :body body}))
+
 (defn configure-api-credential!
   "Change an organization key's manager and/or audience (Admin only).
 

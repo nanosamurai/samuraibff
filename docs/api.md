@@ -47,10 +47,15 @@ See also:
   (`title` | `created_at` | `started_at` | `duration` | `status`) and `order`
   (`asc` | `desc`); default sort `created_at` `desc`. Items include the session
   `duration_s`. See `docs/features-recordings-playback-karaoke.md`.
-* `GET /api/recordings/{session_id}` – recording detail (includes stored transcripts)
+* `GET /api/recordings/{session_id}` – recording detail (includes stored transcripts;
+  final records also carry `corrections`)
 * `GET /api/recordings/{session_id}/audio` – audio stream (supports HTTP Range)
 * `GET /api/recordings/{session_id}/export?format=srt|vtt|txt|json|docx` – download one
-  saved transcript track (see `docs/features-transcripts.md`)
+  saved transcript track, corrected unless `version=original` (see
+  `docs/features-transcripts.md`)
+* `POST /api/recordings/{session_id}/transcripts/{transcript_id}/corrections` – append
+  one correction of a final transcript: segment text, segment speaker, speaker
+  label or undo (session managers only; see `docs/features-transcripts.md#corrections`)
 * `POST /api/recordings/{session_id}/retranscribe` – create a new session from the
   saved audio of this session (needs file uploads enabled; see
   `docs/features-retranscription.md`)

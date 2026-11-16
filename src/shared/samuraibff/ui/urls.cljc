@@ -50,12 +50,14 @@
   Inputs:
   - backend-base: empty string for same-origin, or an absolute origin string.
   - session-id: recording session identifier.
-  - opts: {:format \"srt\"|\"vtt\"|\"txt\"|\"json\"|\"docx\", :stage \"final\"|\"refined\", :track-id string}.
+  - opts: {:format \"srt\"|\"vtt\"|\"txt\"|\"json\"|\"docx\", :stage \"final\"|\"refined\", :track-id string,
+           :version \"original\" (optional; the default exports the corrected transcript)}.
 
   Returns: URL string for `GET /api/recordings/{session_id}/export`."
-  [backend-base session-id {:keys [format stage track-id]}]
+  [backend-base session-id {:keys [format stage track-id version]}]
   (api-url backend-base
            (str "/api/recordings/" (encode-component session-id) "/export"
                 "?format=" (encode-component format)
                 "&stage=" (encode-component stage)
-                "&track_id=" (encode-component track-id))))
+                "&track_id=" (encode-component track-id)
+                (when version (str "&version=" (encode-component version))))))

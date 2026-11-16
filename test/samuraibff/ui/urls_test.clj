@@ -21,4 +21,7 @@
 (deftest recording-export-url-test
   (testing "export URLs encode the session, format, stage and track"
     (is (= "/api/recordings/session%20one/export?format=srt&stage=final&track_id=test%26shadow"
-           (urls/recording-export-url "" "session one" {:format "srt" :stage "final" :track-id "test&shadow"})))))
+           (urls/recording-export-url "" "session one" {:format "srt" :stage "final" :track-id "test&shadow"}))))
+  (testing "the original machine transcript is requested explicitly"
+    (is (= "/api/recordings/s/export?format=txt&stage=final&track_id=whisperx&version=original"
+           (urls/recording-export-url "" "s" {:format "txt" :stage "final" :track-id "whisperx" :version "original"})))))

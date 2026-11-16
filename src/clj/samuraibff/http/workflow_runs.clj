@@ -32,6 +32,7 @@
    [samuraibff.http.definition-access :as definition-access]
    [samuraibff.http.recordings :as http.recordings]
    [samuraibff.http.session-guard :as session-guard]
+   [samuraibff.http.transcript-corrections :as http.transcript-corrections]
    [samuraibff.kafka.producer :as kafka.producer]
    [samuraibff.observability.diagnostics :as diagnostics]
    [samuraibff.schemas :as schemas]
@@ -87,13 +88,16 @@
     workflow))
 
 (defn- source-segments
-  "Read the stored segments of one source. Returns a vector (maybe empty)."
+  "Read the stored segments of one source. A final transcript includes its
+  human corrections. Returns a vector (maybe empty)."
   [ds tenant-id session-id [stage track-id]]
-  (let [rows (db.recordings/list-transcript-records ds tenant-id session-id
-                                                    {:type stage :track-id track-id :limit transcript-row-limit})]
-    (workflows.runs/transcript-segments
-     (mapv #(update % :segments http.recordings/segments-jsonb->segments) rows)
-     stage)))
+  (let [rows (mapv #(update % :segments http.recordings/segments-jsonb->segments)
+                   (db.recordings/list-transcript-records ds tenant-id session-id
+                                                          {:type stage :track-id track-id :limit transcript-row-limit}))
+        rows (if (= "final" stage)
+               (:rows (http.transcript-corrections/correct-final-rows ds tenant-id rows))
+               rows)]
+    (workflows.runs/transcript-segments rows stage)))
 
 (defn- prepare-run!
   "Authorize the request and build the encoded job.

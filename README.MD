@@ -223,7 +223,8 @@ hides or disables controls):
   owner in the Share dialog (a person, or themselves). API keys and the guest
   cannot assign owners.
 * Readers of a shared session see the owner and "read-only". They cannot
-  rename it, record into it or enroll speakers from it, and they do not see the
+  rename it, record into it, correct its transcript or enroll speakers from
+  it, and they do not see the
   device-local real-time preview. When access ends, the page shows "This
   session is no longer available to you."
 * Webhooks and Workflows show **Personal**/**Published** and the owner.
@@ -471,10 +472,22 @@ name, keeping partial text aligned with diarized turns.
 ## Transcript export
 
 `GET /api/recordings/{session_id}/export?format=srt|vtt|txt|json|docx` downloads
-one saved Final or Refined track (`stage`, `track_id`). On the recording detail
-page, a download icon opens the same export choices. Readers can export what they
-can open. See
-`docs/features-transcripts.md#export`.
+one saved Final or Refined track (`stage`, `track_id`). A final track includes
+human corrections unless `version=original`. On the recording detail page, a
+download icon opens the same export choices. Readers can export what they can
+open. See `docs/features-transcripts.md#export`.
+
+## Transcript corrections
+
+Whoever manages a session can correct the text and speakers of its final
+transcripts from the recording page (pencil and person icons on each
+segment). Every edit is saved at once as an appended correction with its
+author and time; the machine transcript stays unchanged. A switch shows the
+Corrected, Changes or Original version. Changes strikes through the replaced
+machine words, highlights the new ones and lists who changed what and when,
+with history and Undo. Export and on-demand workflows use the corrected
+version. See
+`docs/features-transcripts.md#corrections`.
 
 ## OpenAI-compatible transcription
 

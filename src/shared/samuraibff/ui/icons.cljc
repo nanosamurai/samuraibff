@@ -68,6 +68,13 @@
    :panel-right-open (stroked [:rect {:width 18 :height 18 :x 3 :y 3 :rx 2}]
                               [:path {:d "M15 3v18"}] [:path {:d "m10 15-3-3 3-3"}])
    :plus (stroked [:path {:d "M5 12h14"}] [:path {:d "M12 5v14"}])
+   :pencil (stroked [:path {:d "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"}]
+                    [:path {:d "m15 5 4 4"}])
+   :user-pen (stroked [:path {:d "M11.5 15H7a4 4 0 0 0-4 4v2"}]
+                      [:path {:d "M21.378 16.626a1 1 0 0 0-3.004-3.004l-4.01 4.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z"}]
+                      [:circle {:cx 10 :cy 7 :r 4}])
+   :undo (stroked [:path {:d "M9 14 4 9l5-5"}]
+                  [:path {:d "M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"}])
    :share (stroked [:circle {:cx 18 :cy 5 :r 3}] [:circle {:cx 6 :cy 12 :r 3}]
                    [:circle {:cx 18 :cy 19 :r 3}]
                    [:line {:x1 8.59 :x2 15.42 :y1 13.51 :y2 17.49}]

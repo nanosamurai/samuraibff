@@ -9,11 +9,13 @@
    [samuraibff.ui.api :as api]
    [samuraibff.ui.hooks :as hooks]
    [samuraibff.ui.icons :as icons]
+   [samuraibff.ui.components.corrections :as corrections]
    [samuraibff.ui.components.retranscribe :as retranscribe]
    [samuraibff.ui.components.share-dialog :as share-dialog]
    [samuraibff.ui.components.shared :as shared]
    [samuraibff.ui.permissions :as permissions]
    [samuraibff.ui.components.transcript :as components.transcript]
+   [samuraibff.ui.corrections :as ui.corrections]
    [samuraibff.ui.recording-detail :as recording-detail]
    [samuraibff.ui.retranscribe-form :as retranscribe-form]
    [samuraibff.ui.router :as router]
@@ -261,10 +263,11 @@
   - session-id: string
   - stage: :final or :refined
   - track-id: string; the selected tab's track
+  - original?: true exports the machine transcript instead of the corrected one
 
   Returns: hiccup. The link downloads through the session-scoped export API,
   so it exports only what the reader can open."
-  [{:keys [session-id stage track-id]}]
+  [{:keys [session-id stage track-id original?]}]
   (let [[fmt set-fmt!] (react/useState "docx")
         [open? set-open!] (react/useState false)
         root-ref (react/useRef nil)
@@ -303,7 +306,8 @@
           (for [[value label] export-formats]
             [:option {:key value :value value} label])]]
         [:a {:class "btn primary" :download ""
-             :href (api/recording-export-url session-id {:format fmt :stage (name stage) :track-id track-id})
+             :href (api/recording-export-url session-id (cond-> {:format fmt :stage (name stage) :track-id track-id}
+                                                          original? (assoc :version "original")))
              :on-click close!}
          (icons/icon :download) "Download"]])]))
 
@@ -427,8 +431,11 @@
 (defn recording-detail-page
   "Render flat per-track Postgres results and shared recording playback for a session ID.
 
-  Owners can rename, share, record into a draft, enroll speakers and
-  re-transcribe the saved audio into a new session. Readers
+  Owners can rename, share, record into a draft, enroll speakers, correct
+  final transcript text and speakers, and re-transcribe the saved audio into
+  a new session. Each correction is saved at once; a corrected final
+  transcript can be viewed as Corrected, Changes (word diff, authors,
+  history and Undo) or Original. Readers see corrections read-only. Readers
   see the owner and audience and get read-only content. The device-local
   real-time preview is shown only to the owner. A 403/404 clears the page and
   says the session is no longer available."
@@ -441,6 +448,11 @@
         [current-time-s set-time!] (react/useState 0)
         [follow? set-follow!] (react/useState false)
         [enroll-range set-enroll!] (react/useState nil)
+        [view-mode set-view-mode!] (react/useState :corrected)
+        [editing set-editing!] (react/useState nil)
+        [speaker-msg set-speaker-msg!] (react/useState nil)
+        [saving? set-saving!] (react/useState false)
+        [correction-error set-correction-error!] (react/useState nil)
         [show-workflows? set-show-workflows!] (react/useState false)
         [right-tab set-right-tab!] (react/useState :workflows)
         audio-ref (react/useRef nil)
@@ -465,9 +477,17 @@
                      (first (filter #(= :final (first (:id %))) tabs)) (first tabs))
         stage (first (:id selected))
         rows (:rows selected)
-        messages (if (= stage :realtime) cached-asr (recording-detail/record-messages rows stage))
+        source (when (= stage :final) (ui.corrections/final-source rows))
+        correctable? (ui.corrections/correctable? source)
+        corrected? (and correctable? (seq (:items source)))
+        mode (if corrected? view-mode :corrected)
+        editable? (and can-manage? correctable? (not= mode :original) (nil? editing))
+        messages (cond
+                   (= stage :realtime) cached-asr
+                   correctable? (ui.corrections/view-messages source mode)
+                   :else (recording-detail/record-messages rows stage))
         playback? (true? (get-in detail [:session :has_recording]))
-        karaoke? (and (= stage :final) playback? (some #(seq (:words %)) messages))
+        karaoke? (and (= stage :final) playback? (not= mode :changes) (some #(seq (:words %)) messages))
         status (:status session)
         created-at-ms (util/iso->ms (:created_at session))
         title (or (not-empty (str/trim (or (:title session) "")))
@@ -483,15 +503,65 @@
                    (-> (api/get-recording! session-id)
                        (.then set-detail!)
                        (.catch on-load-error)))
-        enroll-action (fn [{:keys [msg]}]
-                        (when (and can-manage? playback? (seq (:speaker msg))
-                                   (number? (:start_s msg)) (number? (:end_s msg))
-                                   (< (:start_s msg) (:end_s msg)))
-                          [:div {:class "bubble-actions"}
-                           [:button {:class "bubble-action-btn" :title "Recognize this speaker in future transcripts"
-                                     :aria-label "Add speaker"
-                                     :on-click #(do (.stopPropagation %) (set-enroll! msg))}
-                            (icons/icon :plus)]]))]
+        submit-correction! (fn [body on-done]
+                             (set-saving! true)
+                             (set-correction-error! nil)
+                             (-> (api/create-transcript-correction!
+                                  session-id (:transcript-id source) (assoc body :base_seq (:head-seq source)))
+                                 (.then (fn [{:keys [correction head_seq]}]
+                                          (set-detail! #(ui.corrections/apply-saved % (:transcript-id source)
+                                                                                    correction head_seq))
+                                          (when on-done (on-done))))
+                                 (.catch (fn [e]
+                                           (let [code (api/error-code e)]
+                                             (store/append-log! (str "[ui] correction not saved: " (shared/safe-http-error e)))
+                                             (set-correction-error! (ui.corrections/error-message code))
+                                             (when (= "correction-conflict" code) (refresh!)))))
+                                 (.finally #(set-saving! false))))
+        save-text! (fn [msg text]
+                     (if (= (str/trim (str text)) (str/trim (str (:text msg))))
+                       (set-editing! nil)
+                       (submit-correction! {:kind "segment_text" :segment_index (:seq msg) :text text}
+                                           #(set-editing! nil))))
+        save-speaker! (fn [{:keys [scope speakers name]}]
+                        (when-let [target (ui.corrections/speaker-request speakers name)]
+                          (submit-correction!
+                           (merge target
+                                  (if (= scope :label)
+                                    {:kind "speaker_label"
+                                     :speaker_label (get-in speaker-msg [:change :original :speaker])}
+                                    {:kind "segment_speaker" :segment_index (:seq speaker-msg)}))
+                           #(set-speaker-msg! nil))))
+        segment-actions (fn [{:keys [msg]}]
+                          (let [final? (and editable? (= stage :final) (int? (:seq msg)))
+                                enroll? (and can-manage? playback? (nil? editing) (seq (:speaker msg))
+                                             (number? (:start_s msg)) (number? (:end_s msg))
+                                             (< (:start_s msg) (:end_s msg)))]
+                            [corrections/segment-actions
+                             {:on-edit (when final?
+                                         #(do (set-correction-error! nil)
+                                              (set-editing! {:transcript-id (:transcript-id source) :seq (:seq msg)})))
+                              :on-speaker (when final?
+                                            #(do (set-correction-error! nil) (set-speaker-msg! msg)))
+                              :on-enroll (when enroll? #(set-enroll! msg))}]))
+        change-footer (when (and corrected? (= mode :changes))
+                        (fn [{:keys [msg]}]
+                          [corrections/change-footer
+                           {:change (:change msg) :can-manage? can-manage? :busy? saving?
+                            :on-undo #(submit-correction! {:kind "undo" :correction_id (:id %)} nil)}]))
+        editing? (fn [msg]
+                   (and (= stage :final) (= editing {:transcript-id (:transcript-id source) :seq (:seq msg)})))
+        shown (mapv (fn [msg]
+                      (cond
+                        (editing? msg)
+                        (-> msg (dissoc :words)
+                            (assoc :text [corrections/text-editor
+                                          {:key (str "edit-" (:seq msg)) :initial (:text msg) :saving? saving?
+                                           :on-save #(save-text! msg %)
+                                           :on-cancel #(set-editing! nil)}]))
+                        (:diff msg) (-> msg (dissoc :words) (assoc :text (corrections/diff-text (:diff msg))))
+                        :else msg))
+                    messages)]
     (react/useEffect
      (fn []
        (let [active? (atom true)
@@ -506,6 +576,10 @@
                                      (on-load-error e))))))]
          (set-detail! nil)
          (set-tab! nil)
+         (set-view-mode! :corrected)
+         (set-editing! nil)
+         (set-speaker-msg! nil)
+         (set-correction-error! nil)
          (set-error! nil)
          (set-gone! false)
          (reset! timer* (js/setInterval load! 4000))
@@ -518,6 +592,10 @@
        [enroll-speaker-modal {:open? (some? enroll-range) :session-id session-id
                               :start-s (:start_s enroll-range) :end-s (:end_s enroll-range)
                               :on-close #(set-enroll! nil)}]
+       [corrections/speaker-dialog {:msg speaker-msg :source source :saving? saving?
+                                    :error correction-error
+                                    :on-save save-speaker!
+                                    :on-close #(do (set-speaker-msg! nil) (set-correction-error! nil))}]
        [share-dialog/share-dialog {:open? share-open? :session-id session-id :session-title title
                                    :on-close #(set-share-open! false)
                                    :on-saved (fn [{:keys [visibility]}]
@@ -586,13 +664,21 @@
         [:div {:class "split-main"}
          (let [export? (and (#{:final :refined} stage) (seq rows))
                retranscribe? (some? (retranscribe-form/availability session))]
-           (when (or export? retranscribe?)
+           (when (or export? retranscribe? corrected?)
              [:div {:class "split-toolbar"}
               (when export?
-                [export-control {:session-id session-id :stage stage :track-id (second (:id selected))}])
+                [export-control {:session-id session-id :stage stage :track-id (second (:id selected))
+                                 :original? (and corrected? (= mode :original))}])
               (when retranscribe?
                 [retranscribe/retranscribe-control {:key session-id :session-id session-id
-                                                    :session session :shown-title title}])]))
+                                                    :session session :shown-title title}])
+              (when corrected?
+                [corrections/view-toggle {:mode mode :changed-count (ui.corrections/changed-count source)
+                                          :on-change #(do (set-editing! nil) (set-view-mode! %))}])]))
+         (when (and corrected? (= mode :changes))
+           [corrections/changes-legend])
+         (when (and correction-error (nil? speaker-msg))
+           [:p {:role "alert" :class "badge bad"} correction-error])
          (when (= stage :final)
            [final-audio-player {:session-id session-id :enabled? playback? :audio-ref audio-ref
                                 :on-time #(set-time! (on-time->current-time-s %))
@@ -606,16 +692,18 @@
                 "This live preview is available on this device only."])
              (if karaoke?
                [components.transcript/final-transcript-karaoke
-                {:key (pr-str (:id selected)) :messages messages :audio-ref audio-ref
-                 :current-time-s current-time-s :follow? follow? :message-actions enroll-action}]
+                {:key (pr-str (:id selected)) :messages shown :audio-ref audio-ref
+                 :current-time-s current-time-s :follow? follow? :message-actions segment-actions
+                 :message-footer change-footer}]
                [components.transcript/transcript-view
-                {:key (pr-str (:id selected)) :messages messages :auto-scroll? false :initial-scroll :top
+                {:key (pr-str (:id selected)) :messages shown :auto-scroll? false :initial-scroll :top
                  :empty-title (:label selected)
                  :empty-hint (cond
                                (seq rows) "No speech was detected."
                                (= status "failed") "No transcript was created."
                                :else "No transcript available yet.")
-                 :message-actions enroll-action}])]
+                 :message-actions segment-actions
+                 :message-footer change-footer}])]
             [:p {:class "muted"} (if detail "No transcripts available for this session." "Loading transcripts…")])]]
         (when (and side-panel? show-workflows?)
           [:div {:class "split-side match-main"}

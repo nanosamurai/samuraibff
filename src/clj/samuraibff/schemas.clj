@@ -13,7 +13,8 @@
    [malli.error :as me]
    [malli.util :as mu]
    [malli.transform :as mt]
-   [samuraibff.access.schemas :as access.schemas]))
+   [samuraibff.access.schemas :as access.schemas]
+   [samuraibff.transcripts.correction-schemas :as correction-schemas]))
 
 ;; ---------------------------------------------------------------------
 ;; Common primitives
@@ -851,7 +852,9 @@
    [:lang [:maybe LangCode]]
    [:duration_s [:maybe :double]]
    [:full_text :string]
-   [:segments [:sequential TranscriptSegment]]])
+   [:segments [:sequential TranscriptSegment]]
+   ;; Final records only: human corrections. `segments` stays the machine output.
+   [:corrections {:optional true} correction-schemas/TranscriptCorrections]])
 
 (def WebhookDeliveryOutcomeItem
   "Latest webhook delivery outcome per dispatch_id (plus attempts count).

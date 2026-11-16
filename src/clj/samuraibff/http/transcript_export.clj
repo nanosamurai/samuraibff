@@ -5,13 +5,16 @@
   JSON or DOCX). Access uses the same read check as recording detail: an
   unreadable session is 404, so readers export exactly what they can read.
   Row selection matches the recording detail page: the latest final row of
-  the track, or all refined windows of the track ordered by audio start."
+  the track, or all refined windows of the track ordered by audio start.
+  A final transcript is exported with its human corrections unless
+  `version=original` asks for the machine output."
   (:require
    [cheshire.core :as cheshire]
    [clojure.string :as str]
    [org.corfield.logging4j2 :as log]
    [samuraibff.db.recordings :as db.recordings]
    [samuraibff.http.session-guard :as session-guard]
+   [samuraibff.http.transcript-corrections :as http.transcript-corrections]
    [samuraibff.transcripts.export :as export]
    [samuraibff.ui.recording-detail :as recording-detail])
   (:import
@@ -91,7 +94,8 @@
   "Handler for `GET /api/recordings/:session_id/export`.
 
   Query: format (srt|vtt|txt|json|docx, required), stage (final|refined,
-  default final), track_id (optional).
+  default final), track_id (optional), version (corrected|original, default
+  corrected; final only).
   Returns 200 with the file bytes, Content-Type and an attachment
   Content-Disposition; 400 for a bad format or session ID; 404 for an
   unreadable session or a track without a stored transcript; 503 without DB.
@@ -101,12 +105,14 @@
   (fn [req]
     (let [ds (:ds db)
           fmt (some-> (query-param req :format) name str/lower-case)
-          stage (or (some-> (query-param req :stage) name) "final")]
+          stage (or (some-> (query-param req :stage) name) "final")
+          version (or (some-> (query-param req :version) name) "corrected")]
       (try
         (cond
           (nil? ds) (error 503 "db-unavailable")
           (not (contains? export/formats fmt)) (error 400 "invalid-format")
           (not (#{"final" "refined"} stage)) (error 400 "invalid-stage")
+          (not (#{"corrected" "original"} version)) (error 400 "invalid-version")
           :else
           (let [session-id (parse-session-uuid req)
                 session (session-guard/require-readable-session! ds req session-id)
@@ -117,13 +123,20 @@
                 {:keys [track-id rows]} (select-track-rows rows (query-param req :track_id))]
             (if (empty? rows)
               (error 404 "transcript-not-found")
-              (let [segments (recording-detail/record-messages (mapv decode-segments rows) (keyword stage))
-                    metadata {:session_id (str session-id) :title (:title session) :stage stage
-                              :track_id track-id :lang (:lang (last rows))}
+              (let [rows (mapv decode-segments rows)
+                    {:keys [rows corrected?]} (if (and (= stage "final") (= version "corrected"))
+                                                (http.transcript-corrections/correct-final-rows
+                                                 ds (:tenant_id session) rows)
+                                                {:rows rows :corrected? false})
+                    segments (recording-detail/record-messages rows (keyword stage))
+                    metadata (cond-> {:session_id (str session-id) :title (:title session) :stage stage
+                                      :track_id track-id :lang (:lang (last rows))}
+                               (= stage "final") (assoc :version (if corrected? "corrected" "original")))
                     {:keys [extension content-type]} (export/formats fmt)
                     filename (export-filename (:title session) (str session-id) track-id extension)]
                 (log/info "Exported transcript" {:session-id (str session-id) :tenant-id (str (:tenant_id session))
-                                                 :format fmt :stage stage :track-id track-id})
+                                                 :format fmt :stage stage :track-id track-id
+                                                 :corrected corrected?})
                 {:status 200
                  :headers {"Content-Type" content-type
                            "Content-Disposition" (str "attachment; filename=\"" filename "\"")

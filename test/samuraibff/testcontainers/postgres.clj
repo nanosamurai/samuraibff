@@ -74,7 +74,8 @@
                "migrations/0010_workflow_results_latest.up.sql"
                "migrations/0020_bind_workflows_to_tracks.up.sql"
                "migrations/0022_add_access_control.up.sql"
-               "migrations/0024_add_personal_and_organization_api_keys.up.sql"]]
+               "migrations/0024_add_personal_and_organization_api_keys.up.sql"
+               "migrations/0025_add_transcript_corrections.up.sql"]]
     (doseq [path paths]
       (let [sql (some-> (io/resource path) slurp)]
         (when-not (seq sql)

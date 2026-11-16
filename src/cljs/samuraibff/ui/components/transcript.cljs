@@ -37,15 +37,19 @@
   - timestamp
   - message bubble
 
-  Refined messages are visually marked (★ refined).
+  Refined messages are visually marked (★ refined). Corrected final
+  messages may carry :edited (marks the message), :speaker_was (a \"was …\"
+  chip next to the speaker) and :diff is rendered by the caller as :text.
 
   Inputs:
   - {:keys [messages empty-title empty-hint auto-scroll? initial-scroll
-            highlight-revisions?]}
+            highlight-revisions? message-actions message-footer]}
+  - message-actions / message-footer: optional (fn [{:keys [idx msg]}]) that
+    return hiccup inside the bubble / below it
 
   Returns: hiccup."
   [{:keys [messages empty-title empty-hint auto-scroll? initial-scroll message-actions
-           highlight-revisions?]}]
+           message-footer highlight-revisions?]}]
   (let [msgs (->> (or messages [])
                   transcript/coalesce-asr-finals
                   vec)
@@ -125,22 +129,30 @@
                                after])
                             (:text msg))
                 actions-node (when (fn? message-actions)
-                               (message-actions {:idx idx :msg msg}))]
-            [:div {:class "msg" :key k}
+                               (message-actions {:idx idx :msg msg}))
+                footer-node (when (fn? message-footer)
+                              (message-footer {:idx idx :msg msg}))]
+            [:div {:class (str "msg" (when (:edited msg) " msg-edited")) :key k}
              (when (or (= "asr" (:kind msg)) (seq speaker))
                [:div {:class "msg-avatar"} avatar])
              [:div {:class "msgBody"}
               [:div {:class "msgHeader"}
                (when (or (= "asr" (:kind msg)) (seq speaker))
                  [:span {:class "who"} who])
+               (when (:speaker_was msg)
+                 [:span {:class "badge speaker-was" :title "Speaker before the correction"}
+                  (str "was " (:speaker_was msg))])
                (when (and (number? (:start_s msg)) (number? (:end_s msg)))
                  [:span {:class "ts"} (str start-ts " → " end-ts)])
-               (badge msg)]
+               (badge msg)
+               (when (and (:edited msg) (nil? (:diff msg)) (nil? (:speaker_was msg)))
+                 [:span {:class "badge muted" :title "This segment was corrected"} "edited"])]
               [:div {:class bubble-class}
                ;; NOTE: message actions are rendered *inside* the bubble so they
                ;; follow the bubble on line breaks / narrow viewports.
                (when actions-node actions-node)
-               text-node]]]))])]))
+               text-node]
+              (when footer-node footer-node)]]))])]))
 
 (defn final-transcript-karaoke
   "Render final transcript with word-level karaoke highlighting.
@@ -150,10 +162,10 @@
   - audio-ref: React ref to the <audio> element
   - current-time-s: double
   - follow?: boolean
-  - message-actions: (fn [{:keys [idx msg]}] ...) optional
+  - message-actions, message-footer: (fn [{:keys [idx msg]}] ...) optional
 
   Returns: hiccup."
-  [{:keys [messages audio-ref current-time-s follow? message-actions]}]
+  [{:keys [messages audio-ref current-time-s follow? message-actions message-footer]}]
   (let [msgs (vec (or messages []))
         word-index (react/useMemo (fn [] (karaoke/build-word-index msgs)) #js [msgs])
         active-flat-idx (karaoke/active-word-idx-normalized word-index current-time-s)
@@ -223,6 +235,7 @@
       [transcript-view
        {:messages rendered-msgs
         :message-actions message-actions
+        :message-footer message-footer
         ;; Final transcript playback should not behave like a live chat.
         ;; Default to top and let karaoke "Follow" be the only source of scrolling.
         :auto-scroll? false
