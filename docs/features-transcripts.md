@@ -161,9 +161,17 @@ UI (Final tab):
   every segment with its machine label, and **+** still adds the speaker.
   Every save is stored at once.
 * When a transcript has corrections, a switch shows **Corrected** (default;
-  edited segments have a margin marker and an `edited` tag), **Changes**
-  (removed words struck through, added words underlined, a `was …` speaker
-  tag, who changed what and when, **Undo** and the segment history) or
-  **Original** (the machine output).
+  segments that differ from the machine output have a margin marker and an
+  `edited` tag), **Changes** or **Original** (the machine output). Next to
+  it, a count says how many segments differ from the machine output.
+* **Changes** compares each segment with the machine output, with a legend:
+  machine words that were replaced or removed are struck through, new words
+  are highlighted, and a changed speaker gets a `was …` tag. Below the
+  segment, each change in effect shows what it replaced, who made it and
+  when, with **Undo**, and the segment's full history. The values each
+  change replaced and set are highlighted the same way.
+* An edit that sets a segment back to the machine text stays in the history,
+  marked "back to the machine version", but the segment no longer counts as
+  changed and has nothing struck through.
 * The page refreshes every 4 seconds, so other people's corrections appear
   without a reload. A stale edit shows a notice and the latest version.

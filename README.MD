@@ -483,8 +483,10 @@ Whoever manages a session can correct the text and speakers of its final
 transcripts from the recording page (pencil and person icons on each
 segment). Every edit is saved at once as an appended correction with its
 author and time; the machine transcript stays unchanged. A switch shows the
-Corrected, Changes (word diff, history, Undo) or Original version. Export and
-on-demand workflows use the corrected version. See
+Corrected, Changes or Original version. Changes strikes through the replaced
+machine words, highlights the new ones and lists who changed what and when,
+with history and Undo. Export and on-demand workflows use the corrected
+version. See
 `docs/features-transcripts.md#corrections`.
 
 ## OpenAI-compatible transcription
