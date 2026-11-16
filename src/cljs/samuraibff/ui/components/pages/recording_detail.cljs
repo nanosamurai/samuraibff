@@ -675,6 +675,8 @@
               (when corrected?
                 [corrections/view-toggle {:mode mode :changed-count (ui.corrections/changed-count source)
                                           :on-change #(do (set-editing! nil) (set-view-mode! %))}])]))
+         (when (and corrected? (= mode :changes))
+           [corrections/changes-legend])
          (when (and correction-error (nil? speaker-msg))
            [:p {:role "alert" :class "badge bad"} correction-error])
          (when (= stage :final)

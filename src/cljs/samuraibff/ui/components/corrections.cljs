@@ -40,6 +40,15 @@
   (into [:span {:class "correction-diff"}]
         (interpose " " (map run-node diff))))
 
+(defn changes-legend
+  "Explain the highlighting of the Changes view."
+  []
+  [:p {:class "correction-legend muted"}
+   "Compared with the machine transcript: "
+   [:span {:class "correction-diff"}
+    [:ins {:class "diff-ins"} "new"] " corrected words · "
+    [:del {:class "diff-del"} "old"] " machine words · "]
+   [:span {:class "badge speaker-was"} "was SPEAKER_00"] " speaker changed"])
 
 (defn text-editor
   "Inline editor for one segment's text.
