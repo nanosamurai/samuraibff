@@ -750,6 +750,8 @@
     .sessions-list-message{padding:18px 0}
     .session-actions{display:flex;gap:6px;align-items:center;justify-content:flex-end}
     .btn.icon-only{width:32px;height:32px;padding:0}
+    /* A pressed toggle or an open panel: filled with the blue of the diff highlight, not the violet focus colour. */
+    .btn.ghost.icon-only.active{background:rgba(107,203,255,.16);border-color:rgba(107,203,255,.55);color:var(--ok)}
     .btn.session-open{padding:6px 12px}
     .btn.session-delete:hover{color:var(--bad);border-color:rgba(255,92,122,.45)}
     .sessions-pagination{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;font-size:12px}
