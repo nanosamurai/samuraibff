@@ -263,12 +263,14 @@
   - session-id: string
   - stage: :final or :refined
   - track-id: string; the selected tab's track
-  - original?: true exports the machine transcript instead of the corrected one
+  - corrected?: true when the transcript has corrections; the panel then
+    also offers the machine output (before corrections)
 
   Returns: hiccup. The link downloads through the session-scoped export API,
   so it exports only what the reader can open."
-  [{:keys [session-id stage track-id original?]}]
+  [{:keys [session-id stage track-id corrected?]}]
   (let [[fmt set-fmt!] (react/useState "docx")
+        [version set-version!] (react/useState "corrected")
         [open? set-open!] (react/useState false)
         root-ref (react/useRef nil)
         button-ref (react/useRef nil)
@@ -305,9 +307,17 @@
                    :on-change #(set-fmt! (.. % -target -value))}
           (for [[value label] export-formats]
             [:option {:key value :value value} label])]]
+        (when corrected?
+          [:div {:class "field"}
+           [:label {:class "muted" :for "transcript-export-version"} "Version"]
+           [:select {:id "transcript-export-version" :value version
+                     :on-change #(set-version! (.. % -target -value))}
+            [:option {:value "corrected"} "Corrected"]
+            [:option {:value "original"} "Machine output (before corrections)"]]])
         [:a {:class "btn primary" :download ""
              :href (api/recording-export-url session-id (cond-> {:format fmt :stage (name stage) :track-id track-id}
-                                                          original? (assoc :version "original")))
+                                                          (and corrected? (= "original" version))
+                                                          (assoc :version "original")))
              :on-click close!}
          (icons/icon :download) "Download"]])]))
 
@@ -668,7 +678,7 @@
              [:div {:class "split-toolbar"}
               (when export?
                 [export-control {:session-id session-id :stage stage :track-id (second (:id selected))
-                                 :original? (and corrected? (= mode :original))}])
+                                 :corrected? (boolean corrected?)}])
               (when retranscribe?
                 [retranscribe/retranscribe-control {:key session-id :session-id session-id
                                                     :session session :shown-title title}])
