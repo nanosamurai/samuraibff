@@ -136,16 +136,17 @@
 (defn json-document
   "Build the stable JSON export document.
 
-  Inputs: metadata map {:session_id :title :stage :track_id :lang} (values
-  may be nil) and segments. Returns a map with those keys, `:text` (all
+  Inputs: metadata map {:session_id :title :stage :track_id :lang :version}
+  (values may be nil; :version is \"corrected\" or \"original\" for final
+  transcripts) and segments. Returns a map with those keys, `:text` (all
   segment text joined by spaces) and `:segments`, each limited to
-  {:start_s :end_s :speaker :text :words}."
+  {:start_s :end_s :speaker :speaker_id :text :words}."
   [metadata segments]
   (let [segments (vec (exportable segments))]
-    (assoc (select-keys metadata [:session_id :title :stage :track_id :lang])
+    (assoc (select-keys metadata [:session_id :title :stage :track_id :lang :version])
            :text (str/join " " (map #(one-line (:text %)) segments))
            :segments (mapv (fn [segment]
-                             (cond-> (select-keys segment [:start_s :end_s :speaker :text])
+                             (cond-> (select-keys segment [:start_s :end_s :speaker :speaker_id :text])
                                (seq (:words segment))
                                (assoc :words (mapv #(select-keys % [:start_s :end_s :text]) (:words segment)))))
                            segments))))
