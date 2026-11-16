@@ -28,13 +28,13 @@
 (deftest view-messages-test
   (let [source (ui.corrections/final-source rows)]
     (testing "corrected view"
-      (let [msgs (ui.corrections/view-messages source :corrected)]
+      (let [msgs (ui.corrections/view-messages source false)]
         (is (= [0 1] (mapv :seq msgs)) "cleared segments are left out")
         (is (= ["Hello tier" "Hi"] (mapv :text msgs)))
         (is (= ["SPEAKER_00" "Petr"] (mapv :speaker msgs)))
         (is (every? :edited msgs))))
-    (testing "changes view"
-      (let [msgs (ui.corrections/view-messages source :changes)]
+    (testing "show changes"
+      (let [msgs (ui.corrections/view-messages source true)]
         (is (= [0 1 2] (mapv :seq msgs)))
         (is (= [[:same "Hello"] [:del "tear"] [:ins "tier"]] (:diff (first msgs))))
         (is (= "Anna" (:speaker_was (second msgs))))
@@ -43,17 +43,19 @@
       (let [restored (-> source
                          (update :items conj {:id "d" :seq 4 :kind "segment_text" :segment_index 0
                                               :old_value {:text "Hello tier"} :new_value {:text "Hello tear"}}))
-            change (:change (first (ui.corrections/view-messages restored :changes)))]
+            change (:change (first (ui.corrections/view-messages restored true)))]
         (is (= 2 (ui.corrections/changed-count restored)))
         (is (not (ui.corrections/text-changed? change)))
         (is (= ["d" "a"] (mapv :id (:history change))))
-        (is (nil? (:diff (first (ui.corrections/view-messages restored :changes)))))
-        (is (not (:edited (first (ui.corrections/view-messages restored :corrected)))))
+        (is (nil? (:diff (first (ui.corrections/view-messages restored true)))))
+        (is (not (:edited (first (ui.corrections/view-messages restored false)))))
         (is (ui.corrections/restores-machine? change (:text-edit change)))
         (is (not (ui.corrections/restores-machine? change (last (:history change)))))))
-    (testing "original view"
-      (is (= ["Hello tear" "Hi" "noise"] (mapv :text (ui.corrections/view-messages source :original))))
-      (is (not-any? :edited (ui.corrections/view-messages source :original))))))
+    (testing "without corrections"
+      (let [msgs (ui.corrections/view-messages (assoc source :items []) true)]
+        (is (= ["Hello tear" "Hi" "noise"] (mapv :text msgs)))
+        (is (not-any? :edited msgs))
+        (is (not-any? :diff msgs))))))
 
 (deftest speakers-test
   (let [source (ui.corrections/final-source rows)

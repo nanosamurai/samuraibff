@@ -263,12 +263,14 @@
   - session-id: string
   - stage: :final or :refined
   - track-id: string; the selected tab's track
-  - original?: true exports the machine transcript instead of the corrected one
+  - corrected?: true when the transcript has corrections; the panel then
+    also offers the machine output (before corrections)
 
   Returns: hiccup. The link downloads through the session-scoped export API,
   so it exports only what the reader can open."
-  [{:keys [session-id stage track-id original?]}]
+  [{:keys [session-id stage track-id corrected?]}]
   (let [[fmt set-fmt!] (react/useState "docx")
+        [version set-version!] (react/useState "corrected")
         [open? set-open!] (react/useState false)
         root-ref (react/useRef nil)
         button-ref (react/useRef nil)
@@ -305,9 +307,17 @@
                    :on-change #(set-fmt! (.. % -target -value))}
           (for [[value label] export-formats]
             [:option {:key value :value value} label])]]
+        (when corrected?
+          [:div {:class "field"}
+           [:label {:class "muted" :for "transcript-export-version"} "Version"]
+           [:select {:id "transcript-export-version" :value version
+                     :on-change #(set-version! (.. % -target -value))}
+            [:option {:value "corrected"} "Corrected"]
+            [:option {:value "original"} "Machine output (before corrections)"]]])
         [:a {:class "btn primary" :download ""
              :href (api/recording-export-url session-id (cond-> {:format fmt :stage (name stage) :track-id track-id}
-                                                          original? (assoc :version "original")))
+                                                          (and corrected? (= "original" version))
+                                                          (assoc :version "original")))
              :on-click close!}
          (icons/icon :download) "Download"]])]))
 
@@ -434,8 +444,8 @@
   Owners can rename, share, record into a draft, enroll speakers, correct
   final transcript text and speakers, and re-transcribe the saved audio into
   a new session. Each correction is saved at once; a corrected final
-  transcript can be viewed as Corrected, Changes (word diff, authors,
-  history and Undo) or Original. Readers see corrections read-only. Readers
+  transcript shows the corrected version, and Show changes adds the word
+  diff, authors, history and Undo. Readers see corrections read-only. Readers
   see the owner and audience and get read-only content. The device-local
   real-time preview is shown only to the owner. A 403/404 clears the page and
   says the session is no longer available."
@@ -448,7 +458,7 @@
         [current-time-s set-time!] (react/useState 0)
         [follow? set-follow!] (react/useState false)
         [enroll-range set-enroll!] (react/useState nil)
-        [view-mode set-view-mode!] (react/useState :corrected)
+        [show-changes? set-show-changes!] (react/useState false)
         [editing set-editing!] (react/useState nil)
         [speaker-msg set-speaker-msg!] (react/useState nil)
         [saving? set-saving!] (react/useState false)
@@ -480,14 +490,14 @@
         source (when (= stage :final) (ui.corrections/final-source rows))
         correctable? (ui.corrections/correctable? source)
         corrected? (and correctable? (seq (:items source)))
-        mode (if corrected? view-mode :corrected)
-        editable? (and can-manage? correctable? (not= mode :original) (nil? editing))
+        changes? (boolean (and corrected? show-changes?))
+        editable? (and can-manage? correctable? (nil? editing))
         messages (cond
                    (= stage :realtime) cached-asr
-                   correctable? (ui.corrections/view-messages source mode)
+                   correctable? (ui.corrections/view-messages source changes?)
                    :else (recording-detail/record-messages rows stage))
         playback? (true? (get-in detail [:session :has_recording]))
-        karaoke? (and (= stage :final) playback? (not= mode :changes) (some #(seq (:words %)) messages))
+        karaoke? (and (= stage :final) playback? (not changes?) (some #(seq (:words %)) messages))
         status (:status session)
         created-at-ms (util/iso->ms (:created_at session))
         title (or (not-empty (str/trim (or (:title session) "")))
@@ -544,7 +554,7 @@
                               :on-speaker (when final?
                                             #(do (set-correction-error! nil) (set-speaker-msg! msg)))
                               :on-enroll (when enroll? #(set-enroll! msg))}]))
-        change-footer (when (and corrected? (= mode :changes))
+        change-footer (when changes?
                         (fn [{:keys [msg]}]
                           [corrections/change-footer
                            {:change (:change msg) :can-manage? can-manage? :busy? saving?
@@ -576,7 +586,7 @@
                                      (on-load-error e))))))]
          (set-detail! nil)
          (set-tab! nil)
-         (set-view-mode! :corrected)
+         (set-show-changes! false)
          (set-editing! nil)
          (set-speaker-msg! nil)
          (set-correction-error! nil)
@@ -668,15 +678,15 @@
              [:div {:class "split-toolbar"}
               (when export?
                 [export-control {:session-id session-id :stage stage :track-id (second (:id selected))
-                                 :original? (and corrected? (= mode :original))}])
+                                 :corrected? (boolean corrected?)}])
               (when retranscribe?
                 [retranscribe/retranscribe-control {:key session-id :session-id session-id
                                                     :session session :shown-title title}])
               (when corrected?
-                [corrections/view-toggle {:mode mode :changed-count (ui.corrections/changed-count source)
-                                          :on-change #(do (set-editing! nil) (set-view-mode! %))}])]))
-         (when (and corrected? (= mode :changes))
-           [corrections/changes-legend])
+                [corrections/changes-toggle {:on? changes? :changed-count (ui.corrections/changed-count source)
+                                             :on-change #(do (set-editing! nil) (set-show-changes! %))}])]))
+         (when changes?
+           [corrections/changes-legend {:changed-count (ui.corrections/changed-count source)}])
          (when (and correction-error (nil? speaker-msg))
            [:p {:role "alert" :class "badge bad"} correction-error])
          (when (= stage :final)

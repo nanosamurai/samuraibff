@@ -1,19 +1,15 @@
 (ns samuraibff.ui.corrections
-  "Pure helpers for the corrected, changes and original views of a final
-  transcript on the recording page.
+  "Pure helpers for the corrected final transcript on the recording page and
+  its Show changes view.
 
   The recording detail response carries the machine segments of each final
   record plus `:corrections {:head_seq n :items [...]}`. These helpers turn
-  the latest final record into display messages for one view mode and
-  describe corrections in plain language."
+  the latest final record into display messages, with or without the
+  changes, and describe corrections in plain language."
   (:require
    [clojure.string :as str]
    [samuraibff.transcripts.corrections :as corrections]
    [samuraibff.ui.transcript :as transcript]))
-
-(def modes
-  "View modes with their button labels, in display order."
-  [[:corrected "Corrected"] [:changes "Changes"] [:original "Original"]])
 
 (defn final-source
   "Return the correction source of a final tab, or nil.
@@ -61,36 +57,31 @@
   (count (filter changed? (corrections/segment-changes (:segments source) (:items source)))))
 
 (defn view-messages
-  "Build display messages of the source for a view mode.
+  "Build display messages of the corrected source.
 
-  Inputs: source from `final-source`; mode :corrected, :changes or :original.
-  Returns a vector of messages {:kind \"final\" :seq segment-index :lang ...
-  segment keys ... :change change}, where :change comes from
-  `corrections/segment-changes`.
-  - :corrected shows corrected segments, marks segments that differ from the
-    machine segment with :edited and leaves out segments whose text was
-    cleared.
-  - :changes shows corrected segments with :diff (word runs from
+  Inputs: source from `final-source`; changes? true while the page shows the
+  changes. Returns a vector of messages {:kind \"final\" :seq segment-index
+  :lang ... corrected segment keys ... :change change}, where :change comes
+  from `corrections/segment-changes` and segments that differ from the
+  machine segment carry :edited.
+  - Without changes?, segments whose text was cleared are left out.
+  - With changes?, every segment is shown, with :diff (word runs from
     `corrections/word-diff`, machine text against corrected text) when the
     text differs and :speaker_was (the machine speaker's display name) when
-    the speaker differs.
-  - :original shows the machine segments."
-  [{:keys [segments items lang]} mode]
+    the speaker differs."
+  [{:keys [segments items lang]} changes?]
   (into []
         (keep (fn [{:keys [index original corrected text-edit] :as change}]
-                (let [edited? (changed? change)
-                      base {:kind "final" :seq index :lang lang :change change}]
-                  (case mode
-                    :original (merge base original)
-                    :corrected (when-not (and text-edit (str/blank? (:text corrected)))
-                                 (cond-> (merge base corrected)
-                                   edited? (assoc :edited true)))
-                    :changes (cond-> (merge base corrected)
-                               edited? (assoc :edited true)
+                (let [msg (cond-> (merge {:kind "final" :seq index :lang lang :change change} corrected)
+                            (changed? change) (assoc :edited true))]
+                  (cond
+                    changes? (cond-> msg
                                (text-changed? change)
                                (assoc :diff (corrections/word-diff (:text original) (:text corrected)))
                                (and (speaker-changed? change) (not= (:speaker original) (:speaker corrected)))
-                               (assoc :speaker_was (transcript/speaker->display-name (:speaker original))))))))
+                               (assoc :speaker_was (transcript/speaker->display-name (:speaker original))))
+                    (and text-edit (str/blank? (:text corrected))) nil
+                    :else msg))))
         (corrections/segment-changes segments items)))
 
 (defn speaker-names
