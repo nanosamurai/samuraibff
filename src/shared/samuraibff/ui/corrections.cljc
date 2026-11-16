@@ -101,24 +101,49 @@
   (let [text (str/trim (str text))]
     (if (str/blank? text) "(empty)" (str "“" text "”"))))
 
+(defn- change-hunks
+  "Group a word diff into separate changes: [{:removed string :added string}]."
+  [diff]
+  (->> (partition-by #(= :same (first %)) diff)
+       (remove #(= :same (ffirst %)))
+       (map (fn [runs]
+              {:removed (str/join " " (keep (fn [[op text]] (when (= :del op) text)) runs))
+               :added (str/join " " (keep (fn [[op text]] (when (= :ins op) text)) runs))}))))
+
+(defn- hunk-phrase
+  [{:keys [removed added]}]
+  (cond
+    (str/blank? removed) (str "added " (quoted added))
+    (str/blank? added) (str "removed " (quoted removed))
+    :else (str "changed " (quoted removed) " to " (quoted added))))
+
+(defn- capitalize-first
+  [s]
+  (if (seq s) (str (str/upper-case (subs s 0 1)) (subs s 1)) s))
+
+(defn- describe-text
+  "Describe a text correction: up to three separate changes, then a count."
+  [old-text new-text]
+  (let [hunks (change-hunks (corrections/word-diff old-text new-text))
+        more (- (count hunks) 3)]
+    (cond
+      (str/blank? new-text) "Cleared the text"
+      (empty? hunks) "Changed the spacing"
+      :else (capitalize-first
+             (str (str/join "; " (map hunk-phrase (take 3 hunks)))
+                  (when (pos? more) (str "; " more " more")))))))
+
 (defn describe
   "Describe one correction in plain language for the change history.
 
   Inputs: a correction map. Returns a string such as
-  \"Changed “tear” to “tier”\", \"Set the speaker to Petr\" or
-  \"Named SPEAKER_00 Miro in the whole transcript\"."
+  \"Changed “tear” to “tier”; added “test”\", \"Set the speaker to Petr\"
+  or \"Renamed SPEAKER_00 to Miro in the whole transcript\"."
   [{:keys [kind old_value new_value speaker_label]}]
   (case kind
-    "segment_text" (let [diff (corrections/word-diff (:text old_value) (:text new_value))
-                         removed (str/join " " (keep (fn [[op text]] (when (= :del op) text)) diff))
-                         added (str/join " " (keep (fn [[op text]] (when (= :ins op) text)) diff))]
-                     (cond
-                       (str/blank? (:text new_value)) "Cleared the text"
-                       (str/blank? removed) (str "Added " (quoted added))
-                       (str/blank? added) (str "Removed " (quoted removed))
-                       :else (str "Changed " (quoted removed) " to " (quoted added))))
+    "segment_text" (describe-text (:text old_value) (:text new_value))
     "segment_speaker" (str "Set the speaker to " (:speaker new_value))
-    "speaker_label" (str "Named " (transcript/speaker->display-name speaker_label) " "
+    "speaker_label" (str "Renamed " (transcript/speaker->display-name speaker_label) " to "
                          (:speaker new_value) " in the whole transcript")
     "Undid a change"))
 

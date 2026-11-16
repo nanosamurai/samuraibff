@@ -534,7 +534,7 @@
                            #(set-speaker-msg! nil))))
         segment-actions (fn [{:keys [msg]}]
                           (let [final? (and editable? (= stage :final) (int? (:seq msg)))
-                                enroll? (and can-manage? playback? (seq (:speaker msg))
+                                enroll? (and can-manage? playback? (nil? editing) (seq (:speaker msg))
                                              (number? (:start_s msg)) (number? (:end_s msg))
                                              (< (:start_s msg) (:end_s msg)))]
                             [corrections/segment-actions

@@ -58,7 +58,14 @@
   (is (= "Removed “uh”" (ui.corrections/describe {:kind "segment_text" :old_value {:text "uh Hello"} :new_value {:text "Hello"}})))
   (is (= "Cleared the text" (ui.corrections/describe {:kind "segment_text" :old_value {:text "noise"} :new_value {:text ""}})))
   (is (= "Set the speaker to Petr" (ui.corrections/describe {:kind "segment_speaker" :new_value {:speaker "Petr"}})))
-  (is (= "Named SPEAKER_00 Miro in the whole transcript"
+  (is (= "Changed “Each” to “Every”; added “test”"
+         (ui.corrections/describe {:kind "segment_text" :old_value {:text "Each word. This sample"}
+                                   :new_value {:text "Every word. This test sample"}})))
+  (is (= "Removed “a”; removed “b”; removed “c”; 1 more"
+         (ui.corrections/describe {:kind "segment_text" :old_value {:text "a x b x c x d x"}
+                                   :new_value {:text "x x x x"}})))
+  (is (= "Changed the spacing" (ui.corrections/describe {:kind "segment_text" :old_value {:text "a  b"} :new_value {:text "a b"}})))
+  (is (= "Renamed SPEAKER_00 to Miro in the whole transcript"
          (ui.corrections/describe {:kind "speaker_label" :speaker_label "SPEAKER_00" :new_value {:speaker "Miro"}})))
   (is (= "you" (ui.corrections/author-label {:author {:is_me true :display_name "Alice"}})))
   (is (= "Alice" (ui.corrections/author-label {:author {:is_me false :display_name "Alice"}})))
