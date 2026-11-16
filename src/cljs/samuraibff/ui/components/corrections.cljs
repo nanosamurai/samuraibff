@@ -27,7 +27,7 @@
             :aria-label "Show changes" :aria-pressed on?
             :title (str (if on? "Hide changes" "Show changes") " · " (changed-label changed-count))
             :on-click #(on-change (not on?))}
-   (icons/icon :diff)])
+   (icons/icon :file-diff)])
 
 (defn- run-node
   [[op text]]
