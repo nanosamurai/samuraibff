@@ -147,3 +147,16 @@
                              (update-in [:corrections :head_seq] (fnil max 0) head-seq))
                          record))
                      records))))
+
+(defn error-message
+  "Return the message to show when a correction request fails.
+
+  Inputs: the safe server error code (string or nil)."
+  [code]
+  (case code
+    "correction-conflict" "Someone changed this part while you were editing. The latest version is shown; check it and try again."
+    "already-undone" "This change was already undone."
+    "correction-unchanged" "Nothing changed."
+    "read-only-access" "You have read-only access to this session."
+    "too-many-corrections" "This transcript has reached the limit of corrections."
+    "Could not save the correction. Try again."))

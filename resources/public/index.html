@@ -599,6 +599,25 @@
 
     .bubble.draft{border-style:dashed;opacity:.92}
 
+    /* --- Transcript corrections --- */
+    .msg-edited .bubble{border-left:3px solid rgba(255,214,88,.55)}
+    .correction-diff del.diff-del{color:rgba(255,92,122,.95);background:rgba(255,92,122,.12);text-decoration:line-through;border-radius:4px;padding:0 2px}
+    .correction-diff ins.diff-ins{color:var(--txt);background:rgba(107,203,255,.16);text-decoration:none;border-bottom:1px solid rgba(107,203,255,.6);border-radius:4px;padding:0 2px}
+    .badge.speaker-was{border-color:rgba(255,214,88,.45);color:var(--warn)}
+    .correction-meta{margin-top:6px;font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:4px;max-width:920px}
+    .correction-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .btn.correction-undo{padding:2px 8px;font-size:12px;gap:4px}
+    .correction-history{margin:4px 0 0;padding-left:18px}
+    .correction-history li.undone{opacity:.7}
+    .correction-toggle{display:inline-flex;align-items:center;gap:4px;margin-left:auto}
+    .correction-toggle .btn{padding:5px 10px}
+    .correction-toggle .muted{margin-left:6px;font-size:12px}
+    .correction-editor{display:flex;flex-direction:column;gap:8px;min-width:min(560px,70vw)}
+    .correction-editor textarea{width:100%;box-sizing:border-box;resize:vertical;line-height:1.45}
+    .correction-scope{border:0;padding:0;margin:0 0 10px;display:flex;flex-direction:column;gap:6px}
+    .correction-scope legend{color:var(--muted);margin-bottom:4px;padding:0}
+    .correction-scope input{min-width:0;width:auto;margin:0 4px 0 0;accent-color:var(--accent)}
+
     .revision-text{
       /* Keep highlights out of sizing: negative inline margins can force a wrap. */
       display:inline;border-radius:6px;

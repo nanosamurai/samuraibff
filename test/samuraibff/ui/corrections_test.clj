@@ -70,3 +70,7 @@
     (is (= {:head_seq 4 :items [{:id "a"} {:id "d" :seq 4}]} (get-in saved [:transcripts :final 1 :corrections])))
     (is (= {:id "t0"} (get-in saved [:transcripts :final 0])))
     (is (= saved (ui.corrections/apply-saved saved "t1" {:id "d" :seq 4} 4)) "a known correction is not added twice")))
+
+(deftest error-message-test
+  (is (re-find #"latest version" (ui.corrections/error-message "correction-conflict")))
+  (is (= "Could not save the correction. Try again." (ui.corrections/error-message nil))))
