@@ -19,12 +19,14 @@
    [org.corfield.logging4j2 :as log]
    [samuraibff.db.recordings :as db.recordings]
    [samuraibff.db.sessions :as db.sessions]
+   [samuraibff.db.transcript-corrections :as db.corrections]
    [samuraibff.db.workflow-results :as db.workflow-results]
    [samuraibff.db.webhook-delivery-outcomes :as db.wh.outcomes]
    [samuraibff.access.watch :as watch]
    [samuraibff.http.retranscription :as http.retranscription]
    [samuraibff.http.revocable-stream :as revocable-stream]
    [samuraibff.http.session-guard :as session-guard]
+   [samuraibff.http.transcript-corrections :as http.transcript-corrections]
    [samuraibff.s3.client :as s3.client]
    [samuraibff.schemas :as schemas])
   (:import
@@ -706,6 +708,9 @@
                          ds tenant-uuid session-uuid
                          {:type "final" :limit 20
                           :track-id track-id})
+                  corrections (http.transcript-corrections/corrections-by-transcript
+                               (db.corrections/list-for-session ds tenant-uuid session-uuid)
+                               (:id principal))
                   webhook-outcomes (db.wh.outcomes/list-latest-outcomes-for-session ds tenant-uuid session-uuid {:limit 50})
                   workflow-results (db.workflow-results/list-latest-results-for-session ds tenant-uuid session-uuid {:limit 50})
                   has-recording? (boolean recording)
@@ -729,6 +734,9 @@
                      :full_text (:full_text r)
                      ;; segments is jsonb; decode to vector so clients don't need JSON.parse.
                      :segments (segments-jsonb->segments (:segments r))})
+                  with-corrections
+                  (fn [record]
+                    (assoc record :corrections (get corrections (:id record) {:head_seq 0 :items []})))
                   normalize-outcome
                   (fn [o]
                     {:id (str (:id o))
@@ -783,7 +791,7 @@
                         :webhook_delivery_outcomes (mapv normalize-outcome webhook-outcomes)
                         :workflow_results_latest (mapv normalize-workflow-result workflow-results)
                         :transcripts {:refined (mapv normalize-record refined)
-                                      :final (mapv normalize-record final)}}]
+                                      :final (mapv (comp with-corrections normalize-record) final)}}]
               (when (#{:dev :test} (:env config))
                 (schemas/validate! schemas/RecordingDetailResponse body))
               (json-response 200 body))))

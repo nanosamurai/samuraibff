@@ -31,6 +31,7 @@
    [samuraibff.http.recordings :as http.recordings]
    [samuraibff.http.retranscription :as http.retranscription]
    [samuraibff.http.transcript-export :as http.transcript-export]
+   [samuraibff.http.transcript-corrections :as http.transcript-corrections]
    [samuraibff.http.webhook-delivery-outcomes :as http.wh.outcomes]
    [samuraibff.http.api-credentials :as http.api-creds]
    [samuraibff.http.internal :as http.internal]
@@ -44,6 +45,7 @@
    [samuraibff.http.middleware.observability :as http.obs]
    [samuraibff.observability.metrics :as metrics]
    [samuraibff.schemas :as schemas]
+   [samuraibff.transcripts.correction-schemas :as correction-schemas]
    [reitit.ring.coercion :as rrc]
    [reitit.coercion.malli]
    [reitit.openapi :as openapi]
@@ -460,17 +462,36 @@
             ["/export"
              {:get {:summary "Export transcript"
                     :description (str "Downloads one stored transcript track as srt, vtt, txt, json or docx. "
-                                      "stage defaults to final; track_id defaults to the first stored track.")
+                                      "stage defaults to final; track_id defaults to the first stored track. "
+                                      "A final transcript includes human corrections unless version=original.")
                     :parameters {:query [:map
                                          [:format [:enum "srt" "vtt" "txt" "json" "docx"]]
                                          [:stage {:optional true} [:enum "final" "refined"]]
-                                         [:track_id {:optional true} :string]]}
+                                         [:track_id {:optional true} :string]
+                                         [:version {:optional true} [:enum "corrected" "original"]]]}
                     :responses {200 {:description "Transcript file (attachment)"}
                                 400 {:body schemas/ApiErrorResponse}
                                 403 {:body schemas/ApiErrorResponse}
                                 404 {:body schemas/ApiErrorResponse}
                                 503 {:body schemas/ApiErrorResponse}}
                     :handler (http.transcript-export/export-transcript-handler deps)}}]
+            ["/transcripts/:transcript_id/corrections"
+             {:parameters {:path [:map [:transcript_id :string]]}
+              :post {:summary "Correct transcript"
+                     :description (str "Appends one correction to a final transcript of this session: segment "
+                                       "text, segment speaker, speaker label (all segments with a machine label) "
+                                       "or undo of an earlier correction. The machine transcript does not "
+                                       "change. base_seq is the highest correction seq the client has seen; "
+                                       "a newer correction of the same target returns 409. The caller must "
+                                       "manage this session.")
+                     :parameters {:body correction-schemas/CreateCorrectionRequest}
+                     :responses {201 {:body correction-schemas/CreateCorrectionResponse}
+                                 400 {:body schemas/ApiErrorResponse}
+                                 403 {:body schemas/ApiErrorResponse}
+                                 404 {:body schemas/ApiErrorResponse}
+                                 409 {:body schemas/ApiErrorResponse}
+                                 503 {:body schemas/ApiErrorResponse}}
+                     :handler (http.transcript-corrections/create-correction-handler deps)}}]
             ["/retranscribe"
              {:post {:summary "Re-transcribe session"
                      :description (str "Creates a new session from the stored recording of this session and "
