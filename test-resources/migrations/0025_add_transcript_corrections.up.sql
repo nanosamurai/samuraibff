@@ -1,8 +1,7 @@
 -- 025-add-transcript-corrections
 --
 -- Human corrections of final transcripts.
--- Keep this migration identical in nanodeploy (Compose and chart copies) and
--- nanosamurai. Apply it in one transaction.
+-- Keep every copy of this migration identical. Apply it in one transaction.
 --
 -- Rows are only appended. An edit is never updated or deleted; `undo` is a new
 -- row that cancels one earlier edit. The machine output in
