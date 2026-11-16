@@ -474,7 +474,8 @@ name, keeping partial text aligned with diarized turns.
 `GET /api/recordings/{session_id}/export?format=srt|vtt|txt|json|docx` downloads
 one saved Final or Refined track (`stage`, `track_id`). A final track includes
 human corrections unless `version=original`. On the recording detail page, a
-download icon opens the same export choices. Readers can export what they can
+download icon opens the same export choices, including the machine output of
+a corrected transcript. Readers can export what they can
 open. See `docs/features-transcripts.md#export`.
 
 ## Transcript corrections
@@ -482,8 +483,8 @@ open. See `docs/features-transcripts.md#export`.
 Whoever manages a session can correct the text and speakers of its final
 transcripts from the recording page (pencil and person icons on each
 segment). Every edit is saved at once as an appended correction with its
-author and time; the machine transcript stays unchanged. A switch shows the
-Corrected, Changes or Original version. Changes strikes through the replaced
+author and time; the machine transcript stays unchanged. The page shows the
+corrected version; the **Show changes** toggle strikes through the replaced
 machine words, highlights the new ones and lists who changed what and when,
 with history and Undo. Export and on-demand workflows use the corrected
 version. See

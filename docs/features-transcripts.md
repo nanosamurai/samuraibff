@@ -82,7 +82,8 @@ Query parameters:
   track of the earliest stored result for that stage.
 * `version` (optional, final only): `corrected` (default) applies the human
   corrections (see [Corrections](#corrections)); `original` returns the
-  machine output. The Original view on the detail page downloads `original`.
+  machine output. On the detail page, the export panel of a corrected
+  transcript offers both versions.
 
 The rows are the same as on the detail page: the latest final result of the
 track, or all refined windows of the track ordered by audio start.
@@ -160,16 +161,20 @@ UI (Final tab):
   Esc cancels), the person icon changes the speaker of this segment or of
   every segment with its machine label, and **+** still adds the speaker.
   Every save is stored at once.
-* When a transcript has corrections, a switch shows **Corrected** (default;
-  segments that differ from the machine output have a margin marker and an
-  `edited` tag), **Changes** or **Original** (the machine output). Next to
-  it, a count says how many segments differ from the machine output.
-* **Changes** compares each segment with the machine output, with a legend:
-  machine words that were replaced or removed are struck through, new words
-  are highlighted, and a changed speaker gets a `was …` tag. Below the
-  segment, each change in effect shows what it replaced, who made it and
-  when, with **Undo**, and the segment's full history. The values each
-  change replaced and set are highlighted the same way.
+* The page shows the corrected transcript. Segments that differ from the
+  machine output have a margin marker and an `edited` tag.
+* When a transcript has corrections, a **Show changes** icon toggle appears
+  next to Export and Re-transcribe. It stays pressed while the changes are
+  shown, and its tooltip says how many segments differ from the machine
+  output.
+* With **Show changes** on, each segment is compared with the machine output,
+  and a legend explains the marks: machine words that were replaced or
+  removed are struck through, new words are highlighted, and a changed
+  speaker gets a `was …` tag. Below the segment, each change in effect shows
+  what it replaced, who made it and when, with **Undo**, and the segment's
+  full history. The values each change replaced and set are highlighted the
+  same way. There is no separate original view: the struck-through words
+  are the machine output.
 * An edit that sets a segment back to the machine text stays in the history,
   marked "back to the machine version", but the segment no longer counts as
   changed and has nothing struck through.
