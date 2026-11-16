@@ -1,7 +1,7 @@
 (ns samuraibff.ui.components.corrections
-  "Transcript correction controls for the recording page: the version
-  toggle, the inline text editor, the speaker dialog, the word diff and the
-  change history of a segment."
+  "Transcript correction controls for the recording page: the Show changes
+  toggle and its legend, the inline text editor, the speaker dialog, the
+  word diff and the change history of a segment."
   (:require
    [clojure.string :as str]
    [samuraibff.ui.api :as api]
@@ -11,20 +11,23 @@
    [samuraibff.ui.util :as util]
    ["react" :as react]))
 
-(defn view-toggle
-  "Render the Corrected / Changes / Original switch.
+(defn- changed-label
+  [changed-count]
+  (str changed-count (if (= 1 changed-count) " segment changed" " segments changed")))
 
-  Inputs: {:keys [mode on-change changed-count]}; mode is a keyword from
-  `ui.corrections/modes`, on-change receives the new mode and changed-count
-  is the number of segments that differ from the machine transcript."
-  [{:keys [mode on-change changed-count]}]
-  [:div {:class "correction-toggle" :role "group" :aria-label "Transcript version"}
-   (for [[id label] ui.corrections/modes]
-     [:button {:key (name id) :type "button" :class (str "btn ghost" (when (= id mode) " active"))
-               :aria-pressed (= id mode) :on-click #(on-change id)}
-      label])
-   [:span {:class "muted"}
-    (str changed-count (if (= 1 changed-count) " segment changed" " segments changed"))]])
+(defn changes-toggle
+  "Render the Show changes icon button, styled like the other toolbar icon
+  buttons. It stays pressed while the changes are shown.
+
+  Inputs: {:keys [on? changed-count on-change]}; on-change receives the new
+  state and changed-count is the number of segments that differ from the
+  machine transcript."
+  [{:keys [on? changed-count on-change]}]
+  [:button {:class (str "btn ghost icon-only" (when on? " active")) :type "button"
+            :aria-label "Show changes" :aria-pressed on?
+            :title (str (if on? "Hide changes" "Show changes") " · " (changed-label changed-count))
+            :on-click #(on-change (not on?))}
+   (icons/icon :diff)])
 
 (defn- run-node
   [[op text]]
@@ -41,10 +44,12 @@
         (interpose " " (map run-node diff))))
 
 (defn changes-legend
-  "Explain the highlighting of the Changes view."
-  []
+  "Explain the highlighting of the Show changes view.
+
+  Inputs: {:keys [changed-count]}."
+  [{:keys [changed-count]}]
   [:p {:class "correction-legend muted"}
-   "Compared with the machine transcript: "
+   (str (changed-label changed-count) ", compared with the machine transcript: ")
    [:span {:class "correction-diff"}
     [:ins {:class "diff-ins"} "new"] " corrected words · "
     [:del {:class "diff-del"} "old"] " machine words · "]
