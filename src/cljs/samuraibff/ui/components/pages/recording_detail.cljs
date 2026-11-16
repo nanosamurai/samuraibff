@@ -673,7 +673,7 @@
                 [retranscribe/retranscribe-control {:key session-id :session-id session-id
                                                     :session session :shown-title title}])
               (when corrected?
-                [corrections/view-toggle {:mode mode :active-count (ui.corrections/active-count source)
+                [corrections/view-toggle {:mode mode :changed-count (ui.corrections/changed-count source)
                                           :on-change #(do (set-editing! nil) (set-view-mode! %))}])]))
          (when (and correction-error (nil? speaker-msg))
            [:p {:role "alert" :class "badge bad"} correction-error])

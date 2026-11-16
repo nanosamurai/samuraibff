@@ -21,7 +21,7 @@
   (let [source (ui.corrections/final-source rows)]
     (is (= {:transcript-id "t1" :head-seq 3 :lang "en"} (select-keys source [:transcript-id :head-seq :lang])))
     (is (ui.corrections/correctable? source))
-    (is (= 3 (ui.corrections/active-count source)))
+    (is (= 3 (ui.corrections/changed-count source)))
     (is (nil? (ui.corrections/final-source [])))
     (is (= 0 (:head-seq (ui.corrections/final-source [{:id "x" :segments []}]))))))
 
@@ -39,6 +39,16 @@
         (is (= [[:same "Hello"] [:del "tear"] [:ins "tier"]] (:diff (first msgs))))
         (is (= "Anna" (:speaker_was (second msgs))))
         (is (= [[:del "noise"]] (:diff (nth msgs 2))))))
+    (testing "an edit back to the machine text is history, not a change"
+      (let [restored (-> source
+                         (update :items conj {:id "d" :seq 4 :kind "segment_text" :segment_index 0
+                                              :old_value {:text "Hello tier"} :new_value {:text "Hello tear"}}))
+            change (:change (first (ui.corrections/view-messages restored :changes)))]
+        (is (= 2 (ui.corrections/changed-count restored)))
+        (is (not (ui.corrections/text-changed? change)))
+        (is (= ["d" "a"] (mapv :id (:history change))))
+        (is (nil? (:diff (first (ui.corrections/view-messages restored :changes)))))
+        (is (not (:edited (first (ui.corrections/view-messages restored :corrected)))))))
     (testing "original view"
       (is (= ["Hello tear" "Hi" "noise"] (mapv :text (ui.corrections/view-messages source :original))))
       (is (not-any? :edited (ui.corrections/view-messages source :original))))))

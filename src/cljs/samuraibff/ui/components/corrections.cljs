@@ -14,16 +14,18 @@
 (defn view-toggle
   "Render the Corrected / Changes / Original switch.
 
-  Inputs: {:keys [mode on-change active-count]}; mode is a keyword from
-  `ui.corrections/modes`, on-change receives the new mode."
-  [{:keys [mode on-change active-count]}]
+  Inputs: {:keys [mode on-change changed-count]}; mode is a keyword from
+  `ui.corrections/modes`, on-change receives the new mode and changed-count
+  is the number of segments that differ from the machine transcript."
+  [{:keys [mode on-change changed-count]}]
+
   [:div {:class "correction-toggle" :role "group" :aria-label "Transcript version"}
    (for [[id label] ui.corrections/modes]
      [:button {:key (name id) :type "button" :class (str "btn ghost" (when (= id mode) " active"))
                :aria-pressed (= id mode) :on-click #(on-change id)}
       label])
    [:span {:class "muted"}
-    (str active-count (if (= 1 active-count) " correction" " corrections"))]])
+    (str changed-count (if (= 1 changed-count) " segment changed" " segments changed"))]])
 
 (defn diff-text
   "Render word runs from `corrections/word-diff`: removed words as <del>,

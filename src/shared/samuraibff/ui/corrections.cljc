@@ -35,10 +35,30 @@
   [source]
   (boolean (seq (:segments source))))
 
-(defn active-count
-  "Return how many corrections of the source are in effect."
+(defn text-changed?
+  "True when a segment change from `corrections/segment-changes` leaves text
+  that differs from the machine text. An edit that restores the machine text
+  is still in the history, but the segment no longer counts as changed."
+  [{:keys [original corrected text-edit]}]
+  (boolean (and text-edit (not= (:text original) (:text corrected)))))
+
+(defn speaker-changed?
+  "True when a segment change leaves a speaker (or linked enrolled speaker)
+  that differs from the machine one."
+  [{:keys [original corrected speaker-edit]}]
+  (boolean (and speaker-edit
+                (or (not= (:speaker original) (:speaker corrected))
+                    (not= (:speaker_id original) (:speaker_id corrected))))))
+
+(defn changed?
+  "True when a segment change differs from the machine segment."
+  [change]
+  (or (text-changed? change) (speaker-changed? change)))
+
+(defn changed-count
+  "Return how many segments of the source differ from the machine transcript."
   [source]
-  (count (corrections/active-corrections (:items source))))
+  (count (filter changed? (corrections/segment-changes (:segments source) (:items source)))))
 
 (defn view-messages
   "Build display messages of the source for a view mode.
@@ -47,16 +67,18 @@
   Returns a vector of messages {:kind \"final\" :seq segment-index :lang ...
   segment keys ... :change change}, where :change comes from
   `corrections/segment-changes`.
-  - :corrected shows corrected segments, marks edited ones with :edited and
-    leaves out segments whose text was cleared.
+  - :corrected shows corrected segments, marks segments that differ from the
+    machine segment with :edited and leaves out segments whose text was
+    cleared.
   - :changes shows corrected segments with :diff (word runs from
-    `corrections/word-diff`) for text edits and :speaker_was (the machine
-    speaker's display name) for speaker edits.
+    `corrections/word-diff`, machine text against corrected text) when the
+    text differs and :speaker_was (the machine speaker's display name) when
+    the speaker differs.
   - :original shows the machine segments."
   [{:keys [segments items lang]} mode]
   (into []
-        (keep (fn [{:keys [index original corrected text-edit speaker-edit] :as change}]
-                (let [edited? (boolean (or text-edit speaker-edit))
+        (keep (fn [{:keys [index original corrected text-edit] :as change}]
+                (let [edited? (changed? change)
                       base {:kind "final" :seq index :lang lang :change change}]
                   (case mode
                     :original (merge base original)
@@ -65,8 +87,9 @@
                                    edited? (assoc :edited true)))
                     :changes (cond-> (merge base corrected)
                                edited? (assoc :edited true)
-                               text-edit (assoc :diff (corrections/word-diff (:text original) (:text corrected)))
-                               (and speaker-edit (not= (:speaker original) (:speaker corrected)))
+                               (text-changed? change)
+                               (assoc :diff (corrections/word-diff (:text original) (:text corrected)))
+                               (and (speaker-changed? change) (not= (:speaker original) (:speaker corrected)))
                                (assoc :speaker_was (transcript/speaker->display-name (:speaker original))))))))
         (corrections/segment-changes segments items)))
 
