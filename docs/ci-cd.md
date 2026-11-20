@@ -70,22 +70,44 @@ by the deployment repository.
 
 The runtime uses a digest-pinned Temurin Java 21 image on Ubuntu 24.04 LTS.
 While the corresponding container release is pending, the Dockerfile replaces
-its JRE with the official Temurin 21.0.13+9 archive and verifies the architecture's
-pinned SHA-256 before extraction. Preserve the base's CA certificates, native
+both the builder JDK and runtime JRE with official Temurin archives and verifies
+the architecture's pinned SHA-256 before extraction. Linux x64 uses
+**21.0.13.1+2**, which fixes the accelerated Base64 decoder. Linux ARM64 retains
+**21.0.13+9** until its glibc rebuild is published; the affected intrinsic is
+x86-only. Architecture-specific stages keep `JAVA_VERSION` metadata consistent
+with the installed archive. Unsupported architectures fail the build.
+Preserve the base's CA certificates, native
 libraries, timezones and UID 10001 when updating it. Verify `java --version` in
 the final image; the base tag and an OS package scan do not establish the JRE
-patch level. The Ubuntu LTS variant does not include Pebble.
+patch level. The Ubuntu LTS variant does not include Pebble. Clojure stays at
+the existing version in `deps.edn`; this runtime patch does not require a
+language or application dependency migration. The Linux unit, integration and UI
+jobs select Temurin directly with `actions/setup-java@v4` and the exact
+`java-version: '21.0.13+100000002.0.LTS'`. This is Adoptium's SemVer representation
+of 21.0.13.1+2-LTS; setup-java includes the build metadata when matching this exact
+version against its cache or vendor release list. Each job also verifies that
+`java --version` reports `21.0.13.1+2`. CI uses setup-java's normal vendor selection;
+the Docker builder and runtime retain their separate SHA-256 archive verification.
+
+The runtime also retains `-XX:-UseBASE64Intrinsics` alongside its existing memory
+option during rollout. A deployment that overrides `JAVA_TOOL_OPTIONS`, such as
+one adding a Java agent, must preserve both options. Verify the effective setting
+in the running application if relying on it; starting a separate Java process
+does not report the application's flags. See the
+[vendor advisory](https://access.redhat.com/security/vulnerabilities/RHSB-2026-018)
+and [Temurin release](https://github.com/adoptium/temurin21-binaries/releases/tag/jdk-21.0.13.1%2B2).
 
 The bundled default Java truststore follows Oracle's
 [eMudhra root-removal guidance](https://ops.java/emudhra). The build verifies
-the remaining emSign Root CA G1 fingerprint before deleting that exact alias,
+the emSign Root CA G1 fingerprint before deleting that exact alias if present,
 then checks that all four roots named by the guidance are absent. TLS peers
 chaining only to these removed roots will be rejected. Application-provided
 truststores, including `javax.net.ssl.trustStore` overrides, need separate review.
 
 The builder stage is pinned to `clojure:temurin-21-tools-deps-<tools version>-noble`
 by its multi-arch index digest, because its JDK downloads dependencies over TLS.
-The pinned image carries Temurin 21.0.13+9, and the build fails if its default
+Its bundled JDK is replaced before Java resolves dependencies or compiles code.
+The build fails if the replacement JDK's default
 truststore still contains emSign ECC Root CA - G3, emSign Root CA - G2 or AAA
 Certificate Services. To bump it, pick a current `-noble` tag and keep tag and
 digest together in the `FROM` line:
@@ -96,8 +118,11 @@ docker run --rm clojure:temurin-21-tools-deps-<version>-noble@sha256:<index dige
   sh -c 'java -version; keytool -list -v -cacerts -storepass changeit | grep -E "Owner: CN=(emSign|AAA)"'
 ```
 
-Use the index `Digest`, not a per-platform manifest digest. Confirm the JDK is
-at least 21.0.13 before updating, then build the image.
+Use the index `Digest`, not a per-platform manifest digest. Verify the full
+vendor/build for each supported architecture, then build the image. When removing
+the archive replacement later, first verify that the pinned base itself supplies
+the required fixed runtime; changing the base while retaining old archive pins
+would reinstall an old JDK or JRE.
 
 Jackson 2.x modules in `deps.edn` follow one BOM version; annotations use the
 BOM's minor-only version. Keep the gRPC runtime and Buf gRPC generator aligned.
