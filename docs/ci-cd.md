@@ -81,10 +81,13 @@ libraries, timezones and UID 10001 when updating it. Verify `java --version` in
 the final image; the base tag and an OS package scan do not establish the JRE
 patch level. The Ubuntu LTS variant does not include Pebble. Clojure stays at
 the existing version in `deps.edn`; this runtime patch does not require a
-language or application dependency migration. The Linux CI jobs install the same
-checksum-verified JDK through `.github/actions/setup-java21`, so the unit,
-integration and UI checks use the patched JVM without depending on vendor API
-indexing of a new release.
+language or application dependency migration. The Linux unit, integration and UI
+jobs select Temurin directly with `actions/setup-java@v4` and the exact
+`java-version: '21.0.13+100000002.0.LTS'`. This is Adoptium's SemVer representation
+of 21.0.13.1+2-LTS; setup-java includes the build metadata when matching this exact
+version against its cache or vendor release list. Each job also verifies that
+`java --version` reports `21.0.13.1+2`. CI uses setup-java's normal vendor selection;
+the Docker builder and runtime retain their separate SHA-256 archive verification.
 
 The runtime also retains `-XX:-UseBASE64Intrinsics` alongside its existing memory
 option during rollout. A deployment that overrides `JAVA_TOOL_OPTIONS`, such as
